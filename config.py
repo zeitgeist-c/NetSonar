@@ -13,7 +13,7 @@ OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 OPENROUTER_MODEL    = "meta-llama/llama-3.3-70b-instruct:free"
 
 # ─── Google Gemini ───────────────────────────────────────────────────
-GEMINI_API_KEY = "AIzaSyC268FZ-sfR0FIRaQ8LJlNFwtgwQDzH0r8"
+GEMINI_API_KEY = "AIzaSyDYoVxEDt5Km4At5WjpIKFeA7uawj7uOGw"
 GEMINI_MODEL   = "gemini-2.0-flash-lite"          # Hızlı ve ücretsiz katman mevcut
 
 # ─── Tehdit İstihbaratı (VirusTotal) ────────────────────────────────
