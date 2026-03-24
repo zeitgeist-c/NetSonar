@@ -309,7 +309,6 @@ def _analyze_gemini(user_msg: str) -> dict:
 # ─────────────────────────────────────────────────────────────
 PROVIDERS = {
     "openrouter": _analyze_openrouter,
-    "ollama":     _analyze_ollama,
     "gemini":     _analyze_gemini,
 }
 
@@ -366,20 +365,6 @@ class AIAnalyzer:
         elif provider == "gemini":
             if not cfg.GEMINI_API_KEY:
                 issues.append("Gemini API key bos")
-
-        elif provider == "ollama":
-            try:
-                url = cfg.OLLAMA_BASE_URL.rstrip("/")
-                if not url.endswith("/v1"):
-                    url += "/v1"
-                r = requests.get(f"{url}/models", timeout=3)
-                if r.status_code != 200:
-                    issues.append(f"Ollama cevap verdi ama hata (HTTP {r.status_code})")
-            except Exception:
-                issues.append(
-                    f"Ollama'ya ulasilamiyor ({cfg.OLLAMA_BASE_URL}). "
-                    "'ollama serve' calistir."
-                )
 
         return issues
 
