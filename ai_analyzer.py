@@ -198,57 +198,14 @@ def _analyze_openrouter(user_msg: str) -> dict:
     )
 
 
-
-# ─────────────────────────────────────────────────────────────
-#  O L L A M A  (requests ile — yerel)
-# ─────────────────────────────────────────────────────────────
-def _analyze_ollama(user_msg: str) -> dict:
-    cfg = _cfg()
-    url = cfg.OLLAMA_BASE_URL.rstrip("/")
-
-    # Ollama /v1 prefix kontrolu
-    if url.endswith("/v1"):
-        endpoint = f"{url}/chat/completions"
-    else:
-        endpoint = f"{url}/v1/chat/completions"
-
-    payload = {
-        "model":       cfg.OLLAMA_MODEL,
-        "messages":    [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user",   "content": user_msg},
-        ],
-        "max_tokens":  1500,
-        "temperature": 0.1,
-    }
-
-    log.info("[Ollama] model=%s url=%s", cfg.OLLAMA_MODEL, endpoint)
-
-    try:
-        resp = requests.post(endpoint, json=payload, timeout=300)
-    except requests.ConnectionError:
-        raise ValueError(
-            f"Ollama'ya baglanamiyorum ({cfg.OLLAMA_BASE_URL}).\n\n"
-            "Cozum:\n"
-            "1. Ollama'nin calistigindan emin ol: 'ollama serve'\n"
-            "2. Modeli indir: 'ollama pull mistral'\n"
-            "3. URL'yi kontrol et (varsayilan: http://localhost:11434/v1)"
-        )
-    except requests.Timeout:
-        raise ValueError("Ollama cok yavas cevap verdi (timeout 5dk). Model cok buyuk olabilir.")
-
-    if resp.status_code != 200:
-        raise ValueError(f"Ollama hatasi (HTTP {resp.status_code}):\n{resp.text[:300]}")
-
-    data = resp.json()
-    raw  = data.get("choices", [{}])[0].get("message", {}).get("content", "")
-    log.info("[Ollama] cevap uzunlugu=%d", len(raw))
-    return _extract_json(raw)
-
-
 # ─────────────────────────────────────────────────────────────
 #  G E M I N I  (requests ile — google API)
 # ─────────────────────────────────────────────────────────────
+# Gemini kota asimi icin ozel hata — analyze() fallback icin kullanir
+class GeminiQuotaError(Exception):
+    pass
+
+
 def _analyze_gemini(user_msg: str) -> dict:
     cfg = _cfg()
     if not cfg.GEMINI_API_KEY:
@@ -268,11 +225,14 @@ def _analyze_gemini(user_msg: str) -> dict:
             {"role": "user", "parts": [{"text": user_msg}]}
         ],
         "generationConfig": {
-            "temperature":     0.1,
-            "maxOutputTokens": 1500,
-            "responseMimeType": "application/json",
+            "temperature":     0.2,
+            "maxOutputTokens": 2048,
+            # NOT: responseMimeType kaldirildi — bazi Gemini serbest modellerde
+            # JSON modu desteklenmez ve 429/400 hatasina yol acar.
+            # JSON ciktisi system prompt ile talep ediliyor, _extract_json ile parse ediliyor.
         },
     }
+
 
     log.info("[Gemini] model=%s istek gonderiliyor...", model)
 
@@ -287,8 +247,14 @@ def _analyze_gemini(user_msg: str) -> dict:
 
     if resp.status_code != 200:
         body = resp.text[:400]
-        if resp.status_code == 400:
-            raise ValueError(f"Gemini istek hatasi:\n{body}")
+        if resp.status_code in (429, 503):
+            # Kota doldu veya servis dolu — fallback tetikle
+            raise GeminiQuotaError(
+                f"Gemini kota/rate-limit (HTTP {resp.status_code}). "
+                "OpenRouter'a geciliyor..."
+            )
+        elif resp.status_code == 400:
+            raise ValueError(f"Gemini istek hatasi (API key veya model hatali?):\n{body}")
         elif resp.status_code == 403:
             raise ValueError(f"Gemini API key gecersiz veya yetkisiz:\n{body}")
         else:
@@ -407,13 +373,55 @@ class AIAnalyzer:
                 "summary": "Yapilandirma sorunlari:\n" + "\n".join(f"- {i}" for i in issues),
             }
 
-        # Analiz
+        # Analiz (GeminiQuotaError durumunda OpenRouter'a fallback)
         try:
             fn     = PROVIDERS[provider]
             result = fn(user_msg)
+        except GeminiQuotaError as quota_exc:
+            # Gemini kota doldu — OpenRouter ile dene
+            log.warning("[AIAnalyzer] %s — OpenRouter fallback deneniyor", quota_exc)
+            if "openrouter" in PROVIDERS and provider != "openrouter":
+                try:
+                    result = PROVIDERS["openrouter"](user_msg)
+                    provider = "openrouter (gemini-fallback)"
+                    log.info("[AIAnalyzer] OpenRouter fallback BASARILI")
+                except Exception as fb_exc:
+                    log.error("[AIAnalyzer] fallback da basarisiz: %s", fb_exc)
+                    try:
+                        from notifier import notify_analysis_failed
+                        notify_analysis_failed(str(quota_exc), "gemini+openrouter")
+                    except Exception:
+                        pass
+                    return {
+                        "risk_score": -1,
+                        "status":     "KOTA ASIMI",
+                        "suspicious_connections": [],
+                        "summary": (
+                            f"Gemini kotasi doldu: {quota_exc}\n"
+                            f"OpenRouter fallback da basarisiz: {fb_exc}\n\n"
+                            "Cozum: Gemini icin yeni API key al veya OpenRouter API key'ini kontrol et."
+                        ),
+                    }
+            else:
+                try:
+                    from notifier import notify_analysis_failed
+                    notify_analysis_failed(str(quota_exc), provider)
+                except Exception:
+                    pass
+                return {
+                    "risk_score": -1,
+                    "status":     "KOTA ASIMI",
+                    "suspicious_connections": [],
+                    "summary": (
+                        "Gemini kotasi doldu (HTTP 429/503).\n\n"
+                        "Cozum secenekleri:\n"
+                        "1. Gemini ucretsiz kota saatte resetlenir — kisa sure sonra tekrar dene\n"
+                        "2. Ayarlar'dan OpenRouter'a gec (ucretsiz modeller mevcut)\n"
+                        "3. aistudio.google.com adresinden kota limitini kontrol et"
+                    ),
+                }
         except Exception as exc:
             log.error("[AIAnalyzer] hata: %s", exc)
-            # Basarisiz → bildirim gonder
             try:
                 from notifier import notify_analysis_failed
                 notify_analysis_failed(str(exc), provider)
@@ -425,6 +433,7 @@ class AIAnalyzer:
                 "suspicious_connections": [],
                 "summary": str(exc),
             }
+
 
         # Alan varsayilanlari
         result.setdefault("risk_score", 0.0)
