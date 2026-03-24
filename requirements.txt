@@ -1,0 +1,24 @@
+# AgTara — Python Bağımlılıkları
+# Kurulum: pip install -r requirements.txt
+
+# ── GUI ──────────────────────────────────────────────────────────────
+PyQt6>=6.6.0           # Modern cross-platform GUI (Windows native)
+
+# ── Ağ Yakalama ──────────────────────────────────────────────────────
+scapy>=2.5.0           # Paket yakalama (Npcap gerektirir)
+psutil>=5.9.0          # Süreç/port eşleme
+
+# ── AI Sağlayıcılar ──────────────────────────────────────────────────
+openai>=1.30.0         # OpenRouter ve Ollama için (OpenAI uyumlu client)
+google-generativeai>=0.7.0  # Gemini için
+
+# ── Zamanlayıcı ──────────────────────────────────────────────────────
+APScheduler>=3.10.0
+pytz>=2024.1           # Zamanlayıcı timezone desteği
+
+# ── HTTP (VirusTotal) ─────────────────────────────────────────────────
+requests>=2.31.0
+
+# ── Windows Bildirimleri ─────────────────────────────────────────────
+winotify>=1.1.0        # Önerilen: native Windows 10/11 toast
+plyer>=2.1.0           # Yedek bildirim kütüphanesi
