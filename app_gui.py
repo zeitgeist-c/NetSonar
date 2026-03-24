@@ -14,7 +14,7 @@ from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QTableWidget, QTableWidgetItem, QHeaderView, QPushButton, QLabel,
     QTabWidget, QLineEdit, QComboBox, QSpinBox, QFrame, QSizePolicy,
-    QTextEdit, QSystemTrayIcon, QMenu, QMessageBox, QFormLayout,
+    QTextEdit, QTextBrowser, QSystemTrayIcon, QMenu, QMessageBox, QFormLayout,
     QGroupBox, QRadioButton, QButtonGroup, QScrollArea, QSplitter,
     QProgressBar,
 )
@@ -212,6 +212,52 @@ class VTWorker(QThread):
         from threat_intel import check_ip
         res = check_ip(self.ip)
         self.result.emit(self.ip, res)
+
+
+class ModelFetchWorker(QThread):
+    """OpenRouter'dan ucretsiz model listesini asenkron ceker."""
+    fetched = pyqtSignal(list)   # list[str]
+    error   = pyqtSignal(str)
+
+    def run(self):
+        try:
+            import requests, importlib, config
+            importlib.reload(config)
+            r = requests.get(
+                f"{config.OPENROUTER_BASE_URL}/models",
+                headers={"Authorization": f"Bearer {config.OPENROUTER_API_KEY}"},
+                timeout=8,
+            )
+            models = r.json().get("data", [])
+            free = sorted([
+                m["id"] for m in models
+                if float((m.get("pricing") or {}).get("prompt", "1") or "1") == 0
+            ])
+            self.fetched.emit(free or ["Ucretsiz model bulunamadi"])
+        except Exception as exc:
+            self.error.emit(str(exc))
+
+
+class OllamaModelFetchWorker(QThread):
+    """Yerel Ollama'dan yuklu model listesini ceker."""
+    fetched = pyqtSignal(list)
+    error   = pyqtSignal(str)
+
+    def __init__(self, base_url: str):
+        super().__init__()
+        self.base_url = base_url
+
+    def run(self):
+        try:
+            import requests
+            url = self.base_url.rstrip("/")
+            # Ollama API endpoint
+            tags_url = url.replace("/v1", "").rstrip("/") + "/api/tags"
+            r = requests.get(tags_url, timeout=5)
+            models = [m["name"] for m in r.json().get("models", [])]
+            self.fetched.emit(models or ["Model bulunamadi"])
+        except Exception as exc:
+            self.error.emit(str(exc))
 
 # ─── Byte Formatör ────────────────────────────────────────
 def _fmt(b: int) -> str:
@@ -580,13 +626,19 @@ class AnalysisTab(QWidget):
         self.susp_table.setFixedHeight(180)
         layout.addWidget(self.susp_table)
 
-        # AI yorumu
-        layout.addWidget(QLabel("AI Yorumu"))
-        self.summary_box = QTextEdit()
-        self.summary_box.setReadOnly(True)
-        self.summary_box.setPlaceholderText("Analiz çalıştırıldıktan sonra burada yorum görünecek...")
-        self.summary_box.setFixedHeight(100)
-        layout.addWidget(self.summary_box)
+        # AI Raporu (HTML formatli)
+        layout.addWidget(QLabel("AI Analiz Raporu"))
+        self.report_browser = QTextBrowser()
+        self.report_browser.setReadOnly(True)
+        self.report_browser.setPlaceholderText("Analiz calistirildiktan sonra rapor burada goruntulenir...")
+        self.report_browser.setMinimumHeight(200)
+        self.report_browser.setOpenExternalLinks(False)
+        self.report_browser.setStyleSheet(
+            f"background:{C['surface2']};color:{C['text']};"
+            f"border:1px solid {C['border']};border-radius:6px;"
+            f"font-family:'Segoe UI',sans-serif;font-size:13px;"
+        )
+        layout.addWidget(self.report_browser)
 
         # Geçmiş Raporlar
         hist_label = QLabel("Rapor Geçmişi")
@@ -632,32 +684,122 @@ class AnalysisTab(QWidget):
     def _display_report(self, r: dict):
         score  = r.get("risk_score", 0)
         status = r.get("status", "")
+        import importlib, config
+        importlib.reload(config)
+        provider = config.AI_PROVIDER.upper()
 
-        # ── Renk ve skor gösterimi → score<0 = hata durumu ──
+        # Renk ve skor
         if isinstance(score, (int, float)) and score >= 0:
             color = C["success"] if score < 4 else C["warning"] if score < 7 else C["danger"]
-            self.risk_score_lbl.setText(f"{score:.1f}")
-            self.risk_score_lbl.setStyleSheet(
-                f"font-size:40px;font-weight:700;color:{color};border:none;"
-            )
+            score_txt = f"{score:.1f}"
+            self.risk_score_lbl.setText(score_txt)
         else:
-            # API hatası veya geçersiz skor — kırmızı göster
             color = C["danger"]
-            self.risk_score_lbl.setText("✕")
-            self.risk_score_lbl.setStyleSheet(
-                f"font-size:40px;font-weight:700;color:{color};border:none;"
-            )
+            score_txt = "✕"
+            self.risk_score_lbl.setText(score_txt)
 
+        self.risk_score_lbl.setStyleSheet(
+            f"font-size:40px;font-weight:700;color:{color};border:none;"
+        )
         self.risk_status_lbl.setStyleSheet(
             f"font-size:16px;font-weight:600;color:{color};border:none;"
         )
         self.risk_status_lbl.setText(status or "Bilinmiyor")
         self.risk_time_lbl.setText(f"Son analiz: {datetime.now().strftime('%d.%m.%Y %H:%M')}")
-        from config import AI_PROVIDER
-        self.provider_lbl.setText(f"🤖 {AI_PROVIDER.upper()}")
-        self.summary_box.setPlainText(r.get("summary", ""))
+        self.provider_lbl.setText(f"🤖 {provider}")
 
-        conns = r.get("suspicious_connections", []) or []
+        # ── HTML Rapor ──────────────────────────────────────────
+        conns   = r.get("suspicious_connections", []) or []
+        summary = r.get("summary", "")
+
+        badge_bg = (
+            "#052e16" if score < 4
+            else "#451a03" if score < 7
+            else "#450a0a"
+        )
+
+        rows_html = ""
+        for i, conn in enumerate(conns, 1):
+            if not isinstance(conn, dict):
+                continue
+            ip      = conn.get("ip", "")
+            port    = conn.get("port", "")
+            proc    = conn.get("process", "")
+            reason  = conn.get("reason", "")
+            action  = conn.get("action", "")
+            vt_m    = conn.get("vt_malicious", None)
+            vt_s    = conn.get("vt_suspicious", None)
+            country = conn.get("vt_country", "")
+            is_thr  = conn.get("vt_is_threat", False)
+
+            vt_html = ""
+            if vt_m is not None:
+                vt_color = C["danger"] if is_thr else C["success"]
+                vt_label = f"🛡️ VT: {vt_m} zararli" if is_thr else f"✅ VT: Temiz"
+                if country:
+                    vt_label += f" &nbsp;|&nbsp; 🌍 {country}"
+                vt_html = f'<span style="color:{vt_color};font-size:11px;">{vt_label}</span>'
+
+            rows_html += f"""
+            <tr>
+              <td style="color:{C['warning']};font-weight:700;padding:6px 4px;">{i}.</td>
+              <td style="padding:6px 8px;">
+                <b style="color:{C['text']}">{ip}:{port}</b>
+                &nbsp;<span style="color:{C['muted']};font-size:11px;">{proc}</span><br>
+                <span style="color:{C['text']}">{reason}</span><br>
+                <span style="color:{C['accent']};font-size:11px;">➡️ {action}</span><br>
+                {vt_html}
+              </td>
+            </tr>
+            <tr><td colspan="2" style="border-top:1px solid {C['border']};padding:0;"></td></tr>
+            """
+
+        conns_section = ""
+        if conns:
+            conns_section = f"""
+            <h3 style="color:{C['warning']};margin:16px 0 8px;">&#9888; Supheeli Baglantilar ({len(conns)} adet)</h3>
+            <table width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;">
+              {rows_html}
+            </table>
+            """
+        else:
+            conns_section = (
+                f'<p style="color:{C["success"]};margin:14px 0;">&nbsp;&#10003; Supheeli baglanti tespit edilmedi.</p>'
+            )
+
+        # summary paragraf satirlari
+        summary_lines = "".join(
+            f'<p style="margin:4px 0;line-height:1.6;">{line}</p>'
+            for line in (summary or "İnceleme sonucu mevcut degil.").split("\n")
+            if line.strip()
+        )
+
+        html = f"""
+        <html><body style="background:{C['surface2']};color:{C['text']};
+                           font-family:'Segoe UI',sans-serif;font-size:13px;padding:12px;">
+
+          <div style="background:{badge_bg};border-radius:8px;padding:10px 16px;margin-bottom:14px;">
+            <span style="font-size:22px;font-weight:700;color:{color};">{score_txt}/10</span>
+            &nbsp;&nbsp;
+            <span style="font-size:15px;font-weight:600;color:{color};">{status}</span>
+            &nbsp;&nbsp;
+            <span style="font-size:11px;color:{C['muted']};">&#128340; {datetime.now().strftime('%d.%m.%Y %H:%M')}
+            &nbsp;|&nbsp; 🤖 {provider}</span>
+          </div>
+
+          <h3 style="color:{C['accent']};margin:0 0 6px;">📄 AI Degerlendirmesi</h3>
+          <div style="background:{C['surface']};border-radius:6px;padding:10px 14px;
+                      border-left:3px solid {color};">
+            {summary_lines}
+          </div>
+
+          {conns_section}
+
+        </body></html>
+        """
+        self.report_browser.setHtml(html)
+
+        # Eski supheli tablo da goster (uyumluluk icin)
         self.susp_table.setRowCount(0)
         for conn in conns:
             if not isinstance(conn, dict):
@@ -665,11 +807,14 @@ class AnalysisTab(QWidget):
             row = self.susp_table.rowCount()
             self.susp_table.insertRow(row)
             reason_action = f"{conn.get('reason', '')} → {conn.get('action', '')}"
+            vt_info = ""
+            if conn.get("vt_malicious") is not None:
+                vt_info = f" | VT: {conn['vt_malicious']} zararli"
             for col, val in enumerate([
                 conn.get("ip", ""),
                 str(conn.get("port", "")),
                 conn.get("process", ""),
-                reason_action,
+                reason_action + vt_info,
             ]):
                 item = QTableWidgetItem(val)
                 item.setForeground(QColor(C["warning"]))
@@ -840,53 +985,131 @@ class BlockedTab(QWidget):
 class SettingsTab(QWidget):
     def __init__(self):
         super().__init__()
+        self._fetch_worker  = None
+        self._ollama_worker = None
         self._setup_ui()
 
     def _setup_ui(self):
+        from PyQt6.QtWidgets import QStackedWidget
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 20, 20, 20)
-        layout.setSpacing(16)
+        layout.setSpacing(14)
 
         title = QLabel("Ayarlar")
         title.setObjectName("title")
         layout.addWidget(title)
 
-        # AI Sağlayıcı seçimi
-        ai_group = QGroupBox("AI Sağlayıcısı")
-        ai_form = QFormLayout(ai_group)
+        # ── Provider Secimi ───────────────────────────────────────────
+        prov_group = QGroupBox("AI Sağlayıcı Seçimi")
+        prov_form  = QFormLayout(prov_group)
 
         self.provider_combo = QComboBox()
         self.provider_combo.addItems(["openrouter", "ollama", "gemini"])
-        self.provider_combo.currentTextChanged.connect(self._update_provider_fields)
-        ai_form.addRow("Sağlayıcı:", self.provider_combo)
+        prov_form.addRow("Aktif Sağlayıcı:", self.provider_combo)
+
+        # Sağlayıcı bilgi etiketi
+        self.provider_info = QLabel("")
+        self.provider_info.setStyleSheet(f"color:{C['muted']};font-size:11px;")
+        self.provider_info.setWordWrap(True)
+        prov_form.addRow("", self.provider_info)
+        layout.addWidget(prov_group)
+
+        # ── Sağlayıcıya Özel Stacked Panel ───────────────────────────
+        self.stack = QStackedWidget()
+
+        # ── Panel 0: OpenRouter ───────────────────────
+        or_widget = QWidget()
+        or_form   = QFormLayout(or_widget)
+        or_form.setContentsMargins(0, 0, 0, 0)
 
         self.openrouter_key = QLineEdit()
         self.openrouter_key.setEchoMode(QLineEdit.EchoMode.Password)
         self.openrouter_key.setPlaceholderText("sk-or-...")
-        ai_form.addRow("OpenRouter API Key:", self.openrouter_key)
+        or_form.addRow("API Key:", self.openrouter_key)
 
-        self.openrouter_model = QLineEdit()
-        self.openrouter_model.setPlaceholderText("mistralai/mistral-7b-instruct")
-        ai_form.addRow("OpenRouter Model:", self.openrouter_model)
+        # Model: Dropdown + yenile butonu
+        model_row = QHBoxLayout()
+        self.openrouter_model_combo = QComboBox()
+        self.openrouter_model_combo.setEditable(True)
+        self.openrouter_model_combo.setMinimumWidth(300)
+        model_row.addWidget(self.openrouter_model_combo)
+        fetch_btn = QPushButton("↻ Modelleri Getir")
+        fetch_btn.setObjectName("muted")
+        fetch_btn.setFixedWidth(160)
+        fetch_btn.clicked.connect(self._fetch_or_models)
+        model_row.addWidget(fetch_btn)
+        or_form.addRow("Model:", model_row)
+
+        # Kredi / bakiye bilgisi
+        self.credits_lbl = QLabel("")
+        self.credits_lbl.setStyleSheet(f"color:{C['muted']};font-size:11px;")
+        or_form.addRow("Kredi:", self.credits_lbl)
+
+        self.stack.addWidget(or_widget)
+
+        # ── Panel 1: Ollama ───────────────────────────
+        ol_widget = QWidget()
+        ol_form   = QFormLayout(ol_widget)
+        ol_form.setContentsMargins(0, 0, 0, 0)
 
         self.ollama_url = QLineEdit()
         self.ollama_url.setPlaceholderText("http://localhost:11434/v1")
-        ai_form.addRow("Ollama URL:", self.ollama_url)
+        ol_form.addRow("Ollama URL:", self.ollama_url)
 
-        self.ollama_model = QLineEdit()
-        self.ollama_model.setPlaceholderText("mistral")
-        ai_form.addRow("Ollama Model:", self.ollama_model)
+        ollama_model_row = QHBoxLayout()
+        self.ollama_model_combo = QComboBox()
+        self.ollama_model_combo.setEditable(True)
+        self.ollama_model_combo.setMinimumWidth(250)
+        ollama_model_row.addWidget(self.ollama_model_combo)
+        ol_fetch_btn = QPushButton("↻ Modelleri Getir")
+        ol_fetch_btn.setObjectName("muted")
+        ol_fetch_btn.setFixedWidth(160)
+        ol_fetch_btn.clicked.connect(self._fetch_ollama_models)
+        ollama_model_row.addWidget(ol_fetch_btn)
+        ol_form.addRow("Model:", ollama_model_row)
+
+        self.stack.addWidget(ol_widget)
+
+        # ── Panel 2: Gemini ───────────────────────────
+        gm_widget = QWidget()
+        gm_form   = QFormLayout(gm_widget)
+        gm_form.setContentsMargins(0, 0, 0, 0)
 
         self.gemini_key = QLineEdit()
         self.gemini_key.setEchoMode(QLineEdit.EchoMode.Password)
         self.gemini_key.setPlaceholderText("AIza...")
-        ai_form.addRow("Gemini API Key:", self.gemini_key)
+        gm_form.addRow("API Key:", self.gemini_key)
 
-        layout.addWidget(ai_group)
+        self.gemini_model_combo = QComboBox()
+        self.gemini_model_combo.addItems([
+            "gemini-2.0-flash",
+            "gemini-2.0-flash-lite",
+            "gemini-1.5-flash",
+            "gemini-1.5-flash-8b",
+            "gemini-1.5-pro",
+        ])
+        gm_form.addRow("Model:", self.gemini_model_combo)
 
-        # Zamanlayıcı
+        gm_info = QLabel("Ücretsiz katman: dakikada 15 istek, günde 1500 istek")
+        gm_info.setStyleSheet(f"color:{C['muted']};font-size:11px;")
+        gm_form.addRow("", gm_info)
+        gm_link = QLabel('<a href="https://aistudio.google.com/apikey" style="color:#4f8ef7;">API Key Al →</a>')
+        gm_link.setOpenExternalLinks(True)
+        gm_form.addRow("", gm_link)
+
+        self.stack.addWidget(gm_widget)
+
+        provider_box = QGroupBox("Sağlayıcı Ayarları")
+        stack_layout  = QVBoxLayout(provider_box)
+        stack_layout.addWidget(self.stack)
+        layout.addWidget(provider_box)
+
+        # Provider değişince paneli güncelle
+        self.provider_combo.currentTextChanged.connect(self._on_provider_changed)
+
+        # ── Zamanlayıcı ───────────────────────────────────────────────
         sched_group = QGroupBox("Analiz Zamanlayıcısı")
-        sched_form = QFormLayout(sched_group)
+        sched_form  = QFormLayout(sched_group)
         self.interval_spin = QSpinBox()
         self.interval_spin.setRange(5, 1440)
         self.interval_spin.setValue(60)
@@ -894,21 +1117,20 @@ class SettingsTab(QWidget):
         sched_form.addRow("Analiz Aralığı:", self.interval_spin)
         layout.addWidget(sched_group)
 
-        # Kaydet + Test butonları
+        # ── Butonlar ─────────────────────────────────────────────────
         btn_row = QHBoxLayout()
         save_btn = QPushButton("💾  Ayarları Kaydet")
         save_btn.clicked.connect(self._save)
         save_btn.setFixedHeight(40)
         btn_row.addWidget(save_btn)
 
-        test_btn = QPushButton("🔌  API Bağlantısını Test Et")
+        test_btn = QPushButton("🔌  Bağlantıyı Test Et")
         test_btn.setObjectName("muted")
         test_btn.clicked.connect(self._test_api)
         test_btn.setFixedHeight(40)
         btn_row.addWidget(test_btn)
         layout.addLayout(btn_row)
 
-        # Test sonuç etiketi
         self.test_result_lbl = QLabel("")
         self.test_result_lbl.setWordWrap(True)
         self.test_result_lbl.setStyleSheet(f"color:{C['muted']};font-size:12px;")
@@ -916,78 +1138,192 @@ class SettingsTab(QWidget):
 
         layout.addStretch()
         self._load_current_settings()
+        # Provider'ı set ettikten sonra panel güncelle
+        self._on_provider_changed(self.provider_combo.currentText())
 
+    # ──────────────────────────────────────────────────────────────────
+    def _on_provider_changed(self, provider: str):
+        """Provider değişince ilgili paneli aç ve bilgi metnini güncelle."""
+        idx_map  = {"openrouter": 0, "ollama": 1, "gemini": 2}
+        info_map = {
+            "openrouter": "☁️  Bulut AI — OpenRouter.ai aracılığıyla 200+ model. Aktif ücretsiz modeller için 'Modelleri Getir' butonuna bas.",
+            "ollama":     "🏠 Yerel AI — İnternet gerekmez, gizlilik maksimum. Ollama'nın çalışması gerekir: 'ollama serve'",
+            "gemini":     "☁️  Google Gemini — Ücretsiz katman mevcut. aistudio.google.com/apikey adresinden anahtar al.",
+        }
+        self.stack.setCurrentIndex(idx_map.get(provider, 0))
+        self.provider_info.setText(info_map.get(provider, ""))
+
+    def _fetch_or_models(self):
+        """OpenRouter ücretsiz model listesini arka planda çek."""
+        self.credits_lbl.setText("Modeller getiriliyor...")
+        key = self.openrouter_key.text().strip()
+        if not key:
+            self.credits_lbl.setText("⚠️ Önce API key gir.")
+            return
+
+        # Geçici olarak key'i config'e yaz
+        import config as cfg
+        cfg.OPENROUTER_API_KEY = key
+
+        self._fetch_worker = ModelFetchWorker()
+        self._fetch_worker.fetched.connect(self._on_or_models_fetched)
+        self._fetch_worker.error.connect(lambda e: self.credits_lbl.setText(f"❌ {e[:60]}"))
+        self._fetch_worker.start()
+
+        # Kredi bilgisini de çek
+        self._fetch_credits(key)
+
+    def _fetch_credits(self, key: str):
+        """OpenRouter kredi bilgisini çek."""
+        import threading, requests
+        def _do():
+            try:
+                import config as cfg
+                r = requests.get(
+                    f"{cfg.OPENROUTER_BASE_URL}/auth/key",
+                    headers={"Authorization": f"Bearer {key}"},
+                    timeout=6,
+                )
+                if r.status_code == 200:
+                    data  = r.json().get("data", {})
+                    limit = data.get("limit")
+                    usage = data.get("usage")
+                    label = data.get("label", "")
+                    if limit is not None and usage is not None:
+                        remaining = limit - usage
+                        self.credits_lbl.setText(
+                            f"💳 Kullanılan: ${usage:.4f} / ${limit:.2f}  |  Kalan: ${remaining:.4f}"
+                            + (f"  |  🏷️ {label}" if label else "")
+                        )
+                    else:
+                        self.credits_lbl.setText("💳 Kredi bilgisi alındı (limit yok / sınırsız)")
+            except Exception as e:
+                self.credits_lbl.setText(f"Kredi bilgisi alınamadı: {e}")
+        threading.Thread(target=_do, daemon=True).start()
+
+    def _on_or_models_fetched(self, models: list):
+        """OpenRouter model listesi gelince dropdown'ı doldur."""
+        import config as cfg
+        current = cfg.OPENROUTER_MODEL
+        self.openrouter_model_combo.clear()
+        self.openrouter_model_combo.addItems(models)
+        # Mevcut modeli seç
+        idx = self.openrouter_model_combo.findText(current)
+        if idx >= 0:
+            self.openrouter_model_combo.setCurrentIndex(idx)
+        self.credits_lbl.setText(
+            (self.credits_lbl.text() or "") +
+            f"  |  📦 {len(models)} ücretsiz model yüklendi"
+        )
+
+    def _fetch_ollama_models(self):
+        """Yerel Ollama modellerini arka planda çek."""
+        url = self.ollama_url.text().strip() or "http://localhost:11434/v1"
+        self.ollama_model_combo.clear()
+        self.ollama_model_combo.addItem("Yükleniyor...")
+        self._ollama_worker = OllamaModelFetchWorker(url)
+        self._ollama_worker.fetched.connect(self._on_ollama_models_fetched)
+        self._ollama_worker.error.connect(
+            lambda e: (self.ollama_model_combo.clear(), self.ollama_model_combo.addItem(f"Hata: {e[:50]}"))
+        )
+        self._ollama_worker.start()
+
+    def _on_ollama_models_fetched(self, models: list):
+        import config as cfg
+        current = cfg.OLLAMA_MODEL
+        self.ollama_model_combo.clear()
+        self.ollama_model_combo.addItems(models)
+        idx = self.ollama_model_combo.findText(current)
+        if idx >= 0:
+            self.ollama_model_combo.setCurrentIndex(idx)
 
     def _load_current_settings(self):
         """Mevcut config.py değerlerini formlara yükle."""
         try:
-            import config as cfg
+            import config as cfg, importlib
+            importlib.reload(cfg)
             idx = self.provider_combo.findText(cfg.AI_PROVIDER)
             if idx >= 0:
                 self.provider_combo.setCurrentIndex(idx)
             self.openrouter_key.setText(cfg.OPENROUTER_API_KEY)
-            self.openrouter_model.setText(cfg.OPENROUTER_MODEL)
+            self.openrouter_model_combo.clear()
+            self.openrouter_model_combo.addItem(cfg.OPENROUTER_MODEL)
             self.ollama_url.setText(cfg.OLLAMA_BASE_URL)
-            self.ollama_model.setText(cfg.OLLAMA_MODEL)
+            self.ollama_model_combo.clear()
+            self.ollama_model_combo.addItem(cfg.OLLAMA_MODEL)
+            # Gemini model
+            gm_idx = self.gemini_model_combo.findText(cfg.GEMINI_MODEL)
+            if gm_idx >= 0:
+                self.gemini_model_combo.setCurrentIndex(gm_idx)
             self.gemini_key.setText(cfg.GEMINI_API_KEY)
             self.interval_spin.setValue(cfg.ANALYSIS_INTERVAL_MINUTES)
         except Exception:
             pass
 
-    def _update_provider_fields(self, provider: str):
-        pass  # Gelecekte ilgili alanları göster/gizle
-
     def _save(self):
         """Seçilen değerleri config.py dosyasına yaz."""
-        import config as cfg
-        cfg.AI_PROVIDER              = self.provider_combo.currentText()
-        cfg.OPENROUTER_API_KEY       = self.openrouter_key.text().strip()
-        cfg.OPENROUTER_MODEL         = self.openrouter_model.text().strip() or cfg.OPENROUTER_MODEL
-        cfg.OLLAMA_BASE_URL          = self.ollama_url.text().strip() or cfg.OLLAMA_BASE_URL
-        cfg.OLLAMA_MODEL             = self.ollama_model.text().strip() or cfg.OLLAMA_MODEL
-        cfg.GEMINI_API_KEY           = self.gemini_key.text().strip()
+        import config as cfg, importlib
+        provider = self.provider_combo.currentText()
+        cfg.AI_PROVIDER = provider
+
+        cfg.OPENROUTER_API_KEY = self.openrouter_key.text().strip()
+        cfg.OPENROUTER_MODEL   = (
+            self.openrouter_model_combo.currentText().strip()
+            or cfg.OPENROUTER_MODEL
+        )
+        cfg.OLLAMA_BASE_URL = self.ollama_url.text().strip() or cfg.OLLAMA_BASE_URL
+        cfg.OLLAMA_MODEL    = (
+            self.ollama_model_combo.currentText().strip()
+            or cfg.OLLAMA_MODEL
+        )
+        cfg.GEMINI_API_KEY = self.gemini_key.text().strip()
+        cfg.GEMINI_MODEL   = self.gemini_model_combo.currentText()
         cfg.ANALYSIS_INTERVAL_MINUTES = self.interval_spin.value()
 
-        # config.py dosyasını da güncelle
         try:
-            import pathlib
+            import pathlib, re
             config_path = pathlib.Path("config.py")
             text = config_path.read_text(encoding="utf-8")
-            replacements = {
-                'AI_PROVIDER = "':      f'AI_PROVIDER = "{cfg.AI_PROVIDER}"',
-                'OPENROUTER_API_KEY = "': f'OPENROUTER_API_KEY = "{cfg.OPENROUTER_API_KEY}"',
-                'OPENROUTER_MODEL    = "': f'OPENROUTER_MODEL    = "{cfg.OPENROUTER_MODEL}"',
-                'GEMINI_API_KEY = "':   f'GEMINI_API_KEY = "{cfg.GEMINI_API_KEY}"',
-                'OLLAMA_BASE_URL = "':  f'OLLAMA_BASE_URL = "{cfg.OLLAMA_BASE_URL}"',
-                'OLLAMA_MODEL    = "':  f'OLLAMA_MODEL    = "{cfg.OLLAMA_MODEL}"',
-            }
-            for old_key, new_line in replacements.items():
-                for line in text.splitlines():
-                    if line.startswith(old_key):
-                        text = text.replace(line, new_line)
-                        break
+
+            def _set(key: str, val: str) -> str:
+                # key= "..." veya key = "..." şeklindeki satırı değiştir
+                pattern = rf'^({re.escape(key)}\s*=\s*")[^"]*(")'
+                replacement = rf'\g<1>{re.escape(val)}\g<2>'
+                return re.sub(pattern, replacement, text, flags=re.MULTILINE)
+
+            for key, val in [
+                ("AI_PROVIDER",        cfg.AI_PROVIDER),
+                ("OPENROUTER_API_KEY", cfg.OPENROUTER_API_KEY),
+                ("OPENROUTER_MODEL",   cfg.OPENROUTER_MODEL),
+                ("OLLAMA_BASE_URL",    cfg.OLLAMA_BASE_URL),
+                ("OLLAMA_MODEL",       cfg.OLLAMA_MODEL),
+                ("GEMINI_API_KEY",     cfg.GEMINI_API_KEY),
+                ("GEMINI_MODEL",       cfg.GEMINI_MODEL),
+            ]:
+                text = _set(key, val)
+
             config_path.write_text(text, encoding="utf-8")
-            QMessageBox.information(
-                self, "Kaydedildi",
-                f"Ayarlar kaydedildi.\n\n"
-                f"Aktif Sağlayıcı: {cfg.AI_PROVIDER.upper()}\n"
-                f"Değişiklikler hemen geçerli oldu.",
+            importlib.reload(cfg)
+            self.test_result_lbl.setStyleSheet(f"color:{C['success']};font-size:12px;font-weight:600;")
+            self.test_result_lbl.setText(
+                f"✅ Kaydedildi — Aktif sağlayıcı: {cfg.AI_PROVIDER.upper()} "
+                f"| Model: {cfg.OPENROUTER_MODEL if provider=='openrouter' else cfg.OLLAMA_MODEL if provider=='ollama' else cfg.GEMINI_MODEL}"
             )
         except Exception as e:
-            QMessageBox.warning(self, "Uyarı", f"config.py güncellenemedi: {e}\nAyarlar çalışma süresi için geçerli.")
+            QMessageBox.warning(self, "Kayıt Hatası", f"config.py güncellenemedi: {e}\nAyarlar çalışma süresi için geçerli.")
 
     def _test_api(self):
-        """Seçili sağlayıcının yapılandırmasını ve bağlantısını kontrol eder."""
-        # Önce ayarları geçici olarak uygula
+        """Seçili sağlayıcının bağlantısını test et."""
         self._save()
+        self.test_result_lbl.setStyleSheet(f"color:{C['muted']};font-size:12px;")
+        self.test_result_lbl.setText("🔄 Test ediliyor...")
         try:
             from ai_analyzer import AIAnalyzer
-            # Geçici analyzer (db yok — sadece validate)
             class _FakeDB:
                 def get_summary(self, **_): return []
                 def save_report(self, **_): pass
             analyzer = AIAnalyzer(_FakeDB())
-            issues = analyzer.validate_config()
+            issues   = analyzer.validate_config()
         except Exception as exc:
             issues = [str(exc)]
 
@@ -995,13 +1331,10 @@ class SettingsTab(QWidget):
         if issues:
             msg = "\n".join(f"• {i}" for i in issues)
             self.test_result_lbl.setStyleSheet(f"color:{C['danger']};font-size:12px;font-weight:600;")
-            self.test_result_lbl.setText(f"❌ {provider} — Sorun tespit edildi:\n{msg}")
+            self.test_result_lbl.setText(f"❌ {provider} — Sorun:\n{msg}")
         else:
             self.test_result_lbl.setStyleSheet(f"color:{C['success']};font-size:12px;font-weight:600;")
-            self.test_result_lbl.setText(
-                f"✅ {provider} yapılandırması geçerli görünüyor. "
-                f"Gerçek analiz için 'Analizi Şimdi Çalıştır' butonunu kullan."
-            )
+            self.test_result_lbl.setText(f"✅ {provider} yapılandırması geçerli.")
 
 
 
