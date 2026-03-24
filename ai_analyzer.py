@@ -334,34 +334,75 @@ class AIAnalyzer:
 
         return issues
 
-    def analyze(self, hours: int = 1) -> dict:
+    def analyze(self, hours: int = 1, force_full: bool = False) -> dict:
         """
-        Son `hours` saatin ozetini alir, AI ile analiz eder, rapor dondurur.
-        Asla exception atmaz — hata durumunda risk_score=-1 ile anlamli Turkce mesaj.
+        Artimli analiz: Son basarili analizden bu yana gelen YENI verileri gonderir.
+        - force_full=True: son {hours} saatin tumunu gonderir (elle tetikleme icin).
+        - Yeni kayit yoksa analizi atlar, token harcamaz.
+        - result dict'e '_meta' alani ekler: preview ve token tahmini icin.
         """
         cfg      = _cfg()
         provider = cfg.AI_PROVIDER
         now_str  = datetime.now().strftime("%Y-%m-%d %H:%M")
 
-        # Veri var mi?
-        summary = self.db.get_summary(hours=hours)
+        # ── Artimli mi, Tam mi? ──────────────────────────────────────
+        last_ts = self.db.get_last_analysis_time()
+
+        if force_full or last_ts is None:
+            # Ilk analiz veya elle zorlanmis: son {hours} saati gonder
+            summary    = self.db.get_summary(hours=hours)
+            since_label = f"Son {hours} saat (tam)" if last_ts else "Ilk analiz (tam)"
+            new_count   = len(summary)
+        else:
+            # Artimli: sadece son analizden bu yana gelenleri gonder
+            new_count  = self.db.get_new_connection_count(since_ts=last_ts)
+            summary    = self.db.get_summary_since(since_ts=last_ts, limit=50)
+            since_label = f"Son analizden beri ({last_ts[:16]})"
+
+        # Yeni kayit yok mu? Token harcama, atla.
         if not summary:
+            msg = (
+                f"{since_label} arasinda analiz edilecek yeni harici trafik yok."
+                if new_count == 0
+                else f"{since_label}: {new_count} yeni baglanti var ama hepsi ic ag (filtrelendi)."
+            )
             return {
                 "risk_score": 0.0,
                 "status": "GUVENLI",
                 "suspicious_connections": [],
-                "summary": f"Son {hours} saatte ({now_str}) analiz edilecek harici trafik bulunamadi.",
+                "summary": msg,
+                "_meta": {"skipped": True, "reason": msg, "since": last_ts},
             }
 
-        # Kullanici mesajini zenginlestir
+        # ── Token Tahmini ──────────────────────────────────────────
+        # Her kayit ~100 token, system prompt ~500 token
+        est_tokens = len(summary) * 100 + 500
+        log.info(
+            "[AIAnalyzer] %s | %d yeni kayit | ~%d token tahmini | %s",
+            provider.upper(), len(summary), est_tokens, since_label,
+        )
+
+        # ── Kullanici Mesaji ───────────────────────────────────────
         user_msg = json.dumps({
-            "analysis_time": now_str,
-            "period_hours":  hours,
-            "total_records": len(summary),
+            "analysis_time":   now_str,
+            "period":          since_label,
+            "new_connections": new_count,
+            "records_sent":    len(summary),
+            "est_tokens":      est_tokens,
             "traffic_summary": summary,
         }, ensure_ascii=False, indent=2)
 
-        log.info("[AIAnalyzer] %s | %d kayit gonderiliyor", provider.upper(), len(summary))
+        # _meta: GUI'nin onizleme panelinde gostermesi icin
+        _meta = {
+            "since":       last_ts,
+            "since_label": since_label,
+            "new_count":   new_count,
+            "records":     len(summary),
+            "est_tokens":  est_tokens,
+            "raw_payload": user_msg,   # GUI'de "Gonderilen Veri" paneli icin
+            "skipped":     False,
+        }
+
 
         # On-kontrol
         issues = self.validate_config()
@@ -447,15 +488,19 @@ class AIAnalyzer:
         except (TypeError, ValueError):
             result["risk_score"] = 0.0
 
+        # _meta'yi result'a ekle (GUI icin)
+        result["_meta"] = _meta
+
         # VirusTotal zenginlestirme — supheeli IP'leri paralel sorgula
         result = self._enrich_with_vt(result)
 
-        # DB'ye kaydet
+        # DB'ye kaydet (_meta ham JSON icerdiğinden DB'ye yazma)
+        db_content = {k: v for k, v in result.items() if k != "_meta"}
         self.db.save_report(
             provider   = provider,
             risk_score = result["risk_score"],
             status     = result["status"],
-            content    = json.dumps(result, ensure_ascii=False),
+            content    = json.dumps(db_content, ensure_ascii=False),
         )
 
         # Basarili analiz bildirimi
@@ -472,6 +517,7 @@ class AIAnalyzer:
 
         log.info("[AIAnalyzer] tamamlandi — skor=%.1f durum=%s", result["risk_score"], result["status"])
         return result
+
 
     def _enrich_with_vt(self, result: dict) -> dict:
         """

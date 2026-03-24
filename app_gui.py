@@ -13,7 +13,7 @@ import dns_cache
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QTableWidget, QTableWidgetItem, QHeaderView, QPushButton, QLabel,
-    QTabWidget, QLineEdit, QComboBox, QSpinBox, QFrame, QSizePolicy,
+    QTabWidget, QLineEdit, QComboBox, QCheckBox, QSpinBox, QFrame, QSizePolicy,
     QTextEdit, QTextBrowser, QSystemTrayIcon, QMenu, QMessageBox, QFormLayout,
     QGroupBox, QRadioButton, QButtonGroup, QScrollArea, QSplitter,
     QProgressBar,
@@ -189,13 +189,14 @@ class AIWorker(QThread):
     finished = pyqtSignal(dict)
     error    = pyqtSignal(str)
 
-    def __init__(self, analyzer):
+    def __init__(self, analyzer, force_full: bool = False):
         super().__init__()
-        self.analyzer = analyzer
+        self.analyzer   = analyzer
+        self.force_full = force_full
 
     def run(self):
         try:
-            result = self.analyzer.analyze(hours=1)
+            result = self.analyzer.analyze(hours=1, force_full=self.force_full)
             self.finished.emit(result)
         except Exception as exc:
             self.error.emit(str(exc))
@@ -540,15 +541,22 @@ class AnalysisTab(QWidget):
         layout.setContentsMargins(20, 20, 20, 20)
         layout.setSpacing(14)
 
-        # Başlık + buton
+        # Başlık ve kontroller
         hdr = QHBoxLayout()
         lbl = QLabel("AI Güvenlik Analizi")
         lbl.setObjectName("title")
+        
+        self.force_full_cb = QCheckBox("Tam Analiz (Son 1 Saat)")
+        self.force_full_cb.setToolTip("İşaretlenmezse sadece son analizden sonra gelen 'yeni' veriler gönderilir (Token tasarrufu).")
+        self.force_full_cb.setStyleSheet(f"color: {C['muted']}; font-size: 11px;")
+        
         self.run_btn = QPushButton("▶  Analizi Şimdi Çalıştır")
         self.run_btn.setFixedHeight(38)
         self.run_btn.clicked.connect(self._run_analysis)
+        
         hdr.addWidget(lbl)
         hdr.addStretch()
+        hdr.addWidget(self.force_full_cb)
         hdr.addWidget(self.run_btn)
         layout.addLayout(hdr)
 
@@ -607,11 +615,17 @@ class AnalysisTab(QWidget):
         self.susp_table.setFixedHeight(180)
         layout.addWidget(self.susp_table)
 
-        # AI Raporu (HTML formatli)
-        layout.addWidget(QLabel("AI Analiz Raporu"))
+        # AI Raporu + Gonderilen Veri Onizlemesi (Splitter)
+        reports_split = QSplitter(Qt.Orientation.Horizontal)
+        
+        # Sol: AI Raporu
+        rapor_widget = QWidget()
+        rapor_layout = QVBoxLayout(rapor_widget)
+        rapor_layout.setContentsMargins(0,0,0,0)
+        rapor_layout.addWidget(QLabel("AI Analiz Raporu"))
         self.report_browser = QTextBrowser()
         self.report_browser.setReadOnly(True)
-        self.report_browser.setPlaceholderText("Analiz calistirildiktan sonra rapor burada goruntulenir...")
+        self.report_browser.setPlaceholderText("Analiz calistirildiktan sonra AI yorumu burada goruntulenir...")
         self.report_browser.setMinimumHeight(200)
         self.report_browser.setOpenExternalLinks(False)
         self.report_browser.setStyleSheet(
@@ -619,7 +633,27 @@ class AnalysisTab(QWidget):
             f"border:1px solid {C['border']};border-radius:6px;"
             f"font-family:'Segoe UI',sans-serif;font-size:13px;"
         )
-        layout.addWidget(self.report_browser)
+        rapor_layout.addWidget(self.report_browser)
+        
+        # Sag: Veri Onizlemesi
+        preview_widget = QWidget()
+        preview_layout = QVBoxLayout(preview_widget)
+        preview_layout.setContentsMargins(0,0,0,0)
+        preview_layout.addWidget(QLabel("Gönderilen Veri Önizlemesi"))
+        self.preview_browser = QTextBrowser()
+        self.preview_browser.setReadOnly(True)
+        self.preview_browser.setPlaceholderText("AI'a gonderilen ham JSON meta verisi (Paket icerigi gitmez).")
+        self.preview_browser.setStyleSheet(
+            f"background:#0d1117;color:#c9d1d9;"
+            f"border:1px solid {C['border']};border-radius:6px;"
+            f"font-family:'Cascadia Code', monospace;font-size:11px;"
+        )
+        preview_layout.addWidget(self.preview_browser)
+        
+        reports_split.addWidget(rapor_widget)
+        reports_split.addWidget(preview_widget)
+        reports_split.setSizes([600, 400])
+        layout.addWidget(reports_split)
 
         # Geçmiş Raporlar
         hist_label = QLabel("Rapor Geçmişi")
@@ -641,7 +675,9 @@ class AnalysisTab(QWidget):
         self.run_btn.setEnabled(False)
         self.run_btn.setText("Analiz ediliyor...")
         self.progress.setVisible(True)
-        self._worker = AIWorker(self.analyzer)
+        
+        force = self.force_full_cb.isChecked()
+        self._worker = AIWorker(self.analyzer, force_full=force)
         self._worker.finished.connect(self._on_finished)
         self._worker.error.connect(self._on_error)
         self._worker.start()
@@ -688,6 +724,25 @@ class AnalysisTab(QWidget):
         self.risk_status_lbl.setText(status or "Bilinmiyor")
         self.risk_time_lbl.setText(f"Son analiz: {datetime.now().strftime('%d.%m.%Y %H:%M')}")
         self.provider_lbl.setText(f"🤖 {provider}")
+
+        self.provider_lbl.setText(f"🤖 {provider}")
+
+        # _meta Onizleme (Token Tahmini ve gonderilen ham veri)
+        meta = r.get("_meta", {})
+        if meta:
+            if meta.get("skipped"):
+                self.preview_browser.setHtml(
+                    f"<div style='color:{C['warning']};padding:10px;'>"
+                    f"<b>Atlandi:</b> {meta.get('reason','')}"
+                    f"</div>"
+                )
+            else:
+                raw_json = meta.get("raw_payload", "")
+                self.preview_browser.setPlainText(raw_json)
+                
+            est = meta.get('est_tokens', 0)
+            if est > 0:
+                self.provider_lbl.setText(f"🤖 {provider}  (~{est} token)")
 
         # ── HTML Rapor ──────────────────────────────────────────
         conns   = r.get("suspicious_connections", []) or []

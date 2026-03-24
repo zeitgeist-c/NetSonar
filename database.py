@@ -107,6 +107,67 @@ class Database:
             )
             return [dict(row) for row in cur.fetchall()]
 
+    def get_last_analysis_time(self) -> str | None:
+        """Son başarılı AI analizinin zamanını döndürür (ISO format, UTC).
+        Başarısız analizler (risk_score=-1) sayılmaz."""
+        with self._lock:
+            row = self.conn.execute(
+                """SELECT created_at FROM reports
+                   WHERE risk_score >= 0
+                   ORDER BY created_at DESC LIMIT 1"""
+            ).fetchone()
+            return row[0] if row else None
+
+    def get_summary_since(self, since_ts: str, limit: int = 50) -> list[dict]:
+        """Belirli bir zamandan itibaren gelen YENİ bağlantıların özeti.
+        since_ts: SQLite datetime string örn. '2024-03-24 22:00:00'
+
+        Öncelik sırası:
+          1. Şüpheli portlar (config.SUSPICIOUS_PORTS)
+          2. Yüksek byte transferi
+          3. Bağlantı sayısı
+        """
+        from config import SUSPICIOUS_PORTS
+        port_list = ",".join(str(p) for p in SUSPICIOUS_PORTS)
+        with self._lock:
+            cur = self.conn.execute(
+                f"""
+                SELECT   dst_ip,
+                         dst_port,
+                         process,
+                         protocol,
+                         SUM(bytes)                          AS total_bytes,
+                         COUNT(*)                            AS conn_count,
+                         MIN(timestamp)                      AS first_seen,
+                         MAX(timestamp)                      AS last_seen,
+                         CASE WHEN dst_port IN ({port_list})
+                              THEN 1 ELSE 0 END              AS suspicious_port
+                FROM connections
+                WHERE timestamp > ?
+                  AND dst_ip NOT LIKE '192.168.%'
+                  AND dst_ip NOT LIKE '10.%'
+                  AND dst_ip NOT LIKE '172.16.%'
+                  AND dst_ip NOT LIKE '127.%'
+                GROUP BY dst_ip, dst_port, process
+                ORDER BY suspicious_port DESC,
+                         total_bytes DESC,
+                         conn_count DESC
+                LIMIT ?
+                """,
+                (since_ts, limit),
+            )
+            return [dict(row) for row in cur.fetchall()]
+
+    def get_new_connection_count(self, since_ts: str) -> int:
+        """Son analizden bu yana kaç yeni bağlantı kaydedildi."""
+        with self._lock:
+            row = self.conn.execute(
+                "SELECT COUNT(*) FROM connections WHERE timestamp > ?",
+                (since_ts,),
+            ).fetchone()
+            return row[0] if row else 0
+
+
     def get_suspicious_connections(self, hours: int = 1) -> list[dict]:
         """Son N saatin büyük veya bilinen tehlikeli portlu bağlantıları."""
         from config import SUSPICIOUS_BYTES_THRESHOLD, SUSPICIOUS_PORTS
