@@ -238,26 +238,7 @@ class ModelFetchWorker(QThread):
             self.error.emit(str(exc))
 
 
-class OllamaModelFetchWorker(QThread):
-    """Yerel Ollama'dan yuklu model listesini ceker."""
-    fetched = pyqtSignal(list)
-    error   = pyqtSignal(str)
 
-    def __init__(self, base_url: str):
-        super().__init__()
-        self.base_url = base_url
-
-    def run(self):
-        try:
-            import requests
-            url = self.base_url.rstrip("/")
-            # Ollama API endpoint
-            tags_url = url.replace("/v1", "").rstrip("/") + "/api/tags"
-            r = requests.get(tags_url, timeout=5)
-            models = [m["name"] for m in r.json().get("models", [])]
-            self.fetched.emit(models or ["Model bulunamadi"])
-        except Exception as exc:
-            self.error.emit(str(exc))
 
 # ─── Byte Formatör ────────────────────────────────────────
 def _fmt(b: int) -> str:
@@ -1004,7 +985,7 @@ class SettingsTab(QWidget):
         prov_form  = QFormLayout(prov_group)
 
         self.provider_combo = QComboBox()
-        self.provider_combo.addItems(["openrouter", "ollama", "gemini"])
+        self.provider_combo.addItems(["openrouter", "gemini"])
         prov_form.addRow("Aktif Sağlayıcı:", self.provider_combo)
 
         # Sağlayıcı bilgi etiketi
@@ -1047,30 +1028,7 @@ class SettingsTab(QWidget):
 
         self.stack.addWidget(or_widget)
 
-        # ── Panel 1: Ollama ───────────────────────────
-        ol_widget = QWidget()
-        ol_form   = QFormLayout(ol_widget)
-        ol_form.setContentsMargins(0, 0, 0, 0)
-
-        self.ollama_url = QLineEdit()
-        self.ollama_url.setPlaceholderText("http://localhost:11434/v1")
-        ol_form.addRow("Ollama URL:", self.ollama_url)
-
-        ollama_model_row = QHBoxLayout()
-        self.ollama_model_combo = QComboBox()
-        self.ollama_model_combo.setEditable(True)
-        self.ollama_model_combo.setMinimumWidth(250)
-        ollama_model_row.addWidget(self.ollama_model_combo)
-        ol_fetch_btn = QPushButton("↻ Modelleri Getir")
-        ol_fetch_btn.setObjectName("muted")
-        ol_fetch_btn.setFixedWidth(160)
-        ol_fetch_btn.clicked.connect(self._fetch_ollama_models)
-        ollama_model_row.addWidget(ol_fetch_btn)
-        ol_form.addRow("Model:", ollama_model_row)
-
-        self.stack.addWidget(ol_widget)
-
-        # ── Panel 2: Gemini ───────────────────────────
+        # ── Panel 1: Gemini ───────────────────────────
         gm_widget = QWidget()
         gm_form   = QFormLayout(gm_widget)
         gm_form.setContentsMargins(0, 0, 0, 0)
@@ -1144,11 +1102,10 @@ class SettingsTab(QWidget):
     # ──────────────────────────────────────────────────────────────────
     def _on_provider_changed(self, provider: str):
         """Provider değişince ilgili paneli aç ve bilgi metnini güncelle."""
-        idx_map  = {"openrouter": 0, "ollama": 1, "gemini": 2}
+        idx_map  = {"openrouter": 0, "gemini": 1}
         info_map = {
             "openrouter": "☁️  Bulut AI — OpenRouter.ai aracılığıyla 200+ model. Aktif ücretsiz modeller için 'Modelleri Getir' butonuna bas.",
-            "ollama":     "🏠 Yerel AI — İnternet gerekmez, gizlilik maksimum. Ollama'nın çalışması gerekir: 'ollama serve'",
-            "gemini":     "☁️  Google Gemini — Ücretsiz katman mevcut. aistudio.google.com/apikey adresinden anahtar al.",
+            "gemini":     "☁️  Google Gemini — Ücretssiz katman mevcut. aistudio.google.com/apikey adresinden anahtar al.",
         }
         self.stack.setCurrentIndex(idx_map.get(provider, 0))
         self.provider_info.setText(info_map.get(provider, ""))
@@ -1216,27 +1173,6 @@ class SettingsTab(QWidget):
             f"  |  📦 {len(models)} ücretsiz model yüklendi"
         )
 
-    def _fetch_ollama_models(self):
-        """Yerel Ollama modellerini arka planda çek."""
-        url = self.ollama_url.text().strip() or "http://localhost:11434/v1"
-        self.ollama_model_combo.clear()
-        self.ollama_model_combo.addItem("Yükleniyor...")
-        self._ollama_worker = OllamaModelFetchWorker(url)
-        self._ollama_worker.fetched.connect(self._on_ollama_models_fetched)
-        self._ollama_worker.error.connect(
-            lambda e: (self.ollama_model_combo.clear(), self.ollama_model_combo.addItem(f"Hata: {e[:50]}"))
-        )
-        self._ollama_worker.start()
-
-    def _on_ollama_models_fetched(self, models: list):
-        import config as cfg
-        current = cfg.OLLAMA_MODEL
-        self.ollama_model_combo.clear()
-        self.ollama_model_combo.addItems(models)
-        idx = self.ollama_model_combo.findText(current)
-        if idx >= 0:
-            self.ollama_model_combo.setCurrentIndex(idx)
-
     def _load_current_settings(self):
         """Mevcut config.py değerlerini formlara yükle."""
         try:
@@ -1248,15 +1184,13 @@ class SettingsTab(QWidget):
             self.openrouter_key.setText(cfg.OPENROUTER_API_KEY)
             self.openrouter_model_combo.clear()
             self.openrouter_model_combo.addItem(cfg.OPENROUTER_MODEL)
-            self.ollama_url.setText(cfg.OLLAMA_BASE_URL)
-            self.ollama_model_combo.clear()
-            self.ollama_model_combo.addItem(cfg.OLLAMA_MODEL)
             # Gemini model
             gm_idx = self.gemini_model_combo.findText(cfg.GEMINI_MODEL)
             if gm_idx >= 0:
                 self.gemini_model_combo.setCurrentIndex(gm_idx)
             self.gemini_key.setText(cfg.GEMINI_API_KEY)
             self.interval_spin.setValue(cfg.ANALYSIS_INTERVAL_MINUTES)
+
         except Exception:
             pass
 
@@ -1271,11 +1205,6 @@ class SettingsTab(QWidget):
             self.openrouter_model_combo.currentText().strip()
             or cfg.OPENROUTER_MODEL
         )
-        cfg.OLLAMA_BASE_URL = self.ollama_url.text().strip() or cfg.OLLAMA_BASE_URL
-        cfg.OLLAMA_MODEL    = (
-            self.ollama_model_combo.currentText().strip()
-            or cfg.OLLAMA_MODEL
-        )
         cfg.GEMINI_API_KEY = self.gemini_key.text().strip()
         cfg.GEMINI_MODEL   = self.gemini_model_combo.currentText()
         cfg.ANALYSIS_INTERVAL_MINUTES = self.interval_spin.value()
@@ -1285,30 +1214,33 @@ class SettingsTab(QWidget):
             config_path = pathlib.Path("config.py")
             text = config_path.read_text(encoding="utf-8")
 
-            def _set(key: str, val: str) -> str:
-                # key= "..." veya key = "..." şeklindeki satırı değiştir
+            def _set(src: str, key: str, val: str) -> str:
+                """key = \"...\" seklindeki satiri degistir. re.escape KULLANMA, lambda ile degistir."""
                 pattern = rf'^({re.escape(key)}\s*=\s*")[^"]*(")'
-                replacement = rf'\g<1>{re.escape(val)}\g<2>'
-                return re.sub(pattern, replacement, text, flags=re.MULTILINE)
+                return re.sub(
+                    pattern,
+                    lambda m: m.group(1) + val + m.group(2),
+                    src,
+                    flags=re.MULTILINE,
+                )
 
             for key, val in [
                 ("AI_PROVIDER",        cfg.AI_PROVIDER),
                 ("OPENROUTER_API_KEY", cfg.OPENROUTER_API_KEY),
                 ("OPENROUTER_MODEL",   cfg.OPENROUTER_MODEL),
-                ("OLLAMA_BASE_URL",    cfg.OLLAMA_BASE_URL),
-                ("OLLAMA_MODEL",       cfg.OLLAMA_MODEL),
                 ("GEMINI_API_KEY",     cfg.GEMINI_API_KEY),
                 ("GEMINI_MODEL",       cfg.GEMINI_MODEL),
             ]:
-                text = _set(key, val)
+                text = _set(text, key, val)
 
             config_path.write_text(text, encoding="utf-8")
             importlib.reload(cfg)
             self.test_result_lbl.setStyleSheet(f"color:{C['success']};font-size:12px;font-weight:600;")
             self.test_result_lbl.setText(
                 f"✅ Kaydedildi — Aktif sağlayıcı: {cfg.AI_PROVIDER.upper()} "
-                f"| Model: {cfg.OPENROUTER_MODEL if provider=='openrouter' else cfg.OLLAMA_MODEL if provider=='ollama' else cfg.GEMINI_MODEL}"
+                f"| Model: {cfg.OPENROUTER_MODEL if provider == 'openrouter' else cfg.GEMINI_MODEL}"
             )
+
         except Exception as e:
             QMessageBox.warning(self, "Kayıt Hatası", f"config.py güncellenemedi: {e}\nAyarlar çalışma süresi için geçerli.")
 
