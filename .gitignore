@@ -1,0 +1,14 @@
+.venv/
+__pycache__/
+*.py[cod]
+*$py.class
+agtara_data/
+*.log
+.vscode/
+.idea/
+.DS_Store
+_smoke_test.py
+_api_diag.py
+_model_results.txt
+_analysis_result.txt
+*.sqlite3
