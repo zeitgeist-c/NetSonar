@@ -19,6 +19,7 @@ import logging
 import importlib
 import requests
 from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 log = logging.getLogger("AgTara.AI")
 
@@ -427,6 +428,12 @@ class AIAnalyzer:
             result = fn(user_msg)
         except Exception as exc:
             log.error("[AIAnalyzer] hata: %s", exc)
+            # Basarisiz → bildirim gonder
+            try:
+                from notifier import notify_analysis_failed
+                notify_analysis_failed(str(exc), provider)
+            except Exception:
+                pass
             return {
                 "risk_score": -1,
                 "status": "API HATASI",
@@ -446,6 +453,9 @@ class AIAnalyzer:
         except (TypeError, ValueError):
             result["risk_score"] = 0.0
 
+        # VirusTotal zenginlestirme — supheeli IP'leri paralel sorgula
+        result = self._enrich_with_vt(result)
+
         # DB'ye kaydet
         self.db.save_report(
             provider   = provider,
@@ -454,5 +464,74 @@ class AIAnalyzer:
             content    = json.dumps(result, ensure_ascii=False),
         )
 
+        # Basarili analiz bildirimi
+        try:
+            from notifier import notify_analysis_done
+            notify_analysis_done(
+                risk_score      = result["risk_score"],
+                status          = result["status"],
+                provider        = provider,
+                suspicious_count = len(result.get("suspicious_connections", [])),
+            )
+        except Exception:
+            pass
+
         log.info("[AIAnalyzer] tamamlandi — skor=%.1f durum=%s", result["risk_score"], result["status"])
+        return result
+
+    def _enrich_with_vt(self, result: dict) -> dict:
+        """
+        Supheli baglantilardaki IP'leri VirusTotal ile sorgulay,
+        sonuclari her baglantinin 'vt' alani olarak ekle.
+        Rate limit nedeniyle max 5 IP, paralel isteklerle.
+        """
+        conns = result.get("suspicious_connections", [])
+        if not conns:
+            return result
+
+        # Sorgulanacak harici IP'leri topla (en fazla 5)
+        ips_to_check = []
+        for conn in conns:
+            ip = conn.get("ip", "")
+            if ip and not any(ip.startswith(p) for p in ("192.168.", "10.", "127.", "172.")):
+                if ip not in ips_to_check:
+                    ips_to_check.append(ip)
+            if len(ips_to_check) >= 5:
+                break
+
+        if not ips_to_check:
+            return result
+
+        log.info("[VT] %d IP zenginlestiriliyor: %s", len(ips_to_check), ips_to_check)
+
+        vt_map: dict[str, dict] = {}
+        try:
+            from threat_intel import check_ip
+            with ThreadPoolExecutor(max_workers=3) as pool:
+                futures = {pool.submit(check_ip, ip): ip for ip in ips_to_check}
+                for fut in as_completed(futures, timeout=20):
+                    ip  = futures[fut]
+                    try:
+                        vt_map[ip] = fut.result()
+                    except Exception as exc:
+                        vt_map[ip] = {"error": str(exc)}
+        except Exception as exc:
+            log.warning("[VT] zenginlestirme hatasi: %s", exc)
+            return result
+
+        # VT sonuclarini baglantilara ekle
+        for conn in conns:
+            ip = conn.get("ip", "")
+            if ip in vt_map:
+                vt = vt_map[ip]
+                conn["vt_malicious"]  = vt.get("malicious", 0)
+                conn["vt_suspicious"] = vt.get("suspicious", 0)
+                conn["vt_country"]    = vt.get("country", "?")
+                conn["vt_is_threat"]  = vt.get("is_threat", False)
+                # Risk skorunu yukselt (VT tehditi teyit ediyorsa)
+                if vt.get("is_threat") and result["risk_score"] < 9.0:
+                    result["risk_score"] = min(10.0, result["risk_score"] + 1.5)
+                    log.info("[VT] %s tehdit onaylandi, risk skoru guncellendi", ip)
+
+        result["suspicious_connections"] = conns
         return result
