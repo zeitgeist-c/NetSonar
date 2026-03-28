@@ -1,5 +1,5 @@
 """
-AgTara — Rapor Dışa Aktarma Modülü
+NetSonar — Rapor Dışa Aktarma Modülü
 AI raporlarını JSON, CSV veya TXT olarak dışa aktarır.
 """
 
@@ -25,7 +25,7 @@ def export_report(report: dict, format: str = "json", filepath: str = None) -> s
     if filepath is None:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         ext = format.lower()
-        filepath = f"agtara_data/reports/rapor_{timestamp}.{ext}"
+        filepath = f"netsonar_data/reports/rapor_{timestamp}.{ext}"
     
     Path(filepath).parent.mkdir(parents=True, exist_ok=True)
     
@@ -84,7 +84,7 @@ def _export_csv(report: dict, filepath: str) -> str:
 def _export_txt(report: dict, filepath: str) -> str:
     lines = [
         "=" * 60,
-        "AGTARA GÜVENLIK RAPORU",
+        "NETSONAR GÜVENLIK RAPORU",
         "=" * 60,
         f"Risk Skoru: {report.get('risk_score', '')}/10",
         f"Durum: {report.get('status', '')}",
@@ -130,7 +130,7 @@ def export_all_reports(db: Database, format: str = "json", output_dir: str = Non
         Oluşturulan dosyaların listesi
     """
     if output_dir is None:
-        output_dir = f"agtara_data/reports/_all_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        output_dir = f"netsonar_data/reports/_all_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     
     Path(output_dir).mkdir(parents=True, exist_ok=True)
     

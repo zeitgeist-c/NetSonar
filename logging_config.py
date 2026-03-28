@@ -1,5 +1,5 @@
 """
-AgTara — Merkezi Loglama Yapılandırması
+NetSonar — Merkezi Loglama Yapılandırması
 Tüm modüller için ortak loglama ayarları.
 Loglar hem konsola hem de dosyaya yazılır.
 """
@@ -9,15 +9,15 @@ import logging.handlers
 import sys
 from pathlib import Path
 
-LOG_DIR = Path("agtara_data/logs")
+LOG_DIR = Path("netsonar_data/logs")
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 
-LOG_FILE = LOG_DIR / "agtara.log"
+LOG_FILE = LOG_DIR / "netsonar.log"
 MAX_LOG_SIZE = 5 * 1024 * 1024  # 5 MB
 LOG_BACKUP_COUNT = 3
 
 
-def setup_logging(name: str = "AgTara") -> logging.Logger:
+def setup_logging(name: str = "NetSonar") -> logging.Logger:
     """Merkezi loglama kurulumu. Tekrarlanmaz."""
     logger = logging.getLogger(name)
     
@@ -52,4 +52,4 @@ def setup_logging(name: str = "AgTara") -> logging.Logger:
 
 def get_logger(name: str) -> logging.Logger:
     """Alt modüller için logger oluştur."""
-    return logging.getLogger(f"AgTara.{name}")
+    return logging.getLogger(f"NetSonar.{name}")

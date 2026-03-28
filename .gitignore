@@ -2,7 +2,8 @@
 __pycache__/
 *.py[cod]
 *$py.class
-agtara_data/
+netsonar_data/
+*.db
 *.log
 .vscode/
 .idea/

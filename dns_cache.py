@@ -1,5 +1,5 @@
 """
-AgTara — Arka Plan DNS Cozumleyici
+NetSonar — Arka Plan DNS Cozumleyici
 IP adreslerini domain adina donusturur. Sonuclar onbelleklenir,
 cozumleme arka plan thread'inde yapilir (UI'i bloklamaz).
 """

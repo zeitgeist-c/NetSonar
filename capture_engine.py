@@ -1,5 +1,5 @@
 """
-AgTara — Paket Yakalama Motoru
+NetSonar — Paket Yakalama Motoru
 Scapy kullanarak ağ trafiğini arka planda dinler.
 Her paketten: IP, port, protokol, boyut ve süreç adı çıkarılır.
 UYARI: Yönetici (Administrator) yetkileri gerektirir.
@@ -45,6 +45,7 @@ _map_lock = threading.Lock()
 
 # Aktif IP başına kümülatif byte sayacı (anlık yüksek trafik algılama)
 _ip_byte_counter: dict[str, int] = {}
+_ip_notified: dict[str, bool] = {}  # Zaten bildirim gönderildi mi?
 _counter_lock = threading.Lock()
 _COUNTER_RESET_SECONDS = 60       # Her dakika sıfırla
 
@@ -131,10 +132,11 @@ def _packet_handler(packet, db: Database):
     with _counter_lock:
         _ip_byte_counter[dst_ip] = _ip_byte_counter.get(dst_ip, 0) + size
         total = _ip_byte_counter[dst_ip]
-
-    if total >= SUSPICIOUS_BYTES_THRESHOLD and total - size < SUSPICIOUS_BYTES_THRESHOLD:
-        # İlk kez eşiği aştı → bildirim gönder
-        notify_high_traffic(dst_ip, total, process)
+        
+        # Sadece henüz bildirim gönderilmemişse bildirim gönder
+        if total >= SUSPICIOUS_BYTES_THRESHOLD and not _ip_notified.get(dst_ip, False):
+            _ip_notified[dst_ip] = True
+            notify_high_traffic(dst_ip, total, process)
 
 
 class CaptureEngine:
@@ -199,3 +201,4 @@ class CaptureEngine:
             time.sleep(_COUNTER_RESET_SECONDS)
             with _counter_lock:
                 _ip_byte_counter.clear()
+                _ip_notified.clear()

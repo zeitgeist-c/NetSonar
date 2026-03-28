@@ -1,6 +1,6 @@
 """
-AgTara — Windows Otomatik Başlatma
-Bilgisayar açılınca AgTara'yı otomatik başlatır.
+NetSonar — Windows Otomatik Başlatma
+Bilgisayar açılınca NetSonar'yı otomatik başlatır.
 """
 
 import os
@@ -8,7 +8,7 @@ import sys
 import winreg
 
 
-APP_NAME = "AgTara"
+APP_NAME = "NetSonar"
 EXE_PATH = sys.executable
 if hasattr(sys, '_MEIPASS'):
     # PyInstaller ile paketlenmişse

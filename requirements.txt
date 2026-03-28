@@ -1,4 +1,4 @@
-# AgTara — Python Bağımlılıkları
+# NetSonar — Python Bağımlılıkları
 # Kurulum: pip install -r requirements.txt
 
 # ── GUI ──────────────────────────────────────────────────────────────
