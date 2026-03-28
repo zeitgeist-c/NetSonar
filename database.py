@@ -1,5 +1,5 @@
 """
-AgTara — SQLite Veritabanı Katmanı
+NetSonar — SQLite Veritabanı Katmanı
 Thread-safe, batch-insert destekli bağlantı ve rapor yönetimi.
 Otomatik temizlik: DB_RETENTION_DAYS sonra eski kayıtları siler.
 """
@@ -103,20 +103,20 @@ class Database:
         4. Son görülme zamanı
         """
         from config import SUSPICIOUS_PORTS, SUSPICIOUS_BYTES_THRESHOLD
-        port_list = ",".join(str(p) for p in SUSPICIOUS_PORTS)
+        port_list = list(SUSPICIOUS_PORTS)
         high_bytes = max(SUSPICIOUS_BYTES_THRESHOLD * 20, 1_000_000)  # 1MB veya daha fazla
         
         with self._lock:
-            cur = self.conn.execute(
-                f"""
+            placeholders = ",".join("?" * len(port_list)) if port_list else ""
+            query = f"""
                 SELECT   dst_ip,
                          dst_port,
                          process,
                          protocol,
                          SUM(bytes)   AS total_bytes,
                          COUNT(*)     AS conn_count,
-                         CASE WHEN dst_port IN ({port_list}) THEN 1 ELSE 0 END AS is_suspicious_port,
-                         CASE WHEN SUM(bytes) > {high_bytes} THEN 1 ELSE 0 END AS is_high_traffic
+                         CASE WHEN dst_port IN ({placeholders}) THEN 1 ELSE 0 END AS is_suspicious_port,
+                         CASE WHEN SUM(bytes) > ? THEN 1 ELSE 0 END AS is_high_traffic
                 FROM connections
                 WHERE timestamp >= datetime('now', '-{hours} hours')
                   AND dst_ip NOT LIKE '192.168.%'
@@ -134,9 +134,9 @@ class Database:
                          total_bytes DESC,
                          conn_count DESC
                 LIMIT ?
-                """,
-                (limit,),
-            )
+                """
+            params = (*port_list, high_bytes, limit)
+            cur = self.conn.execute(query, params)
             return [dict(row) for row in cur.fetchall()]
 
     def get_last_analysis_time(self) -> str | None:
@@ -160,12 +160,12 @@ class Database:
           3. Çoklu bağlantı sayısı
         """
         from config import SUSPICIOUS_PORTS, SUSPICIOUS_BYTES_THRESHOLD
-        port_list = ",".join(str(p) for p in SUSPICIOUS_PORTS)
+        port_list = list(SUSPICIOUS_PORTS)
         high_bytes = max(SUSPICIOUS_BYTES_THRESHOLD * 20, 1_000_000)
         
         with self._lock:
-            cur = self.conn.execute(
-                f"""
+            placeholders = ",".join("?" * len(port_list)) if port_list else ""
+            query = f"""
                 SELECT   dst_ip,
                          dst_port,
                          process,
@@ -174,9 +174,9 @@ class Database:
                          COUNT(*)                            AS conn_count,
                          MIN(timestamp)                      AS first_seen,
                          MAX(timestamp)                      AS last_seen,
-                         CASE WHEN dst_port IN ({port_list})
+                         CASE WHEN dst_port IN ({placeholders})
                               THEN 1 ELSE 0 END              AS suspicious_port,
-                         CASE WHEN SUM(bytes) > {high_bytes}
+                         CASE WHEN SUM(bytes) > ?
                               THEN 1 ELSE 0 END              AS is_high_traffic
                 FROM connections
                 WHERE timestamp > ?
@@ -195,9 +195,9 @@ class Database:
                          total_bytes DESC,
                          conn_count DESC
                 LIMIT ?
-                """,
-                (since_ts, limit),
-            )
+                """
+            params = (*port_list, high_bytes, since_ts, limit)
+            cur = self.conn.execute(query, params)
             return [dict(row) for row in cur.fetchall()]
 
     def get_new_connection_count(self, since_ts: str) -> int:
@@ -298,10 +298,10 @@ class Database:
     def get_suspicious_connections(self, hours: int = 1) -> list[dict]:
         """Son N saatin büyük veya bilinen tehlikeli portlu bağlantıları."""
         from config import SUSPICIOUS_BYTES_THRESHOLD, SUSPICIOUS_PORTS
-        port_placeholders = ",".join("?" * len(SUSPICIOUS_PORTS))
+        port_list = list(SUSPICIOUS_PORTS)
+        port_placeholders = ",".join("?" * len(port_list)) if port_list else ""
         with self._lock:
-            cur = self.conn.execute(
-                f"""
+            query = f"""
                 SELECT dst_ip, dst_port, process, SUM(bytes) AS total_bytes
                 FROM connections
                 WHERE timestamp >= datetime('now', '-{hours} hours')
@@ -311,9 +311,9 @@ class Database:
                    OR dst_port IN ({port_placeholders})
                 ORDER BY total_bytes DESC
                 LIMIT 10
-                """,
-                [SUSPICIOUS_BYTES_THRESHOLD, *list(SUSPICIOUS_PORTS)],
-            )
+                """
+            params = [SUSPICIOUS_BYTES_THRESHOLD, *port_list] if port_list else [SUSPICIOUS_BYTES_THRESHOLD]
+            cur = self.conn.execute(query, params)
             return [dict(row) for row in cur.fetchall()]
 
     def get_recent_connections(self, limit: int = 200, offset: int = 0) -> list[dict]:

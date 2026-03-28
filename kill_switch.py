@@ -1,5 +1,5 @@
 """
-AgTara — Kill-Switch Modülü
+NetSonar — Kill-Switch Modülü
 Windows Güvenlik Duvarı kuralları ile şüpheli IP'leri anında engeller/kaldırır.
 UYARI: Yönetici (Administrator) yetkileri gerektirir.
 """
@@ -8,7 +8,7 @@ import subprocess
 import re
 from database import Database
 
-RULE_PREFIX = "AgTara_BLOCK_"
+RULE_PREFIX = "NetSonar_BLOCK_"
 
 
 def _run(cmd: list[str]) -> tuple[bool, str]:
@@ -26,16 +26,22 @@ def _run(cmd: list[str]) -> tuple[bool, str]:
         return False, str(exc)
 
 
-def block_ip(ip: str, reason: str = "AgTara tarafından engellendi", db: Database = None) -> bool:
+def block_ip(ip: str, reason: str = "NetSonar tarafından engellendi", db: Database = None) -> bool:
     """
     Belirli bir IP'ye giden tüm trafiği Windows Güvenlik Duvarı ile engeller.
     Hem giden (out) hem gelen (in) yönde kural oluşturur.
+    IPv4 ve IPv6 destekler.
     """
     if not _is_valid_ip(ip):
         print(f"[KillSwitch] Geçersiz IP: {ip}")
         return False
 
-    rule_name = f"{RULE_PREFIX}{ip.replace('.', '_')}"
+    # IPv6 adresleri için rule name temizleme
+    if ":" in ip:
+        rule_name = f"{RULE_PREFIX}ipv6_{ip.replace(':', '_').replace(' ', '')}"
+    else:
+        rule_name = f"{RULE_PREFIX}{ip.replace('.', '_')}"
+    
     success = True
 
     for direction in ("out", "in"):
@@ -49,7 +55,7 @@ def block_ip(ip: str, reason: str = "AgTara tarafından engellendi", db: Databas
             "profile=any",
         ])
         if not ok:
-            print(f"[KillSwitch] [HATA] Gelen kural olusturulamadı ({direction}): {output.strip()}")
+            print(f"[KillSwitch] [HATA] Kural oluşturulamadı ({direction}): {output.strip()}")
             success = False
         else:
             print(f"[KillSwitch] [OK] {ip} engellendi ({direction})")
@@ -61,8 +67,13 @@ def block_ip(ip: str, reason: str = "AgTara tarafından engellendi", db: Databas
 
 
 def unblock_ip(ip: str) -> bool:
-    """Belirli bir IP için oluşturulan güvenlik duvarı kurallarını kaldırır."""
-    rule_base = f"{RULE_PREFIX}{ip.replace('.', '_')}"
+    """Belirli bir IP için oluşturulan güvenlik duvarı kurallarını kaldırır. IPv4 ve IPv6 destekler."""
+    # IPv6 adresleri için rule name
+    if ":" in ip:
+        rule_base = f"{RULE_PREFIX}ipv6_{ip.replace(':', '_').replace(' ', '')}"
+    else:
+        rule_base = f"{RULE_PREFIX}{ip.replace('.', '_')}"
+    
     success = True
 
     for direction in ("out", "in"):
@@ -80,7 +91,7 @@ def unblock_ip(ip: str) -> bool:
 
 
 def list_blocked() -> list[str]:
-    """AgTara tarafından oluşturulan tüm engelleme kurallarını listeler."""
+    """NetSonar tarafından oluşturulan tüm engelleme kurallarını listeler."""
     ok, output = _run([
         "netsh", "advfirewall", "firewall", "show", "rule", f"name={RULE_PREFIX}*"
     ])
@@ -100,8 +111,15 @@ def list_blocked() -> list[str]:
 
 
 def _is_valid_ip(ip: str) -> bool:
-    pattern = r"^(\d{1,3}\.){3}\d{1,3}$"
-    if not re.match(pattern, ip):
-        return False
-    parts = ip.split(".")
-    return all(0 <= int(p) <= 255 for p in parts)
+    # IPv4 kontrolü
+    ipv4_pattern = r"^(\d{1,3}\.){3}\d{1,3}$"
+    if re.match(ipv4_pattern, ip):
+        parts = ip.split(".")
+        return all(0 <= int(p) <= 255 for p in parts)
+    
+    # IPv6 kontrolü
+    ipv6_pattern = r"^([0-9a-fA-F]{0,4}:){2,7}[0-9a-fA-F]{0,4}$"
+    if re.match(ipv6_pattern, ip):
+        return True
+    
+    return False

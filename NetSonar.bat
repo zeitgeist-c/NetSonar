@@ -1,6 +1,6 @@
 @echo off
-:: AgTara — Baslat (.venv kullanir)
-title AgTara - AI Ag Izleyici
+:: NetSonar — Baslat (.venv kullanir)
+title NetSonar - AI Ag Izleyici
 
 :: Admin kontrolü
 net session >nul 2>&1
@@ -25,9 +25,6 @@ if not exist "C:\Windows\System32\Npcap\pcap.dll" (
     echo.
 )
 
-echo AgTara baslatiliyor...
-echo.
-%PYTHON% main.py 2>&1
-echo.
-echo Program kapandı. Hata varsa yukarıda görebilirsiniz.
-pause
+echo NetSonar baslatiliyor...
+start /b .venv\Scripts\pythonw.exe main.py 2>> netsonar_data\logs\netsonar_err.log
+exit

@@ -1,5 +1,5 @@
 """
-AgTara — Masaustu Bildirim Modulu
+NetSonar — Masaustu Bildirim Modulu
 ==================================
 Kural: Yalnizca AI analizi tamamlaninca veya basarisiz olunca bildirim goster.
 Diger olaylar (port uyarisi, yuksek trafik vb.) sadece konsola yazilir.
@@ -15,7 +15,7 @@ def _send_toast(title: str, message: str, severity: str = "info"):
     try:
         from winotify import Notification, audio
         toast = Notification(
-            app_id="AgTara",
+            app_id="NetSonar",
             title=title,
             msg=message[:256] if len(message) > 256 else message,
             duration="long" if severity == "critical" else "short",
@@ -35,7 +35,7 @@ def _send_toast(title: str, message: str, severity: str = "info"):
         notification.notify(
             title=title,
             message=message[:256],
-            app_name="AgTara",
+            app_name="NetSonar",
             timeout=10 if severity == "critical" else 6,
         )
     except Exception:
@@ -51,10 +51,6 @@ def _log(title: str, message: str, level: str = "INFO"):
 # ─── Sadece loglanan olaylar (bildirim GÖNDERILMEZ) ──────────────────
 def notify_suspicious_port(ip: str, port: int, process: str):
     _log("Supheeli Port", f"{process} -> {ip}:{port}", "WARNING")
-
-
-def notify_vt_threat(ip: str, malicious_count: int, country: str):
-    _log("VirusTotal Tehdit", f"{ip} ({country}) — {malicious_count} motor tehdit isaretledi", "CRITICAL")
 
 
 def notify_high_traffic(ip: str, bytes_sent: int, process: str):
@@ -81,7 +77,7 @@ def notify_analysis_done(risk_score: float, status: str, provider: str, suspicio
         severity = "info"
         icon     = "🟢"
 
-    title   = f"AgTara — {icon} Risk: {risk_score:.1f}/10"
+    title   = f"NetSonar — {icon} Risk: {risk_score:.1f}/10"
     message = (
         f"Durum: {status}\n"
         f"Supheli baglanti: {suspicious_count} adet\n"
@@ -96,7 +92,7 @@ def notify_analysis_failed(reason: str, provider: str):
     AI analizi basarisiz olunca cagrilir.
     Her zaman Windows bildirimi gonderir.
     """
-    title   = "AgTara — ⚠️ Analiz Basarisiz"
+    title   = "NetSonar — ⚠️ Analiz Basarisiz"
     message = f"Saglayici: {provider.upper()}\nHata: {reason[:200]}"
     _log(title, message, "ERROR")
     _send_toast(title, message, "warning")
@@ -104,7 +100,7 @@ def notify_analysis_failed(reason: str, provider: str):
 
 def notify_ip_blocked(ip: str):
     """IP engelleme bildirimi — her zaman gosterilir."""
-    title   = "AgTara — 🛡️ IP Engellendi"
+    title   = "NetSonar — 🛡️ IP Engellendi"
     message = f"{ip} guvvenlik duvarina eklendi."
     _log(title, message, "INFO")
     _send_toast(title, message, "info")

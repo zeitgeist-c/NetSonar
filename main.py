@@ -1,4 +1,4 @@
-"""AgTara — Ana Giris Noktasi.
+"""NetSonar — Ana Giris Noktasi.
 
 GUI ile baslatir (varsayilan). Ozel bayraklar icin CLI modu desteklenir.
 
@@ -9,7 +9,6 @@ Kullanim::
     python main.py --block IP         IP engelle
     python main.py --unblock IP       IP engelini kaldir
     python main.py --list-blocked     Engellenen IP'leri listele
-    python main.py --vt IP            VirusTotal sorgusu
     python main.py --no-gui           Konsol modunda calistir
 """
 
@@ -24,7 +23,6 @@ from capture_engine import CaptureEngine
 from ai_analyzer import AIAnalyzer
 from scheduler import AnalysisScheduler
 from kill_switch import block_ip, unblock_ip, list_blocked
-from threat_intel import check_ip
 from config import AI_PROVIDER
 
 setup_logging()
@@ -54,16 +52,27 @@ def _require_admin():
 
 
 def main():
-    parser = argparse.ArgumentParser(description="AgTara Network Monitor")
+    parser = argparse.ArgumentParser(description="NetSonar Network Monitor")
     parser.add_argument("--analyze",      action="store_true", help="Anlik AI analizi")
     parser.add_argument("--block",        metavar="IP",        help="IP engelle")
     parser.add_argument("--unblock",      metavar="IP",        help="IP engelini kaldir")
     parser.add_argument("--list-blocked", action="store_true", help="Engellenen IP'leri listele")
-    parser.add_argument("--vt",           metavar="IP",        help="VirusTotal sorgusu")
     parser.add_argument("--no-gui",       action="store_true", help="Konsol modunda calistir")
     args = parser.parse_args()
 
     _require_admin()
+
+    # Windows'ta GUI modunda konsol penceresini gizle
+    if not args.no_gui and sys.platform == "win32":
+        try:
+            import ctypes
+            kernel32 = ctypes.windll.kernel32
+            user32 = ctypes.windll.user32
+            console_window = kernel32.GetConsoleWindow()
+            if console_window:
+                user32.ShowWindow(console_window, 0)  # SW_HIDE = 0
+        except Exception:
+            pass
 
     db = Database()
 
@@ -83,17 +92,6 @@ def main():
         print("Engellenen IP'ler:" if blocked else "Engellenen IP yok.")
         for ip in blocked:
             print(f"  {ip}")
-        sys.exit(0)
-
-    if args.vt:
-        result = check_ip(args.vt)
-        icon = "TEHDIT" if result["is_threat"] else "Temiz"
-        print(f"\n{icon}  {args.vt} ({result['country']})")
-        print(
-            f"  Kotu niyetli: {result['malicious']}  "
-            f"Supheli: {result['suspicious']}  "
-            f"Temiz: {result['harmless']}"
-        )
         sys.exit(0)
 
     # ── Ortak servisler ───────────────────────────────────────────
@@ -121,7 +119,7 @@ def main():
     # ── Konsol Modu ───────────────────────────────────────────────
     import time
     from notifier import notify
-    notify("AgTara Basladi", "Ag trafigi izleniyor (konsol modu).", "info")
+    notify("NetSonar Basladi", "Ag trafigi izleniyor (konsol modu).", "info")
     log.info("Izleme aktif -- Durdurmak icin Ctrl+C'ye basin.")
     try:
         while True:

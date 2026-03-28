@@ -1,5 +1,5 @@
 """
-AgTara — Özel Uyarı Kuralları
+NetSonar — Özel Uyarı Kuralları
 Belirli IP veya portlar için otomatik bildirim oluşturur.
 """
 
@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Optional
 
 
-ALERTS_FILE = Path("agtara_data/custom_alerts.json")
+ALERTS_FILE = Path("netsonar_data/custom_alerts.json")
 
 
 class AlertRule:

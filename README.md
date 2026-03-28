@@ -1,4 +1,4 @@
-# AgTara — AI Destekli Ağ İzleme Aracı
+# NetSonar — AI Destekli Ağ İzleme Aracı
 
 > Windows tabanlı, PyQt6 GUI'li, yapay zeka entegreli ağ trafiği izleme ve anomali tespiti aracı.
 
@@ -34,7 +34,7 @@ pip install -r requirements.txt
 
 **Önerilen** (otomatik kurulum + admin kontrolü):
 ```
-AgTara.bat dosyasını çift tıkla
+NetSonar.bat dosyasını çift tıkla
 ```
 
 **Manuel:**
@@ -87,7 +87,7 @@ python main.py --no-gui               # Konsol modu
 ## Proje Yapısı
 
 ```
-AgTara/
+NetSonar/
 ├── main.py              # Giriş noktası (GUI + CLI)
 ├── app_gui.py           # PyQt6 arayüzü
 ├── config.py            # API anahtarları ve ayarlar
@@ -99,7 +99,7 @@ AgTara/
 ├── notifier.py          # Windows toast bildirimleri
 ├── scheduler.py         # APScheduler zamanlayıcı
 ├── requirements.txt     # Python bağımlılıkları
-└── AgTara.bat           # Windows başlatıcı
+└── NetSonar.bat           # Windows başlatıcı
 ```
 
 ---

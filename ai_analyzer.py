@@ -1,5 +1,5 @@
 """
-AgTara — AI Analiz Motoru (v3)
+NetSonar — AI Analiz Motoru (v3)
 ==============================
 
 Onemli degisiklik: openai kutuphanesine bagimliliik tamamen kaldirildi.
@@ -21,7 +21,7 @@ import requests
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-log = logging.getLogger("AgTara.AI")
+log = logging.getLogger("NetSonar.AI")
 
 
 def _cfg():
@@ -88,8 +88,8 @@ def _analyze_openrouter(user_msg: str) -> dict:
     headers = {
         "Authorization":  f"Bearer {cfg.OPENROUTER_API_KEY}",
         "Content-Type":   "application/json",
-        "HTTP-Referer":   "https://github.com/AgTara",
-        "X-Title":        "AgTara Network Monitor",
+        "HTTP-Referer":   "https://github.com/NetSonar",
+        "X-Title":        "NetSonar Network Monitor",
     }
 
     # Denenecek modeller: config'deki + fallback listesi (tekrar onleme)
@@ -237,11 +237,97 @@ def _analyze_gemini(user_msg: str) -> dict:
 
 
 # ─────────────────────────────────────────────────────────────
+#  O L L A M A  C L O U D  (requests ile — ollama native API)
+# ─────────────────────────────────────────────────────────────
+_FALLBACK_MODELS_OLLAMA = [
+    "qwen3.5",
+    "minimax-m2.7",
+    "qwen3-coder-next",
+    "devstral-small-2",
+    "nemotron-3-nano:30b",
+]
+
+def _analyze_ollama(user_msg: str) -> dict:
+    cfg = _cfg()
+    if not cfg.OLLAMA_API_KEY:
+        raise ValueError(
+            "Ollama API key bos!\n"
+            "ollama.com/settings/keys adresinden al, Ayarlar'a gir."
+        )
+
+    primary = cfg.OLLAMA_MODEL
+    models_to_try = [primary]
+    for fb in _FALLBACK_MODELS_OLLAMA:
+        if fb != primary:
+            models_to_try.append(fb)
+
+    last_error = None
+
+    for model in models_to_try:
+        payload = {
+            "model": model,
+            "messages": [
+                {"role": "system", "content": _cfg().AI_PROMPT},
+                {"role": "user",   "content": user_msg},
+            ],
+            "stream": False,
+        }
+
+        log.info("[Ollama] model=%s deniyor...", model)
+
+        try:
+            resp = requests.post(
+                "https://ollama.com/api/chat",
+                headers={"Authorization": f"Bearer {cfg.OLLAMA_API_KEY}"},
+                json=payload,
+                timeout=120,
+            )
+        except requests.Timeout:
+            log.warning("[Ollama] %s timeout — sonraki model deneniyor", model)
+            last_error = f"Model timeout: {model}"
+            continue
+        except requests.ConnectionError as e:
+            raise ValueError(f"Ollama'ya baglanilamiyor: {e}")
+
+        if resp.status_code == 200:
+            data = resp.json()
+            raw = data.get("message", {}).get("content", "")
+            if raw and raw.strip():
+                log.info("[Ollama] BASARILI model=%s cevap=%d karakter", model, len(raw))
+                return _extract_json(raw)
+            else:
+                log.warning("[Ollama] %s bos cevap donderdi", model)
+                last_error = f"Bos cevap: {model}"
+                continue
+
+        elif resp.status_code == 404:
+            log.warning("[Ollama] %s bulunamadi (HTTP 404) — sonraki deneniyor", model)
+            last_error = f"{model}: HTTP 404"
+            continue
+
+        elif resp.status_code == 401:
+            raise ValueError("Ollama API key gecersiz veya suresi dolmus.")
+
+        else:
+            body = resp.text[:300]
+            last_error = f"{model}: HTTP {resp.status_code} — {body}"
+            log.warning("[Ollama] %s beklenmeyen hata: %s", model, last_error)
+            continue
+
+    raise ValueError(
+        f"Tum modeller basarisiz oldu.\nSon hata: {last_error}\n\n"
+        "Cozum: ollama.com/search?c=cloud adresinden cloud modelleri kontrol et, "
+        "veya kisa sure sonra tekrar dene."
+    )
+
+
+# ─────────────────────────────────────────────────────────────
 #  O R T A K   A R A Y Ü Z
 # ─────────────────────────────────────────────────────────────
 PROVIDERS = {
     "openrouter": _analyze_openrouter,
     "gemini":     _analyze_gemini,
+    "ollama":     _analyze_ollama,
 }
 
 
@@ -300,16 +386,23 @@ class AIAnalyzer:
 
         return issues
 
-    def analyze(self, hours: int = 1, force_full: bool = False) -> dict:
+    def analyze(self, hours: int = 1, force_full: bool = False, stage_callback=None) -> dict:
         """
         Artimli analiz: Son basarili analizden bu yana gelen YENI verileri gonderir.
         - force_full=True: son {hours} saatin tumunu gonderir (elle tetikleme icin).
         - Yeni kayit yoksa analizi atlar, token harcamaz.
         - result dict'e '_meta' alani ekler: preview ve token tahmini icin.
+        - stage_callback(stage_name, progress): GUI'de analiz asamalarini gostermek icin.
         """
+        def emit_stage(name, prog):
+            if stage_callback:
+                stage_callback(name, prog)
+
         cfg      = _cfg()
         provider = cfg.AI_PROVIDER
         now_str  = datetime.now().strftime("%Y-%m-%d %H:%M")
+
+        emit_stage("Hazırlanıyor…", 10)
 
         # ── Artimli mi, Tam mi? ──────────────────────────────────────
         last_ts = self.db.get_last_analysis_time()
@@ -349,6 +442,8 @@ class AIAnalyzer:
             provider.upper(), len(summary), est_tokens, since_label,
         )
 
+        emit_stage("İşleniyor…", 25)
+
         # ── Kullanici Mesaji ───────────────────────────────────────
         user_msg = json.dumps({
             "analysis_time":   now_str,
@@ -358,6 +453,8 @@ class AIAnalyzer:
             "est_tokens":      est_tokens,
             "traffic_summary": summary,
         }, ensure_ascii=False, indent=2)
+
+        emit_stage("İşleniyor…", 35)
 
         # _meta: GUI'nin onizleme panelinde gostermesi icin
         _meta = {
@@ -381,16 +478,23 @@ class AIAnalyzer:
                 "summary": "Yapilandirma sorunlari:\n" + "\n".join(f"- {i}" for i in issues),
             }
 
+        emit_stage("Gönderiliyor…", 40)
+        emit_stage("Bekleniyor…", 50)
+
         # Analiz (GeminiQuotaError durumunda OpenRouter'a fallback)
         try:
             fn     = PROVIDERS[provider]
             result = fn(user_msg)
+            emit_stage("İşleniyor…", 90)
         except GeminiQuotaError as quota_exc:
             # Gemini kota doldu — OpenRouter ile dene
             log.warning("[AIAnalyzer] %s — OpenRouter fallback deneniyor", quota_exc)
             if "openrouter" in PROVIDERS and provider != "openrouter":
                 try:
+                    emit_stage("Gönderiliyor…", 40)
+                    emit_stage("Bekleniyor…", 50)
                     result = PROVIDERS["openrouter"](user_msg)
+                    emit_stage("İşleniyor…", 90)
                     provider = "openrouter (gemini-fallback)"
                     log.info("[AIAnalyzer] OpenRouter fallback BASARILI")
                 except Exception as fb_exc:
@@ -458,9 +562,6 @@ class AIAnalyzer:
         # _meta'yi result'a ekle (GUI icin)
         result["_meta"] = _meta
 
-        # VirusTotal zenginlestirme — supheeli IP'leri paralel sorgula
-        result = self._enrich_with_vt(result)
-
         # DB'ye kaydet (_meta ham JSON icerdiğinden DB'ye yazma)
         db_content = {k: v for k, v in result.items() if k != "_meta"}
         self.db.save_report(
@@ -486,65 +587,9 @@ class AIAnalyzer:
         self._auto_block_connections(result)
 
         log.info("[AIAnalyzer] tamamlandi — skor=%.1f durum=%s", result["risk_score"], result["status"])
+        emit_stage("✓ Tamamlandı", 100)
         return result
 
-
-    def _enrich_with_vt(self, result: dict) -> dict:
-        """
-        Supheli baglantilardaki IP'leri VirusTotal ile sorgulay,
-        sonuclari her baglantinin 'vt' alani olarak ekle.
-        Rate limit nedeniyle max 5 IP, paralel isteklerle.
-        """
-        conns = result.get("suspicious_connections", [])
-        if not conns:
-            return result
-
-        # Sorgulanacak harici IP'leri topla (en fazla 5)
-        ips_to_check = []
-        for conn in conns:
-            ip = conn.get("ip", "")
-            if ip and not any(ip.startswith(p) for p in ("192.168.", "10.", "127.", "172.")):
-                if ip not in ips_to_check:
-                    ips_to_check.append(ip)
-            if len(ips_to_check) >= 5:
-                break
-
-        if not ips_to_check:
-            return result
-
-        log.info("[VT] %d IP zenginlestiriliyor: %s", len(ips_to_check), ips_to_check)
-
-        vt_map: dict[str, dict] = {}
-        try:
-            from threat_intel import check_ip
-            with ThreadPoolExecutor(max_workers=3) as pool:
-                futures = {pool.submit(check_ip, ip): ip for ip in ips_to_check}
-                for fut in as_completed(futures, timeout=20):
-                    ip  = futures[fut]
-                    try:
-                        vt_map[ip] = fut.result()
-                    except Exception as exc:
-                        vt_map[ip] = {"error": str(exc)}
-        except Exception as exc:
-            log.warning("[VT] zenginlestirme hatasi: %s", exc)
-            return result
-
-        # VT sonuclarini baglantilara ekle
-        for conn in conns:
-            ip = conn.get("ip", "")
-            if ip in vt_map:
-                vt = vt_map[ip]
-                conn["vt_malicious"]  = vt.get("malicious", 0)
-                conn["vt_suspicious"] = vt.get("suspicious", 0)
-                conn["vt_country"]    = vt.get("country", "?")
-                conn["vt_is_threat"]  = vt.get("is_threat", False)
-                # Risk skorunu yukselt (VT tehditi teyit ediyorsa)
-                if vt.get("is_threat") and result["risk_score"] < 9.0:
-                    result["risk_score"] = min(10.0, result["risk_score"] + 1.5)
-                    log.info("[VT] %s tehdit onaylandi, risk skoru guncellendi", ip)
-
-        result["suspicious_connections"] = conns
-        return result
 
     def _auto_block_connections(self, result: dict):
         """AI 'Hemen engelle' dediği IP'leri otomatik engeller."""
