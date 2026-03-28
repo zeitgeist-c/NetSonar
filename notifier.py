@@ -10,12 +10,14 @@ from datetime import datetime
 
 def _send_toast(title: str, message: str, severity: str = "info"):
     """Windows toast bildirimi gonder. winotify → plyer fallback."""
+    if not isinstance(message, str):
+        message = str(message)
     try:
         from winotify import Notification, audio
         toast = Notification(
             app_id="AgTara",
             title=title,
-            msg=message[:256],
+            msg=message[:256] if len(message) > 256 else message,
             duration="long" if severity == "critical" else "short",
         )
         if severity == "critical":

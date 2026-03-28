@@ -32,44 +32,10 @@ def _cfg():
 
 
 # ─────────────────────────────────────────────────────────────
-#  System Prompt
+#  System Prompt (config'den yüklenir)
 # ─────────────────────────────────────────────────────────────
-SYSTEM_PROMPT = """Sen AgTara adli Windows ag izleme aracinin siber guvenlik AI analistisin.
-
-GOREV:
-Sana bir Windows bilgisayardan toplanan son 1 saatlik ag trafigi ozetini JSON olarak veriyorum.
-Bu ozet; hedef IP, port, protokol, byte miktari ve surec adi gibi META VERILERDEN olusur.
-Ham paket icerigi, URL veya parola icermez.
-
-ANALIZDE BAKILACAKLAR:
-1. Bilindik zararli / supheeli IP'ler (Tor exit node, C2 sunucu, botnet vb.)
-2. Tehlikeli portlar: 4444, 1337, 31337, 5555, 6666, 6667, 8888, 9999
-3. Anormal surecler: svchost, powershell, wscript, cmd, mshta uzerinden internet
-4. Tek hedefe yuksek veri transferi (>5MB tek baglanti)
-5. Gece 2-6 arasi otomatik baglantilar
-6. Surec adi ile beklenen davranis arasindaki uyumsuzluk
-
-KESIN CEVAP FORMATI — Yalnizca asagidaki JSON yapisini dondur:
-{
-  "risk_score": 6.2,
-  "status": "DIKKATE AL",
-  "suspicious_connections": [
-    {
-      "ip": "185.220.101.5",
-      "port": 4444,
-      "process": "powershell.exe",
-      "bytes_sent": 524288,
-      "reason": "Bilinen Tor cikis dugumu.",
-      "action": "Hemen engelle"
-    }
-  ],
-  "summary": "Tek paragraf Turkce yorum."
-}
-
-RISK SKORU:
-0-3 → "GUVENLI" | 3-5 → "NORMAL" | 5-7 → "DIKKATE AL" | 7-9 → "DIKKAT GEREKTIRIYOR" | 9-10 → "KRITIK TEHDIT"
-
-ONEMLI: suspicious_connections bos olabilir. JSON disinda hicbir sey yazma."""
+# SYSTEM_PROMPT artık config.AI_PROMPT kullanılarak alınıyor
+# Prompt ayar dosyasından yüklenir: config/ai_prompt.txt
 
 
 # ─────────────────────────────────────────────────────────────
@@ -139,7 +105,7 @@ def _analyze_openrouter(user_msg: str) -> dict:
         payload = {
             "model":       model,
             "messages":    [
-                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "system", "content": _cfg().AI_PROMPT},
                 {"role": "user",   "content": user_msg},
             ],
             "max_tokens":  1500,
@@ -219,7 +185,7 @@ def _analyze_gemini(user_msg: str) -> dict:
 
     payload = {
         "system_instruction": {
-            "parts": [{"text": SYSTEM_PROMPT}]
+            "parts": [{"text": _cfg().AI_PROMPT}]
         },
         "contents": [
             {"role": "user", "parts": [{"text": user_msg}]}
@@ -356,7 +322,7 @@ class AIAnalyzer:
         else:
             # Artimli: sadece son analizden bu yana gelenleri gonder
             new_count  = self.db.get_new_connection_count(since_ts=last_ts)
-            summary    = self.db.get_summary_since(since_ts=last_ts, limit=50)
+            summary    = self.db.get_summary_since(since_ts=last_ts)
             since_label = f"Son analizden beri ({last_ts[:16]})"
 
         # Yeni kayit yok mu? Token harcama, atla.
@@ -374,8 +340,9 @@ class AIAnalyzer:
                 "_meta": {"skipped": True, "reason": msg, "since": last_ts},
             }
 
-        # ── Token Tahmini ──────────────────────────────────────────
-        # Her kayit ~100 token, system prompt ~500 token
+        # ── Token Tahmini ─────────────────────────────────────────────
+        # Not: Veri kaybını önlemek için token limit uygulanmıyor.
+        # Sorgu zaten en önemli verileri (şüpheli port, yüksek trafik) öncelikli alıyor.
         est_tokens = len(summary) * 100 + 500
         log.info(
             "[AIAnalyzer] %s | %d yeni kayit | ~%d token tahmini | %s",
@@ -515,6 +482,9 @@ class AIAnalyzer:
         except Exception:
             pass
 
+        # Otomatik engelleme
+        self._auto_block_connections(result)
+
         log.info("[AIAnalyzer] tamamlandi — skor=%.1f durum=%s", result["risk_score"], result["status"])
         return result
 
@@ -575,3 +545,51 @@ class AIAnalyzer:
 
         result["suspicious_connections"] = conns
         return result
+
+    def _auto_block_connections(self, result: dict):
+        """AI 'Hemen engelle' dediği IP'leri otomatik engeller."""
+        cfg = _cfg()
+        if not cfg.AUTO_BLOCK_ENABLED:
+            return
+        
+        if result.get("risk_score", 0) < cfg.AUTO_BLOCK_MIN_RISK_SCORE:
+            return
+        
+        conns = result.get("suspicious_connections", [])
+        if not conns:
+            return
+        
+        try:
+            from kill_switch import block_ip
+        except Exception as exc:
+            log.error("[AutoBlock] kill_switch import hatasi: %s", exc)
+            return
+        
+        blocked_count = 0
+        for conn in conns:
+            action = conn.get("action", "").lower()
+            ip = conn.get("ip", "")
+            
+            if not ip or ip.startswith(("192.168.", "10.", "127.", "172.")):
+                continue
+            
+            if "engelle" in action or "block" in action:
+                try:
+                    ok = block_ip(ip, reason=f"AI otomatik engelleme: {conn.get('reason', '')}", db=self.db)
+                    if ok:
+                        blocked_count += 1
+                        conn["auto_blocked"] = True
+                        log.info("[AutoBlock] %s otomatik engellendi", ip)
+                except Exception as exc:
+                    log.error("[AutoBlock] %s engelleme hatasi: %s", ip, exc)
+        
+        if blocked_count > 0:
+            try:
+                from notifier import notify
+                notify(
+                    title="Otomatik Engelleme",
+                    message=f"{blocked_count} şüpheli IP engellendi.",
+                    severity="warning"
+                )
+            except Exception:
+                pass

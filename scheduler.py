@@ -6,7 +6,7 @@ APScheduler ile AI analizini ve Threat Intelligence taramasını tetikler.
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 
-from config import ANALYSIS_INTERVAL_MINUTES
+from config import ANALYSIS_INTERVAL_MINUTES, DB_CLEANUP_INTERVAL_HOURS
 from database import Database
 from ai_analyzer import AIAnalyzer
 from threat_intel import bulk_check
@@ -67,8 +67,18 @@ class AnalysisScheduler:
             replace_existing=True,
             max_instances=1,
         )
+        
+        # Veritabanı temizlik job'u (her 24 saatte bir)
+        self._scheduler.add_job(
+            func=lambda: self.db.cleanup_old_records(),
+            trigger=IntervalTrigger(hours=DB_CLEANUP_INTERVAL_HOURS),
+            id="db_cleanup",
+            replace_existing=True,
+            max_instances=1,
+        )
+        
         self._scheduler.start()
-        print(f"[Scheduler] ✅ Her {ANALYSIS_INTERVAL_MINUTES} dakikada analiz planlandı.")
+        print(f"[Scheduler] [OK] Her {ANALYSIS_INTERVAL_MINUTES} dakikada analiz, her {DB_CLEANUP_INTERVAL_HOURS} saatte temizlik planlandi.")
 
     def run_now(self):
         """Zamanlayıcıyı beklemeden analizi hemen çalıştır."""
@@ -76,4 +86,4 @@ class AnalysisScheduler:
 
     def stop(self):
         self._scheduler.shutdown(wait=False)
-        print("[Scheduler] 🛑 Zamanlayıcı durduruldu.")
+        print("[Scheduler] [STOP] Zamanlayici durduruldu.")

@@ -11,8 +11,21 @@ _executor = ThreadPoolExecutor(max_workers=6, thread_name_prefix="dns")
 _cache: dict[str, str] = {}
 
 # Yerel IP'leri hemen etiketle
-_LOCAL_PREFIXES = ("192.168.", "10.", "172.16.", "172.17.", "172.18.",
-                   "172.19.", "172.2", "172.3", "127.", "0.0.0.0")
+_LOCAL_PREFIXES = ("192.168.", "10.", "127.", "0.0.0.0")
+
+
+def _is_private_ip(ip: str) -> bool:
+    if ip.startswith("127.") or ip == "0.0.0.0":
+        return True
+    if ip.startswith("192.168.") or ip.startswith("10."):
+        return True
+    if ip.startswith("172."):
+        second = ip.split(".")[1]
+        try:
+            return 16 <= int(second) <= 31
+        except ValueError:
+            return False
+    return False
 
 
 def resolve(ip: str) -> str:
@@ -28,7 +41,7 @@ def resolve(ip: str) -> str:
         return _cache[ip]
 
     # Yerel IP'leri hemen isaretle
-    if any(ip.startswith(p) for p in _LOCAL_PREFIXES):
+    if _is_private_ip(ip):
         _cache[ip] = "Yerel Ag"
         return "Yerel Ag"
 

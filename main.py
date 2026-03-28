@@ -16,7 +16,9 @@ Kullanim::
 import sys
 import ctypes
 import argparse
+import logging
 
+from logging_config import setup_logging, get_logger
 from database import Database
 from capture_engine import CaptureEngine
 from ai_analyzer import AIAnalyzer
@@ -24,6 +26,9 @@ from scheduler import AnalysisScheduler
 from kill_switch import block_ip, unblock_ip, list_blocked
 from threat_intel import check_ip
 from config import AI_PROVIDER
+
+setup_logging()
+log = get_logger("Main")
 
 
 def _is_admin() -> bool:
@@ -92,7 +97,7 @@ def main():
         sys.exit(0)
 
     # ── Ortak servisler ───────────────────────────────────────────
-    print(f"[AgTara] AI Saglayici: {AI_PROVIDER.upper()}")
+    log.info(f"AI Saglayici: {AI_PROVIDER.upper()}")
 
     analyzer  = AIAnalyzer(db)
     engine    = CaptureEngine(db)
@@ -102,7 +107,7 @@ def main():
     scheduler.start()
 
     if args.analyze:
-        print("[AgTara] Anlik analiz calistiriliyor...")
+        log.info("Anlik analiz calistiriliyor...")
         scheduler.run_now()
         engine.stop()
         scheduler.stop()
@@ -117,17 +122,21 @@ def main():
     import time
     from notifier import notify
     notify("AgTara Basladi", "Ag trafigi izleniyor (konsol modu).", "info")
-    print("[AgTara] Izleme aktif -- Durdurmak icin Ctrl+C'ye basin.")
+    log.info("Izleme aktif -- Durdurmak icin Ctrl+C'ye basin.")
     try:
         while True:
             time.sleep(1)
     except KeyboardInterrupt:
-        print("\n[AgTara] Durduruluyor...")
+        log.info("Durduruluyor...")
     finally:
         engine.stop()
         scheduler.stop()
-        print("[AgTara] Gule gule.")
+        log.info("Gule gule.")
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as exc:
+        log.critical(f"Handle edilmemis hata: {exc}", exc_info=True)
+        sys.exit(1)

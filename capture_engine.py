@@ -10,11 +10,34 @@ import time
 from datetime import datetime
 
 import psutil
-from scapy.all import sniff, IP, TCP, UDP
+from scapy.all import sniff, IP, TCP, UDP, get_if_list
 
 from database import Database
 from notifier import notify_suspicious_port, notify_high_traffic
 from config import SUSPICIOUS_PORTS, SUSPICIOUS_BYTES_THRESHOLD
+
+
+def get_network_interfaces() -> list[dict]:
+    """Kullanılabilir ağ arayüzlerini döndürür."""
+    interfaces = []
+    try:
+        for iface in get_if_list():
+            try:
+                addrs = psutil.net_if_addrs()
+                if iface in addrs:
+                    for addr in addrs[iface]:
+                        if addr.family.name == 'AF_INET':
+                            interfaces.append({
+                                "name": iface,
+                                "ip": addr.address,
+                                "netmask": addr.netmask,
+                            })
+                            break
+            except Exception:
+                pass
+    except Exception:
+        pass
+    return interfaces
 
 # Port → süreç adı önbelleği (her 2 sn güncellenir)
 _port_process_map: dict[int, str] = {}
@@ -44,9 +67,13 @@ def _update_process_map():
         _port_process_map.update(mapping)
 
 
-def _get_process(src_port: int) -> str:
+def _get_process(src_port: int, dst_port: int = 0) -> str:
     with _map_lock:
-        return _port_process_map.get(src_port, "unknown")
+        if src_port in _port_process_map:
+            return _port_process_map.get(src_port, "unknown")
+        if dst_port in _port_process_map:
+            return _port_process_map.get(dst_port, "unknown")
+        return "unknown"
 
 
 def _packet_handler(packet, db: Database):
@@ -68,7 +95,7 @@ def _packet_handler(packet, db: Database):
         dst_port = packet[UDP].dport
 
     size    = len(packet)
-    process = _get_process(src_port)
+    process = _get_process(src_port, dst_port)
     dst_ip  = ip.dst
 
     # Veritabanına yaz
@@ -81,6 +108,20 @@ def _packet_handler(packet, db: Database):
         "bytes":    size,
         "process":  process,
     })
+    
+    # Özel uyarı kontrolü
+    try:
+        from custom_alerts import check_connection_alerts
+        matches = check_connection_alerts(dst_ip, dst_port, process)
+        for rule in matches:
+            from notifier import notify
+            notify(
+                title=f"⚠️ Özel Uyarı: {rule.name}",
+                message=f"{process} -> {dst_ip}:{dst_port}",
+                severity="warning"
+            )
+    except Exception:
+        pass
 
     # ── Anlık Kontrol 1: Bilinen tehlikeli port ──────────────────
     if dst_port in SUSPICIOUS_PORTS:
@@ -99,12 +140,17 @@ def _packet_handler(packet, db: Database):
 class CaptureEngine:
     """Ağ trafiğini arka plan thread'lerinde dinleyen motor."""
 
-    def __init__(self, db: Database):
+    def __init__(self, db: Database, interface: str = None):
         self.db = db
         self._running = False
         self._sniff_thread: threading.Thread | None = None
         self._map_thread: threading.Thread   | None = None
         self._counter_thread: threading.Thread | None = None
+        self._interface = interface  # None = tüm arayüzler
+
+    def set_interface(self, interface: str):
+        """Arayüz değiştir (aktifken değiştirme, önce stop() çağır)."""
+        self._interface = interface
 
     def start(self):
         if self._running:
@@ -125,19 +171,23 @@ class CaptureEngine:
         self._sniff_thread = threading.Thread(target=self._sniff_loop, daemon=True, name="ag-sniff")
         self._sniff_thread.start()
 
-        print("[CaptureEngine] ✅ Dinleme başladı.")
+        iface_name = self._interface if self._interface else "Tümü"
+        print(f"[CaptureEngine] [OK] Dinleme basladi ({iface_name}).")
 
     def stop(self):
         self._running = False
         self.db.flush()
-        print("[CaptureEngine] 🛑 Dinleme durduruldu, tampon yazıldı.")
+        print("[CaptureEngine] [STOP] Dinleme durduruldu, tampon yazildi.")
 
     def _sniff_loop(self):
-        sniff(
-            prn=lambda pkt: _packet_handler(pkt, self.db),
-            store=False,
-            stop_filter=lambda _: not self._running,
-        )
+        kwargs = {
+            "prn": lambda pkt: _packet_handler(pkt, self.db),
+            "store": False,
+            "stop_filter": lambda _: not self._running,
+        }
+        if self._interface:
+            kwargs["iface"] = self._interface
+        sniff(**kwargs)
 
     def _map_updater(self):
         while self._running:
