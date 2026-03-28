@@ -49,10 +49,10 @@ def block_ip(ip: str, reason: str = "AgTara tarafından engellendi", db: Databas
             "profile=any",
         ])
         if not ok:
-            print(f"[KillSwitch] ❌ Gelen kural oluşturulamadı ({direction}): {output.strip()}")
+            print(f"[KillSwitch] [HATA] Gelen kural olusturulamadı ({direction}): {output.strip()}")
             success = False
         else:
-            print(f"[KillSwitch] ✅ {ip} engellendi ({direction})")
+            print(f"[KillSwitch] [OK] {ip} engellendi ({direction})")
 
     if success and db:
         db.add_blocked_ip(ip, reason)

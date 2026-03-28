@@ -106,15 +106,14 @@ def _safe_result(ip: str, note: str = "") -> dict:
 
 
 def _is_private(ip: str) -> bool:
-    return (
-        ip.startswith("192.168.") or
-        ip.startswith("10.")       or
-        ip.startswith("172.16.")   or
-        ip.startswith("172.17.")   or
-        ip.startswith("172.18.")   or
-        ip.startswith("172.19.")   or
-        ip.startswith("172.2")     or
-        ip.startswith("172.3")     or
-        ip.startswith("127.")      or
-        ip == "0.0.0.0"
-    )
+    if ip.startswith("127.") or ip == "0.0.0.0":
+        return True
+    if ip.startswith("192.168.") or ip.startswith("10."):
+        return True
+    if ip.startswith("172."):
+        second = ip.split(".")[1]
+        try:
+            return 16 <= int(second) <= 31
+        except ValueError:
+            return False
+    return False

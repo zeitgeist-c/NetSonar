@@ -1,12 +1,14 @@
 """
 AgTara — SQLite Veritabanı Katmanı
 Thread-safe, batch-insert destekli bağlantı ve rapor yönetimi.
+Otomatik temizlik: DB_RETENTION_DAYS sonra eski kayıtları siler.
 """
 
 import sqlite3
 import threading
+import time
 from pathlib import Path
-from config import DB_PATH
+from config import DB_PATH, DB_RETENTION_DAYS, DB_CLEANUP_INTERVAL_HOURS
 
 
 class Database:
@@ -50,10 +52,18 @@ class Database:
                     blocked_at  TEXT
                 );
 
-                CREATE INDEX IF NOT EXISTS idx_conn_timestamp
-                    ON connections (timestamp);
-                CREATE INDEX IF NOT EXISTS idx_conn_dst_ip
-                    ON connections (dst_ip);
+            CREATE INDEX IF NOT EXISTS idx_conn_timestamp
+                ON connections (timestamp);
+            CREATE INDEX IF NOT EXISTS idx_conn_dst_ip
+                ON connections (dst_ip);
+            CREATE INDEX IF NOT EXISTS idx_conn_dst_port
+                ON connections (dst_port);
+            CREATE INDEX IF NOT EXISTS idx_conn_process
+                ON connections (process);
+            CREATE INDEX IF NOT EXISTS idx_conn_flagged
+                ON connections (flagged);
+            CREATE INDEX IF NOT EXISTS idx_conn_composite
+                ON connections (dst_ip, dst_port, process);
             """)
             self.conn.commit()
 
@@ -83,8 +93,19 @@ class Database:
             self._flush_locked()
 
     # ─── Özet Sorgular ───────────────────────────────────────────
-    def get_summary(self, hours: int = 1) -> list[dict]:
-        """AI'a gönderilecek grup bazlı özet — ham paket değil metadata."""
+    def get_summary(self, hours: int = 1, limit: int = 1000000) -> list[dict]:
+        """AI'a gönderilecek grup bazlı özet — ham paket değil metadata.
+        
+        Öncelik sırası (akıllı sıralama):
+        1. Şüpheli portlar (config.SUSPICIOUS_PORTS)
+        2. Yüksek byte transferi (>1MB)
+        3. Çoklu bağlantı sayısı
+        4. Son görülme zamanı
+        """
+        from config import SUSPICIOUS_PORTS, SUSPICIOUS_BYTES_THRESHOLD
+        port_list = ",".join(str(p) for p in SUSPICIOUS_PORTS)
+        high_bytes = max(SUSPICIOUS_BYTES_THRESHOLD * 20, 1_000_000)  # 1MB veya daha fazla
+        
         with self._lock:
             cur = self.conn.execute(
                 f"""
@@ -93,17 +114,28 @@ class Database:
                          process,
                          protocol,
                          SUM(bytes)   AS total_bytes,
-                         COUNT(*)     AS conn_count
+                         COUNT(*)     AS conn_count,
+                         CASE WHEN dst_port IN ({port_list}) THEN 1 ELSE 0 END AS is_suspicious_port,
+                         CASE WHEN SUM(bytes) > {high_bytes} THEN 1 ELSE 0 END AS is_high_traffic
                 FROM connections
                 WHERE timestamp >= datetime('now', '-{hours} hours')
                   AND dst_ip NOT LIKE '192.168.%'
                   AND dst_ip NOT LIKE '10.%'
                   AND dst_ip NOT LIKE '172.16.%'
+                  AND dst_ip NOT LIKE '172.17.%'
+                  AND dst_ip NOT LIKE '172.18.%'
+                  AND dst_ip NOT LIKE '172.19.%'
+                  AND dst_ip NOT LIKE '172.2%.%'
+                  AND dst_ip NOT LIKE '172.3%.%'
                   AND dst_ip NOT LIKE '127.%'
                 GROUP BY dst_ip, dst_port, process
-                ORDER BY total_bytes DESC
-                LIMIT 25
-                """
+                ORDER BY is_suspicious_port DESC,
+                         is_high_traffic DESC,
+                         total_bytes DESC,
+                         conn_count DESC
+                LIMIT ?
+                """,
+                (limit,),
             )
             return [dict(row) for row in cur.fetchall()]
 
@@ -118,17 +150,19 @@ class Database:
             ).fetchone()
             return row[0] if row else None
 
-    def get_summary_since(self, since_ts: str, limit: int = 50) -> list[dict]:
+    def get_summary_since(self, since_ts: str, limit: int = 1000000) -> list[dict]:
         """Belirli bir zamandan itibaren gelen YENİ bağlantıların özeti.
         since_ts: SQLite datetime string örn. '2024-03-24 22:00:00'
 
-        Öncelik sırası:
+        Öncelik sırası (akıllı sıralama):
           1. Şüpheli portlar (config.SUSPICIOUS_PORTS)
-          2. Yüksek byte transferi
-          3. Bağlantı sayısı
+          2. Yüksek byte transferi (>1MB)
+          3. Çoklu bağlantı sayısı
         """
-        from config import SUSPICIOUS_PORTS
+        from config import SUSPICIOUS_PORTS, SUSPICIOUS_BYTES_THRESHOLD
         port_list = ",".join(str(p) for p in SUSPICIOUS_PORTS)
+        high_bytes = max(SUSPICIOUS_BYTES_THRESHOLD * 20, 1_000_000)
+        
         with self._lock:
             cur = self.conn.execute(
                 f"""
@@ -141,15 +175,23 @@ class Database:
                          MIN(timestamp)                      AS first_seen,
                          MAX(timestamp)                      AS last_seen,
                          CASE WHEN dst_port IN ({port_list})
-                              THEN 1 ELSE 0 END              AS suspicious_port
+                              THEN 1 ELSE 0 END              AS suspicious_port,
+                         CASE WHEN SUM(bytes) > {high_bytes}
+                              THEN 1 ELSE 0 END              AS is_high_traffic
                 FROM connections
                 WHERE timestamp > ?
                   AND dst_ip NOT LIKE '192.168.%'
                   AND dst_ip NOT LIKE '10.%'
                   AND dst_ip NOT LIKE '172.16.%'
+                  AND dst_ip NOT LIKE '172.17.%'
+                  AND dst_ip NOT LIKE '172.18.%'
+                  AND dst_ip NOT LIKE '172.19.%'
+                  AND dst_ip NOT LIKE '172.2%.%'
+                  AND dst_ip NOT LIKE '172.3%.%'
                   AND dst_ip NOT LIKE '127.%'
                 GROUP BY dst_ip, dst_port, process
                 ORDER BY suspicious_port DESC,
+                         is_high_traffic DESC,
                          total_bytes DESC,
                          conn_count DESC
                 LIMIT ?
@@ -166,6 +208,91 @@ class Database:
                 (since_ts,),
             ).fetchone()
             return row[0] if row else 0
+
+    def get_frequent_connections(self, hours: int = 1, limit: int = 10) -> list[dict]:
+        """En sık bağlanılan IP'ler (en çok bağlantı sayısı)."""
+        with self._lock:
+            cur = self.conn.execute(
+                """
+                SELECT dst_ip,
+                       COUNT(*) AS conn_count,
+                       SUM(bytes) AS total_bytes,
+                       MAX(timestamp) AS last_seen
+                FROM connections
+                WHERE timestamp >= datetime('now', '-{hours} hours')
+                  AND dst_ip NOT LIKE '192.168.%'
+                  AND dst_ip NOT LIKE '10.%'
+                  AND dst_ip NOT LIKE '172.16.%'
+                  AND dst_ip NOT LIKE '172.17.%'
+                  AND dst_ip NOT LIKE '172.18.%'
+                  AND dst_ip NOT LIKE '172.19.%'
+                  AND dst_ip NOT LIKE '172.2%.%'
+                  AND dst_ip NOT LIKE '172.3%.%'
+                  AND dst_ip NOT LIKE '127.%'
+                GROUP BY dst_ip
+                ORDER BY conn_count DESC
+                LIMIT ?
+                """.format(hours=hours),
+                (limit,),
+            )
+            return [dict(row) for row in cur.fetchall()]
+
+    def get_top_transfer_connections(self, hours: int = 1, limit: int = 10) -> list[dict]:
+        """En fazla veri transferi yapan IP'ler."""
+        with self._lock:
+            cur = self.conn.execute(
+                """
+                SELECT dst_ip,
+                       SUM(bytes) AS total_bytes,
+                       COUNT(*) AS conn_count,
+                       MAX(timestamp) AS last_seen
+                FROM connections
+                WHERE timestamp >= datetime('now', '-{hours} hours')
+                  AND dst_ip NOT LIKE '192.168.%'
+                  AND dst_ip NOT LIKE '10.%'
+                  AND dst_ip NOT LIKE '172.16.%'
+                  AND dst_ip NOT LIKE '172.17.%'
+                  AND dst_ip NOT LIKE '172.18.%'
+                  AND dst_ip NOT LIKE '172.19.%'
+                  AND dst_ip NOT LIKE '172.2%.%'
+                  AND dst_ip NOT LIKE '172.3%.%'
+                  AND dst_ip NOT LIKE '127.%'
+                GROUP BY dst_ip
+                ORDER BY total_bytes DESC
+                LIMIT ?
+                """.format(hours=hours),
+                (limit,),
+            )
+            return [dict(row) for row in cur.fetchall()]
+
+    def get_diverse_port_connections(self, hours: int = 1, limit: int = 10) -> list[dict]:
+        """En fazla farklı porta bağlanan IP'ler."""
+        with self._lock:
+            cur = self.conn.execute(
+                """
+                SELECT dst_ip,
+                       COUNT(DISTINCT dst_port) AS port_count,
+                       SUM(bytes) AS total_bytes,
+                       COUNT(*) AS conn_count,
+                       MAX(timestamp) AS last_seen
+                FROM connections
+                WHERE timestamp >= datetime('now', '-{hours} hours')
+                  AND dst_ip NOT LIKE '192.168.%'
+                  AND dst_ip NOT LIKE '10.%'
+                  AND dst_ip NOT LIKE '172.16.%'
+                  AND dst_ip NOT LIKE '172.17.%'
+                  AND dst_ip NOT LIKE '172.18.%'
+                  AND dst_ip NOT LIKE '172.19.%'
+                  AND dst_ip NOT LIKE '172.2%.%'
+                  AND dst_ip NOT LIKE '172.3%.%'
+                  AND dst_ip NOT LIKE '127.%'
+                GROUP BY dst_ip
+                ORDER BY port_count DESC
+                LIMIT ?
+                """.format(hours=hours),
+                (limit,),
+            )
+            return [dict(row) for row in cur.fetchall()]
 
 
     def get_suspicious_connections(self, hours: int = 1) -> list[dict]:
@@ -189,15 +316,15 @@ class Database:
             )
             return [dict(row) for row in cur.fetchall()]
 
-    def get_recent_connections(self, limit: int = 200) -> list[dict]:
-        """GUI tablo için en son N bağlantıyı döndürür."""
+    def get_recent_connections(self, limit: int = 200, offset: int = 0) -> list[dict]:
+        """GUI tablo için en son N bağlantıyı döndürür. Sayfalama için offset kullanılabilir."""
         with self._lock:
             cur = self.conn.execute(
                 """SELECT timestamp, src_ip, dst_ip, dst_port, protocol,
                           bytes, process, flagged
                    FROM connections
-                   ORDER BY id DESC LIMIT ?""",
-                (limit,),
+                   ORDER BY id DESC LIMIT ? OFFSET ?""",
+                (limit, offset),
             )
             return [dict(row) for row in cur.fetchall()]
 
@@ -311,3 +438,221 @@ class Database:
             )
             row = cur.fetchone()
             return dict(row) if row else None
+
+    # ─── Otomatik Temizlik ─────────────────────────────────────────
+    def cleanup_old_records(self) -> dict:
+        """Eski kayıtları siler. Returns: {"connections": N, "reports": N}"""
+        if DB_RETENTION_DAYS <= 0:
+            return {"connections": 0, "reports": 0}
+        
+        with self._lock:
+            cur = self.conn.execute(
+                "DELETE FROM connections WHERE timestamp < datetime('now', ?)",
+                (f"-{DB_RETENTION_DAYS} days",)
+            )
+            deleted_conns = cur.rowcount
+            
+            cur = self.conn.execute(
+                "DELETE FROM reports WHERE created_at < datetime('now', ?)",
+                (f"-{DB_RETENTION_DAYS} days",)
+            )
+            deleted_reports = cur.rowcount
+            
+            self.conn.commit()
+            
+            if deleted_conns > 0 or deleted_reports > 0:
+                print(f"[Database] Temizlik: {deleted_conns} bağlantı, {deleted_reports} rapor silindi.")
+            
+            return {"connections": deleted_conns, "reports": deleted_reports}
+
+    def get_db_size_mb(self) -> float:
+        """Veritabanı dosya boyutunu MB olarak döndürür."""
+        try:
+            size = Path(DB_PATH).stat().st_size
+            return size / (1024 * 1024)
+        except Exception:
+            return 0.0
+
+    def get_record_counts(self) -> dict:
+        """Tablodaki kayıt sayılarını döndürür."""
+        with self._lock:
+            conn_count = self.conn.execute(
+                "SELECT COUNT(*) FROM connections"
+            ).fetchone()[0]
+            report_count = self.conn.execute(
+                "SELECT COUNT(*) FROM reports"
+            ).fetchone()[0]
+            blocked_count = self.conn.execute(
+                "SELECT COUNT(*) FROM blocked_ips"
+            ).fetchone()[0]
+            return {
+                "connections": conn_count,
+                "reports": report_count,
+                "blocked_ips": blocked_count,
+            }
+
+    def get_traffic_speed(self, minutes: int = 5) -> dict:
+        """Son N dakikadaki ortalama trafik hızını KB/s olarak döndürür."""
+        import datetime
+        with self._lock:
+            cutoff = (datetime.datetime.now() - datetime.timedelta(minutes=minutes)).isoformat()
+            row = self.conn.execute("""
+                SELECT 
+                    COALESCE(SUM(bytes), 0) as total_bytes
+                FROM connections
+                WHERE timestamp >= ?
+            """, (cutoff,)).fetchone()
+            
+            total_bytes = row["total_bytes"] or 0
+            total_seconds = minutes * 60
+            speed_kbs = (total_bytes / 1024) / total_seconds if total_seconds > 0 else 0
+            
+            return {
+                "upload_kbs": speed_kbs * 0.4,   # Tahmini
+                "download_kbs": speed_kbs * 0.6, # Tahmini
+                "total_kbs": speed_kbs,
+                "total_bytes": total_bytes,
+            }
+
+    def get_top_processes(self, hours: int = 1, limit: int = 5) -> list[dict]:
+        """En çok trafik yapan süreçleri döndürür."""
+        import datetime
+        with self._lock:
+            cutoff = (datetime.datetime.now() - datetime.timedelta(hours=hours)).isoformat()
+            rows = self.conn.execute("""
+                SELECT 
+                    process,
+                    SUM(bytes) as total_bytes,
+                    COUNT(*) as conn_count
+                FROM connections
+                WHERE timestamp >= ? AND process IS NOT NULL
+                GROUP BY process
+                ORDER BY total_bytes DESC
+                LIMIT ?
+            """, (cutoff, limit)).fetchall()
+            
+            return [dict(row) for row in rows]
+
+    def get_active_connections_count(self, minutes: int = 60) -> int:
+        """Son N dakikadaki aktif bağlantı sayısını döndürür."""
+        import datetime
+        with self._lock:
+            cutoff = (datetime.datetime.now() - datetime.timedelta(minutes=minutes)).isoformat()
+            row = self.conn.execute("""
+                SELECT COUNT(DISTINCT dst_ip) as count
+                FROM connections
+                WHERE timestamp >= ?
+            """, (cutoff,)).fetchone()
+            return row["count"] or 0
+
+    def get_protocol_distribution(self, hours: int = 24) -> dict:
+        """Protokol dağılımını yüzde olarak döndürür."""
+        import datetime
+        with self._lock:
+            cutoff = (datetime.datetime.now() - datetime.timedelta(hours=hours)).isoformat()
+            rows = self.conn.execute("""
+                SELECT 
+                    protocol,
+                    COUNT(*) as count,
+                    SUM(bytes) as total_bytes
+                FROM connections
+                WHERE timestamp >= ? AND protocol IS NOT NULL
+                GROUP BY protocol
+            """, (cutoff,)).fetchall()
+            
+            total = sum(row["count"] for row in rows)
+            result = {}
+            for row in rows:
+                proto = row["protocol"] or "OTHER"
+                result[proto] = {
+                    "count": row["count"],
+                    "bytes": row["total_bytes"],
+                    "percentage": round(row["count"] / total * 100, 1) if total > 0 else 0
+                }
+            return result
+
+    def get_traffic_comparison(self) -> dict:
+        """Bugün vs Dün, Bu Hafta vs Geçen Hafta karşılaştırması."""
+        import datetime
+        with self._lock:
+            today_start = datetime.datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+            yesterday_start = today_start - datetime.timedelta(days=1)
+            week_start = today_start - datetime.timedelta(days=today_start.weekday())
+            last_week_start = week_start - datetime.timedelta(days=7)
+            
+            # Bugün
+            today_data = self.conn.execute("""
+                SELECT COALESCE(SUM(bytes), 0) as total_bytes, COUNT(*) as conn_count
+                FROM connections WHERE timestamp >= ?
+            """, (today_start.isoformat(),)).fetchone()
+            
+            # Dün
+            yesterday_data = self.conn.execute("""
+                SELECT COALESCE(SUM(bytes), 0) as total_bytes, COUNT(*) as conn_count
+                FROM connections WHERE timestamp >= ? AND timestamp < ?
+            """, (yesterday_start.isoformat(), today_start.isoformat())).fetchone()
+            
+            # Bu hafta
+            week_data = self.conn.execute("""
+                SELECT COALESCE(SUM(bytes), 0) as total_bytes, COUNT(*) as conn_count
+                FROM connections WHERE timestamp >= ?
+            """, (week_start.isoformat(),)).fetchone()
+            
+            # Geçen hafta
+            last_week_data = self.conn.execute("""
+                SELECT COALESCE(SUM(bytes), 0) as total_bytes, COUNT(*) as conn_count
+                FROM connections WHERE timestamp >= ? AND timestamp < ?
+            """, (last_week_start.isoformat(), week_start.isoformat())).fetchone()
+            
+            def calc_change(current, previous):
+                if previous == 0:
+                    return 0 if current == 0 else 100
+                return round((current - previous) / previous * 100, 1)
+            
+            return {
+                "today": {
+                    "bytes": today_data["total_bytes"],
+                    "connections": today_data["conn_count"],
+                },
+                "yesterday": {
+                    "bytes": yesterday_data["total_bytes"],
+                    "connections": yesterday_data["conn_count"],
+                },
+                "today_change": calc_change(today_data["total_bytes"], yesterday_data["total_bytes"]),
+                "week": {
+                    "bytes": week_data["total_bytes"],
+                    "connections": week_data["conn_count"],
+                },
+                "last_week": {
+                    "bytes": last_week_data["total_bytes"],
+                    "connections": last_week_data["conn_count"],
+                },
+                "week_change": calc_change(week_data["total_bytes"], last_week_data["total_bytes"]),
+            }
+
+    def get_traffic_timeline(self, hours: int = 24, points: int = 12) -> list[dict]:
+        """Grafik için zaman çizgisi verisi. Son N saatlik veriyi N noktaya böler."""
+        import datetime
+        with self._lock:
+            now = datetime.datetime.now()
+            results = []
+            interval_minutes = (hours * 60) // points
+            
+            for i in range(points):
+                end_time = now - datetime.timedelta(minutes=i * interval_minutes)
+                start_time = end_time - datetime.timedelta(minutes=interval_minutes)
+                
+                row = self.conn.execute("""
+                    SELECT COALESCE(SUM(bytes), 0) as total_bytes, COUNT(*) as conn_count
+                    FROM connections
+                    WHERE timestamp >= ? AND timestamp < ?
+                """, (start_time.isoformat(), end_time.isoformat())).fetchone()
+                
+                results.append({
+                    "time": start_time.strftime("%H:%M"),
+                    "bytes": row["total_bytes"],
+                    "connections": row["conn_count"],
+                })
+            
+            # Tersine çevir (eskiden yeniye)
+            return list(reversed(results))

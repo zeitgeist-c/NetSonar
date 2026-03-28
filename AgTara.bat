@@ -2,6 +2,14 @@
 :: AgTara — Baslat (.venv kullanir)
 title AgTara - AI Ag Izleyici
 
+:: Admin kontrolü
+net session >nul 2>&1
+if %errorLevel% neq 0 (
+    echo UYARI: Admin yetkisi gerekli! Yeniden baslatiliyor...
+    powershell -Command "Start-Process cmd -ArgumentList '/c cd /d %CD% && %~nx0' -Verb RunAs"
+    exit /b
+)
+
 :: .venv Python'u kullan
 set PYTHON=.venv\Scripts\python.exe
 if not exist %PYTHON% (
@@ -18,5 +26,8 @@ if not exist "C:\Windows\System32\Npcap\pcap.dll" (
 )
 
 echo AgTara baslatiliyor...
-%PYTHON% main.py
+echo.
+%PYTHON% main.py 2>&1
+echo.
+echo Program kapandı. Hata varsa yukarıda görebilirsiniz.
 pause
