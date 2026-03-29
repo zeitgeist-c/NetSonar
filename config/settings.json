@@ -1,0 +1,16 @@
+{
+  "MINIMIZE_TO_TRAY": false,
+  "AUTO_BLOCK_ENABLED": false,
+  "autostart": false,
+  "interface": null,
+  "AI_PROVIDER": "ollama",
+  "GEMINI_API_KEY": "",
+  "GEMINI_MODEL": "gemini-2.0-flash-lite",
+  "AUTO_ANALYSIS_ENABLED": true,
+  "ANALYSIS_INTERVAL_MINUTES": 60,
+  "AUTO_BLOCK_MIN_RISK_SCORE": 8.0,
+  "OPENROUTER_API_KEY": "",
+  "OPENROUTER_MODEL": "google/gemma-3-27b-it:free",
+  "OLLAMA_API_KEY": "",
+  "OLLAMA_MODEL": ""
+}
