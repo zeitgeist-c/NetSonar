@@ -3,14 +3,11 @@
   "AUTO_BLOCK_ENABLED": false,
   "autostart": false,
   "interface": null,
-  "AI_PROVIDER": "ollama",
+  "AI_PROVIDER": "gemini",
   "GEMINI_API_KEY": "",
-  "GEMINI_MODEL": "gemini-2.0-flash-lite",
+  "GEMINI_API_KEYS": [],
+  "GEMINI_MODEL": "gemini-3.1-flash-lite",
   "AUTO_ANALYSIS_ENABLED": true,
-  "ANALYSIS_INTERVAL_MINUTES": 60,
-  "AUTO_BLOCK_MIN_RISK_SCORE": 8.0,
-  "OPENROUTER_API_KEY": "",
-  "OPENROUTER_MODEL": "google/gemma-3-27b-it:free",
-  "OLLAMA_API_KEY": "",
-  "OLLAMA_MODEL": ""
+  "ANALYSIS_INTERVAL_MINUTES": 120,
+  "AUTO_BLOCK_MIN_RISK_SCORE": 8.0
 }

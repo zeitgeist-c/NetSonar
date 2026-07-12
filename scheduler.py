@@ -47,9 +47,11 @@ class AnalysisScheduler:
     def __init__(self, db: Database, analyzer: AIAnalyzer):
         self.db = db
         self.analyzer = analyzer
-        self._scheduler = BackgroundScheduler(timezone="Europe/Istanbul")
+        self._scheduler = BackgroundScheduler()
 
     def start(self):
+        if self._scheduler.running:
+            return
         settings = load_settings()
         
         auto_analysis = settings.get("AUTO_ANALYSIS_ENABLED", True)
@@ -84,5 +86,6 @@ class AnalysisScheduler:
         _run_analysis(self.db, self.analyzer)
 
     def stop(self):
-        self._scheduler.shutdown(wait=False)
+        if self._scheduler.running:
+            self._scheduler.shutdown(wait=False)
         print("[Scheduler] [STOP] Zamanlayici durduruldu.")

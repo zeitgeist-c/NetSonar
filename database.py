@@ -7,8 +7,11 @@ Otomatik temizlik: DB_RETENTION_DAYS sonra eski kayıtları siler.
 import sqlite3
 import threading
 import time
+import ipaddress
+from datetime import datetime, timedelta
 from pathlib import Path
 from config import DB_PATH, DB_RETENTION_HOURS, DB_CLEANUP_INTERVAL_HOURS
+from ip_utils import sql_local_src_expr, sql_public_dst_filter
 
 
 class Database:
@@ -16,9 +19,31 @@ class Database:
         Path(DB_PATH).parent.mkdir(parents=True, exist_ok=True)
         self.conn = sqlite3.connect(DB_PATH, check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
+        try:
+            self.conn.execute("PRAGMA journal_mode=WAL;")
+        except Exception:
+            pass
         self._lock = threading.Lock()
         self._buffer: list[dict] = []
         self._create_tables()
+
+    @staticmethod
+    def _cutoff(hours: int | float) -> str:
+        return (datetime.now() - timedelta(hours=hours)).isoformat()
+
+    @staticmethod
+    def _public_dst_filter() -> str:
+        return sql_public_dst_filter("dst_ip")
+
+    @staticmethod
+    def _local_src_expr() -> str:
+        return sql_local_src_expr("src_ip")
+
+    @staticmethod
+    def _port_case(column: str, placeholders: str, alias: str) -> str:
+        if placeholders:
+            return f"CASE WHEN {column} IN ({placeholders}) THEN 1 ELSE 0 END AS {alias}"
+        return f"0 AS {alias}"
 
     # ─── Tablo Oluşturma ──────────────────────────────────────────
     def _create_tables(self):
@@ -51,6 +76,12 @@ class Database:
                     blocked_at  TEXT
                 );
 
+                CREATE TABLE IF NOT EXISTS trusted_ips (
+                    ip          TEXT PRIMARY KEY,
+                    note        TEXT,
+                    added_at    TEXT NOT NULL
+                );
+
             CREATE INDEX IF NOT EXISTS idx_conn_timestamp
                 ON connections (timestamp);
             CREATE INDEX IF NOT EXISTS idx_conn_dst_ip
@@ -63,6 +94,8 @@ class Database:
                 ON connections (flagged);
             CREATE INDEX IF NOT EXISTS idx_conn_composite
                 ON connections (dst_ip, dst_port, process);
+            CREATE INDEX IF NOT EXISTS idx_trusted_ips_added_at
+                ON trusted_ips (added_at);
             """)
             self.conn.commit()
 
@@ -107,6 +140,8 @@ class Database:
         
         with self._lock:
             placeholders = ",".join("?" * len(port_list)) if port_list else ""
+            suspicious_case = self._port_case("dst_port", placeholders, "is_suspicious_port")
+            public_filter = self._public_dst_filter()
             query = f"""
                 SELECT   dst_ip,
                          dst_port,
@@ -114,19 +149,12 @@ class Database:
                          protocol,
                          SUM(bytes)   AS total_bytes,
                          COUNT(*)     AS conn_count,
-                         CASE WHEN dst_port IN ({placeholders}) THEN 1 ELSE 0 END AS is_suspicious_port,
+                         {suspicious_case},
                          CASE WHEN SUM(bytes) > ? THEN 1 ELSE 0 END AS is_high_traffic
                 FROM connections
-                WHERE timestamp >= datetime('now', '-{hours} hours')
-                  AND dst_ip NOT LIKE '192.168.%'
-                  AND dst_ip NOT LIKE '10.%'
-                  AND dst_ip NOT LIKE '172.16.%'
-                  AND dst_ip NOT LIKE '172.17.%'
-                  AND dst_ip NOT LIKE '172.18.%'
-                  AND dst_ip NOT LIKE '172.19.%'
-                  AND dst_ip NOT LIKE '172.2%.%'
-                  AND dst_ip NOT LIKE '172.3%.%'
-                  AND dst_ip NOT LIKE '127.%'
+                WHERE timestamp >= ?
+                  AND {public_filter}
+                  AND NOT EXISTS (SELECT 1 FROM trusted_ips t WHERE t.ip = connections.dst_ip)
                 GROUP BY dst_ip, dst_port, process
                 ORDER BY is_suspicious_port DESC,
                          is_high_traffic DESC,
@@ -134,7 +162,7 @@ class Database:
                          conn_count DESC
                 LIMIT ?
                 """
-            params = (*port_list, high_bytes, limit)
+            params = (*port_list, high_bytes, self._cutoff(hours), limit)
             cur = self.conn.execute(query, params)
             return [dict(row) for row in cur.fetchall()]
 
@@ -164,6 +192,8 @@ class Database:
         
         with self._lock:
             placeholders = ",".join("?" * len(port_list)) if port_list else ""
+            suspicious_case = self._port_case("dst_port", placeholders, "suspicious_port")
+            public_filter = self._public_dst_filter()
             query = f"""
                 SELECT   dst_ip,
                          dst_port,
@@ -173,21 +203,13 @@ class Database:
                          COUNT(*)                            AS conn_count,
                          MIN(timestamp)                      AS first_seen,
                          MAX(timestamp)                      AS last_seen,
-                         CASE WHEN dst_port IN ({placeholders})
-                              THEN 1 ELSE 0 END              AS suspicious_port,
+                         {suspicious_case},
                          CASE WHEN SUM(bytes) > ?
                               THEN 1 ELSE 0 END              AS is_high_traffic
                 FROM connections
                 WHERE timestamp > ?
-                  AND dst_ip NOT LIKE '192.168.%'
-                  AND dst_ip NOT LIKE '10.%'
-                  AND dst_ip NOT LIKE '172.16.%'
-                  AND dst_ip NOT LIKE '172.17.%'
-                  AND dst_ip NOT LIKE '172.18.%'
-                  AND dst_ip NOT LIKE '172.19.%'
-                  AND dst_ip NOT LIKE '172.2%.%'
-                  AND dst_ip NOT LIKE '172.3%.%'
-                  AND dst_ip NOT LIKE '127.%'
+                  AND {public_filter}
+                  AND NOT EXISTS (SELECT 1 FROM trusted_ips t WHERE t.ip = connections.dst_ip)
                 GROUP BY dst_ip, dst_port, process
                 ORDER BY suspicious_port DESC,
                          is_high_traffic DESC,
@@ -212,27 +234,19 @@ class Database:
         """En sık bağlanılan IP'ler (en çok bağlantı sayısı)."""
         with self._lock:
             cur = self.conn.execute(
-                """
+                f"""
                 SELECT dst_ip,
                        COUNT(*) AS conn_count,
                        SUM(bytes) AS total_bytes,
                        MAX(timestamp) AS last_seen
                 FROM connections
-                WHERE timestamp >= datetime('now', '-{hours} hours')
-                  AND dst_ip NOT LIKE '192.168.%'
-                  AND dst_ip NOT LIKE '10.%'
-                  AND dst_ip NOT LIKE '172.16.%'
-                  AND dst_ip NOT LIKE '172.17.%'
-                  AND dst_ip NOT LIKE '172.18.%'
-                  AND dst_ip NOT LIKE '172.19.%'
-                  AND dst_ip NOT LIKE '172.2%.%'
-                  AND dst_ip NOT LIKE '172.3%.%'
-                  AND dst_ip NOT LIKE '127.%'
+                WHERE timestamp >= ?
+                  AND {self._public_dst_filter()}
                 GROUP BY dst_ip
                 ORDER BY conn_count DESC
                 LIMIT ?
-                """.format(hours=hours),
-                (limit,),
+                """,
+                (self._cutoff(hours), limit),
             )
             return [dict(row) for row in cur.fetchall()]
 
@@ -240,27 +254,19 @@ class Database:
         """En fazla veri transferi yapan IP'ler."""
         with self._lock:
             cur = self.conn.execute(
-                """
+                f"""
                 SELECT dst_ip,
                        SUM(bytes) AS total_bytes,
                        COUNT(*) AS conn_count,
                        MAX(timestamp) AS last_seen
                 FROM connections
-                WHERE timestamp >= datetime('now', '-{hours} hours')
-                  AND dst_ip NOT LIKE '192.168.%'
-                  AND dst_ip NOT LIKE '10.%'
-                  AND dst_ip NOT LIKE '172.16.%'
-                  AND dst_ip NOT LIKE '172.17.%'
-                  AND dst_ip NOT LIKE '172.18.%'
-                  AND dst_ip NOT LIKE '172.19.%'
-                  AND dst_ip NOT LIKE '172.2%.%'
-                  AND dst_ip NOT LIKE '172.3%.%'
-                  AND dst_ip NOT LIKE '127.%'
+                WHERE timestamp >= ?
+                  AND {self._public_dst_filter()}
                 GROUP BY dst_ip
                 ORDER BY total_bytes DESC
                 LIMIT ?
-                """.format(hours=hours),
-                (limit,),
+                """,
+                (self._cutoff(hours), limit),
             )
             return [dict(row) for row in cur.fetchall()]
 
@@ -268,28 +274,20 @@ class Database:
         """En fazla farklı porta bağlanan IP'ler."""
         with self._lock:
             cur = self.conn.execute(
-                """
+                f"""
                 SELECT dst_ip,
                        COUNT(DISTINCT dst_port) AS port_count,
                        SUM(bytes) AS total_bytes,
                        COUNT(*) AS conn_count,
                        MAX(timestamp) AS last_seen
                 FROM connections
-                WHERE timestamp >= datetime('now', '-{hours} hours')
-                  AND dst_ip NOT LIKE '192.168.%'
-                  AND dst_ip NOT LIKE '10.%'
-                  AND dst_ip NOT LIKE '172.16.%'
-                  AND dst_ip NOT LIKE '172.17.%'
-                  AND dst_ip NOT LIKE '172.18.%'
-                  AND dst_ip NOT LIKE '172.19.%'
-                  AND dst_ip NOT LIKE '172.2%.%'
-                  AND dst_ip NOT LIKE '172.3%.%'
-                  AND dst_ip NOT LIKE '127.%'
+                WHERE timestamp >= ?
+                  AND {self._public_dst_filter()}
                 GROUP BY dst_ip
                 ORDER BY port_count DESC
                 LIMIT ?
-                """.format(hours=hours),
-                (limit,),
+                """,
+                (self._cutoff(hours), limit),
             )
             return [dict(row) for row in cur.fetchall()]
 
@@ -300,18 +298,20 @@ class Database:
         port_list = list(SUSPICIOUS_PORTS)
         port_placeholders = ",".join("?" * len(port_list)) if port_list else ""
         with self._lock:
+            public_filter = self._public_dst_filter()
+            suspicious_having = f"OR dst_port IN ({port_placeholders})" if port_placeholders else ""
             query = f"""
                 SELECT dst_ip, dst_port, process, SUM(bytes) AS total_bytes
                 FROM connections
-                WHERE timestamp >= datetime('now', '-{hours} hours')
-                  AND dst_ip NOT LIKE '127.%'
+                WHERE timestamp >= ?
+                  AND {public_filter}
                 GROUP BY dst_ip, dst_port, process
                 HAVING total_bytes > ?
-                   OR dst_port IN ({port_placeholders})
+                   {suspicious_having}
                 ORDER BY total_bytes DESC
                 LIMIT 10
                 """
-            params = [SUSPICIOUS_BYTES_THRESHOLD, *port_list] if port_list else [SUSPICIOUS_BYTES_THRESHOLD]
+            params = [self._cutoff(hours), SUSPICIOUS_BYTES_THRESHOLD, *port_list]
             cur = self.conn.execute(query, params)
             return [dict(row) for row in cur.fetchall()]
 
@@ -331,7 +331,8 @@ class Database:
         """Dashboard istatistik kartları için."""
         with self._lock:
             today = self.conn.execute(
-                "SELECT COUNT(*) FROM connections WHERE timestamp >= datetime('now', '-1 day')"
+                "SELECT COUNT(*) FROM connections WHERE timestamp >= ?",
+                (self._cutoff(24),),
             ).fetchone()[0]
             threats = self.conn.execute(
                 "SELECT COUNT(*) FROM connections WHERE flagged = 1"
@@ -371,12 +372,9 @@ class Database:
         Download = src_ip harici (bize gelen veri)
         Yön bilinemiyorsa tüm byte'lar 'transfer' olarak sayılır.
         """
-        _LOCAL = (
-            "src_ip LIKE '192.168.%' OR src_ip LIKE '10.%' "
-            "OR src_ip LIKE '172.%' OR src_ip LIKE '127.%'"
-        )
+        _LOCAL = self._local_src_expr()
 
-        def _query(interval_sql: str) -> dict:
+        def _query(cutoff: str) -> dict:
             row = self.conn.execute(
                 f"""
                 SELECT
@@ -385,8 +383,9 @@ class Database:
                     SUM(bytes)                                           AS total,
                     COUNT(*)                                             AS conn_count
                 FROM connections
-                WHERE timestamp >= {interval_sql}
-                """
+                WHERE timestamp >= ?
+                """,
+                (cutoff,),
             ).fetchone()
             return {
                 "upload":     row["upload"]   or 0,
@@ -397,13 +396,76 @@ class Database:
 
         with self._lock:
             return [
-                {"label": "Son 1 Saat",  "short": "Saat",  **_query("datetime('now','-1 hours')")},
-                {"label": "Bugün",        "short": "Gün",   **_query("datetime('now','-1 days')")},
-                {"label": "Bu Hafta",     "short": "Hafta", **_query("datetime('now','-7 days')")},
-                {"label": "Bu Ay",        "short": "Ay",    **_query("datetime('now','-30 days')")},
-                {"label": "Bu Yıl",       "short": "Yıl",   **_query("datetime('now','-365 days')")},
+                {"label": "Son 1 Saat",  "short": "Saat",  **_query(self._cutoff(1))},
+                {"label": "Bugün",        "short": "Gün",   **_query(self._cutoff(24))},
+                {"label": "Bu Hafta",     "short": "Hafta", **_query(self._cutoff(24 * 7))},
+                {"label": "Bu Ay",        "short": "Ay",    **_query(self._cutoff(24 * 30))},
+                {"label": "Bu Yıl",       "short": "Yıl",   **_query(self._cutoff(24 * 365))},
             ]
 
+
+    # ─── Güvenli IP Kayıtları ──────────────────────────────────────
+    @staticmethod
+    def normalize_ip(ip: str) -> str:
+        """Tekil IPv4/IPv6 adresini doğrular ve standart gösterime dönüştürür."""
+        value = str(ip or "").strip()
+        if not value:
+            raise ValueError("IP adresi boş bırakılamaz.")
+        if "/" in value:
+            raise ValueError("IP aralığı desteklenmiyor; tek bir IP adresi girin.")
+        try:
+            return str(ipaddress.ip_address(value))
+        except ValueError as exc:
+            raise ValueError("Geçerli bir IPv4 veya IPv6 adresi girin.") from exc
+
+    def add_trusted_ip(self, ip: str, note: str = "") -> dict:
+        normalized = self.normalize_ip(ip)
+        added_at = datetime.now().isoformat()
+        clean_note = str(note or "").strip()
+        with self._lock:
+            try:
+                self.conn.execute(
+                    "INSERT INTO trusted_ips (ip, note, added_at) VALUES (?,?,?)",
+                    (normalized, clean_note, added_at),
+                )
+                self.conn.commit()
+            except sqlite3.IntegrityError as exc:
+                raise ValueError(f"{normalized} zaten güvenli IP listesinde.") from exc
+        return {"ip": normalized, "note": clean_note, "added_at": added_at}
+
+    def remove_trusted_ip(self, ip: str) -> bool:
+        normalized = self.normalize_ip(ip)
+        with self._lock:
+            cur = self.conn.execute("DELETE FROM trusted_ips WHERE ip = ?", (normalized,))
+            self.conn.commit()
+            return cur.rowcount > 0
+
+    def is_trusted_ip(self, ip: str) -> bool:
+        try:
+            normalized = self.normalize_ip(ip)
+        except ValueError:
+            return False
+        with self._lock:
+            row = self.conn.execute("SELECT 1 FROM trusted_ips WHERE ip = ?", (normalized,)).fetchone()
+            return row is not None
+
+    def get_trusted_ips(self) -> list[dict]:
+        with self._lock:
+            cur = self.conn.execute("SELECT * FROM trusted_ips ORDER BY added_at DESC")
+            return [dict(row) for row in cur.fetchall()]
+
+    def get_trusted_connection_count(self, hours: int = 1, since_ts: str | None = None) -> int:
+        """Analiz aralığında güvenli liste nedeniyle dışlanan bağlantı sayısı."""
+        comparison = "timestamp > ?" if since_ts else "timestamp >= ?"
+        cutoff = since_ts or self._cutoff(hours)
+        with self._lock:
+            row = self.conn.execute(
+                f"""SELECT COUNT(*) FROM connections
+                    WHERE {comparison}
+                      AND EXISTS (SELECT 1 FROM trusted_ips t WHERE t.ip = connections.dst_ip)""",
+                (cutoff,),
+            ).fetchone()
+            return row[0] if row else 0
 
     # ─── Engelleme Kaydı ─────────────────────────────────────────
     def add_blocked_ip(self, ip: str, reason: str):
@@ -450,14 +512,14 @@ class Database:
 
         with self._lock:
             cur = self.conn.execute(
-                "DELETE FROM connections WHERE timestamp < datetime('now', 'localtime', ?)",
-                (f"-{DB_RETENTION_HOURS} hours",)
+                "DELETE FROM connections WHERE timestamp < ?",
+                (self._cutoff(DB_RETENTION_HOURS),)
             )
             deleted_conns = cur.rowcount
             
             cur = self.conn.execute(
-                "DELETE FROM reports WHERE created_at < datetime('now', 'localtime', ?)",
-                (f"-{REPORT_RETENTION_HOURS} hours",)
+                "DELETE FROM reports WHERE created_at < ?",
+                (self._cutoff(REPORT_RETENTION_HOURS),)
             )
             deleted_reports = cur.rowcount
             
@@ -477,6 +539,12 @@ class Database:
             return size / (1024 * 1024)
         except Exception:
             return 0.0
+
+    def close(self):
+        """Flush pending rows and close the SQLite connection."""
+        with self._lock:
+            self._flush_locked()
+            self.conn.close()
 
     def get_record_counts(self) -> dict:
         """Tablodaki kayıt sayılarını döndürür."""
