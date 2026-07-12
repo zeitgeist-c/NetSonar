@@ -9,10 +9,13 @@ import winreg
 
 
 APP_NAME = "NetSonar"
-EXE_PATH = sys.executable
-if hasattr(sys, '_MEIPASS'):
-    # PyInstaller ile paketlenmişse
-    EXE_PATH = os.path.join(sys._MEIPASS, 'main.py')
+
+if getattr(sys, 'frozen', False):
+    REG_VALUE = f'"{sys.executable}"'
+else:
+    app_dir = os.path.dirname(os.path.abspath(__file__))
+    main_path = os.path.join(app_dir, "main.py")
+    REG_VALUE = f'"{sys.executable}" "{main_path}"'
 
 
 def is_autostart_enabled() -> bool:
@@ -44,7 +47,7 @@ def enable_autostart() -> bool:
             0,
             winreg.KEY_WRITE
         )
-        winreg.SetValueEx(key, APP_NAME, 0, winreg.REG_SZ, f'"{EXE_PATH}"')
+        winreg.SetValueEx(key, APP_NAME, 0, winreg.REG_SZ, REG_VALUE)
         winreg.CloseKey(key)
         return True
     except Exception as exc:
