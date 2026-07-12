@@ -6,7 +6,7 @@ Onemli degisiklik: openai kutuphanesine bagimliliik tamamen kaldirildi.
 Tum API cagirilari dogrudan `requests` ile yapilir — daha guvenilir ve debug edilebilir.
 
 Hangi API kullanilir?
-  config.py → AI_PROVIDER = "openrouter" | "ollama" | "gemini"
+  config.py → AI_PROVIDER = "gemini"; model = "gemini-3.1-flash-lite"
 
 Veri akisi:
   DB → ozetlenmis JSON → SYSTEM_PROMPT + kullanici mesaji → AI → JSON rapor
@@ -18,10 +18,23 @@ import re
 import logging
 import importlib
 import requests
+import threading
+import time as _time
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from ip_utils import is_local_ip
 
 log = logging.getLogger("NetSonar.AI")
+
+_session_local = threading.local()
+
+
+def _session() -> requests.Session:
+    session = getattr(_session_local, "session", None)
+    if session is None:
+        session = requests.Session()
+        _session_local.session = session
+    return session
 
 
 def _cfg():
@@ -65,269 +78,144 @@ def _extract_json(raw: str) -> dict:
 
 
 # ─────────────────────────────────────────────────────────────
-#  O P E N R O U T E R  (requests ile + otomatik fallback)
-# ─────────────────────────────────────────────────────────────
-# Model 404 veya 429 alirsa sirayla yedek modelleri dener
-_FALLBACK_MODELS = [
-    "meta-llama/llama-3.3-70b-instruct:free",
-    "google/gemma-3-4b-it:free",
-    "mistralai/mistral-small-3.1-24b-instruct:free",
-    "google/gemma-3n-e4b-it:free",
-    "qwen/qwen3-4b:free",
-    "arcee-ai/trinity-large-preview:free",
-    "nvidia/nemotron-nano-9b-v2:free",
-    "meta-llama/llama-3.2-3b-instruct:free",
-]
-import time as _time
-
-def _analyze_openrouter(user_msg: str) -> dict:
-    cfg = _cfg()
-    if not cfg.OPENROUTER_API_KEY:
-        raise ValueError("OpenRouter API key bos! Ayarlar'dan gir.")
-
-    headers = {
-        "Authorization":  f"Bearer {cfg.OPENROUTER_API_KEY}",
-        "Content-Type":   "application/json",
-        "HTTP-Referer":   "https://github.com/NetSonar",
-        "X-Title":        "NetSonar Network Monitor",
-    }
-
-    # Denenecek modeller: config'deki + fallback listesi (tekrar onleme)
-    primary = cfg.OPENROUTER_MODEL
-    models_to_try = [primary]
-    for fb in _FALLBACK_MODELS:
-        if fb != primary:
-            models_to_try.append(fb)
-
-    last_error = None
-
-    for model in models_to_try:
-        payload = {
-            "model":       model,
-            "messages":    [
-                {"role": "system", "content": _cfg().AI_PROMPT},
-                {"role": "user",   "content": user_msg},
-            ],
-            "max_tokens":  1500,
-            "temperature": 0.1,
-        }
-
-        log.info("[OpenRouter] model=%s deniyor...", model)
-
-        try:
-            resp = requests.post(
-                f"{cfg.OPENROUTER_BASE_URL}/chat/completions",
-                headers=headers,
-                json=payload,
-                timeout=120,
-            )
-        except requests.Timeout:
-            log.warning("[OpenRouter] %s timeout — sonraki model deneniyor", model)
-            last_error = f"Model timeout: {model}"
-            continue
-        except requests.ConnectionError as e:
-            raise ValueError(f"OpenRouter'a baglanilamiyor: {e}")
-
-        if resp.status_code == 200:
-            data = resp.json()
-            raw  = data.get("choices", [{}])[0].get("message", {}).get("content", "")
-            if raw and raw.strip():
-                log.info("[OpenRouter] BASARILI model=%s cevap=%d karakter", model, len(raw))
-                return _extract_json(raw)
-            else:
-                log.warning("[OpenRouter] %s bos cevap donderdi", model)
-                last_error = f"Bos cevap: {model}"
-                continue
-
-        elif resp.status_code in (404, 429):
-            reason = "bulunamadi" if resp.status_code == 404 else "rate limited"
-            log.warning("[OpenRouter] %s %s (HTTP %d) — sonraki deneniyor", model, reason, resp.status_code)
-            last_error = f"{model}: HTTP {resp.status_code}"
-            if resp.status_code == 429:
-                _time.sleep(3)  # Rate limit — kisa bekle
-            continue
-
-        elif resp.status_code == 401:
-            raise ValueError("API key gecersiz veya suresi dolmus.")
-
-        else:
-            body = resp.text[:300]
-            last_error = f"{model}: HTTP {resp.status_code} — {body}"
-            log.warning("[OpenRouter] %s beklenmeyen hata: %s", model, last_error)
-            continue
-
-    # Hic bir model calismadi
-    raise ValueError(
-        f"Tum modeller basarisiz oldu.\nSon hata: {last_error}\n\n"
-        "Cozum: openrouter.ai/models adresinden calisir bir model sec, "
-        "veya kisa sure sonra tekrar dene (rate limit resetlenebilir)."
-    )
-
-
-# ─────────────────────────────────────────────────────────────
 #  G E M I N I  (requests ile — google API)
 # ─────────────────────────────────────────────────────────────
-# Gemini kota asimi icin ozel hata — analyze() fallback icin kullanir
+# Gemini kota asimi icin ozel hata; ayni istekte diger Gemini keyleri denenir.
 class GeminiQuotaError(Exception):
     pass
 
 
+_GEMINI_KEY_COOLDOWN_SECONDS = 30 * 60
+_GEMINI_KEY_COOLDOWNS = {}
+_GEMINI_KEY_LOCK = threading.Lock()
+
+
+def _mask_api_key(key: str) -> str:
+    if len(key) <= 8:
+        return "****"
+    return f"{key[:4]}...{key[-4:]}"
+
+
+def _available_gemini_keys(keys: list[str]) -> list[str]:
+    now = _time.time()
+    with _GEMINI_KEY_LOCK:
+        expired = [key for key, until in _GEMINI_KEY_COOLDOWNS.items() if until <= now]
+        for key in expired:
+            _GEMINI_KEY_COOLDOWNS.pop(key, None)
+        return [key for key in keys if _GEMINI_KEY_COOLDOWNS.get(key, 0) <= now]
+
+
+def _mark_gemini_key_cooldown(key: str, status_code: int):
+    until = _time.time() + _GEMINI_KEY_COOLDOWN_SECONDS
+    with _GEMINI_KEY_LOCK:
+        _GEMINI_KEY_COOLDOWNS[key] = until
+    log.warning(
+        "[Gemini] key=%s HTTP %d nedeniyle 30 dakika bekletiliyor",
+        _mask_api_key(key), status_code,
+    )
+
+
+def _gemini_cooldown_wait_minutes(keys: list[str]) -> int:
+    now = _time.time()
+    with _GEMINI_KEY_LOCK:
+        waits = [_GEMINI_KEY_COOLDOWNS.get(key, 0) - now for key in keys]
+    waits = [wait for wait in waits if wait > 0]
+    if not waits:
+        return 0
+    return max(1, int(min(waits) / 60) + 1)
+
+
 def _analyze_gemini(user_msg: str) -> dict:
     cfg = _cfg()
-    if not cfg.GEMINI_API_KEY:
+    keys = list(getattr(cfg, "GEMINI_API_KEYS", []) or [])
+    if not keys and getattr(cfg, "GEMINI_API_KEY", ""):
+        keys = [cfg.GEMINI_API_KEY]
+
+    if not keys:
         raise ValueError(
             "Gemini API key bos!\n"
-            "aistudio.google.com/apikey adresinden al, Ayarlar'a gir."
+            "Ayarlar'da her satira bir Gemini API key gir."
         )
 
-    model    = cfg.GEMINI_MODEL
+    model = cfg.GEMINI_MODEL
     endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 
     payload = {
         "system_instruction": {
-            "parts": [{"text": _cfg().AI_PROMPT}]
+            "parts": [{"text": cfg.AI_PROMPT}]
         },
         "contents": [
             {"role": "user", "parts": [{"text": user_msg}]}
         ],
         "generationConfig": {
-            "temperature":     0.2,
+            "temperature": 0.2,
             "maxOutputTokens": 2048,
-            # NOT: responseMimeType kaldirildi — bazi Gemini serbest modellerde
-            # JSON modu desteklenmez ve 429/400 hatasina yol acar.
-            # JSON ciktisi system prompt ile talep ediliyor, _extract_json ile parse ediliyor.
         },
     }
 
-
-    log.info("[Gemini] model=%s istek gonderiliyor...", model)
-
-    resp = requests.post(
-        endpoint,
-        params={"key": cfg.GEMINI_API_KEY},
-        json=payload,
-        timeout=120,
-    )
-
-    log.info("[Gemini] status=%d", resp.status_code)
-
-    if resp.status_code != 200:
-        body = resp.text[:400]
-        if resp.status_code in (429, 503):
-            # Kota doldu veya servis dolu — fallback tetikle
-            raise GeminiQuotaError(
-                f"Gemini kota/rate-limit (HTTP {resp.status_code}). "
-                "OpenRouter'a geciliyor..."
-            )
-        elif resp.status_code == 400:
-            raise ValueError(f"Gemini istek hatasi (API key veya model hatali?):\n{body}")
-        elif resp.status_code == 403:
-            raise ValueError(f"Gemini API key gecersiz veya yetkisiz:\n{body}")
-        else:
-            raise ValueError(f"Gemini API hatasi (HTTP {resp.status_code}):\n{body}")
-
-    data = resp.json()
-    try:
-        raw = data["candidates"][0]["content"]["parts"][0]["text"]
-    except (KeyError, IndexError):
-        raise ValueError(f"Gemini beklenmeyen cevap formati:\n{json.dumps(data, indent=2)[:400]}")
-
-    log.info("[Gemini] cevap uzunlugu=%d", len(raw))
-    return _extract_json(raw)
-
-
-# ─────────────────────────────────────────────────────────────
-#  O L L A M A  C L O U D  (requests ile — ollama native API)
-# ─────────────────────────────────────────────────────────────
-_FALLBACK_MODELS_OLLAMA = [
-    "qwen3.5",
-    "minimax-m2.7",
-    "qwen3-coder-next",
-    "devstral-small-2",
-    "nemotron-3-nano:30b",
-]
-
-def _analyze_ollama(user_msg: str) -> dict:
-    cfg = _cfg()
-    if not cfg.OLLAMA_API_KEY:
-        raise ValueError(
-            "Ollama API key bos!\n"
-            "ollama.com/settings/keys adresinden al, Ayarlar'a gir."
+    active_keys = _available_gemini_keys(keys)
+    if not active_keys:
+        wait_min = _gemini_cooldown_wait_minutes(keys)
+        raise GeminiQuotaError(
+            f"Uygun Gemini API key yok. Tum keyler 429/503 nedeniyle beklemede. "
+            f"Yaklasik {wait_min} dakika sonra tekrar dene."
         )
 
-    primary = cfg.OLLAMA_MODEL
-    models_to_try = [primary]
-    for fb in _FALLBACK_MODELS_OLLAMA:
-        if fb != primary:
-            models_to_try.append(fb)
-
-    last_error = None
-
-    for model in models_to_try:
-        payload = {
-            "model": model,
-            "messages": [
-                {"role": "system", "content": _cfg().AI_PROMPT},
-                {"role": "user",   "content": user_msg},
-            ],
-            "stream": False,
-        }
-
-        log.info("[Ollama] model=%s deniyor...", model)
+    last_quota_error = None
+    for index, api_key in enumerate(active_keys, start=1):
+        log.info(
+            "[Gemini] model=%s key=%s (%d/%d) istek gonderiliyor...",
+            model, _mask_api_key(api_key), index, len(active_keys),
+        )
 
         try:
-            resp = requests.post(
-                "https://ollama.com/api/chat",
-                headers={"Authorization": f"Bearer {cfg.OLLAMA_API_KEY}"},
+            resp = _session().post(
+                endpoint,
+                params={"key": api_key},
                 json=payload,
                 timeout=120,
             )
-        except requests.Timeout:
-            log.warning("[Ollama] %s timeout — sonraki model deneniyor", model)
-            last_error = f"Model timeout: {model}"
-            continue
-        except requests.ConnectionError as e:
-            raise ValueError(f"Ollama'ya baglanilamiyor: {e}")
+        except requests.Timeout as exc:
+            raise ValueError("Gemini istegi zaman asimina ugradi. Kisa sure sonra tekrar dene.") from exc
+        except requests.ConnectionError as exc:
+            raise ValueError(f"Gemini API'ye baglanilamiyor: {exc}") from exc
+
+        log.info("[Gemini] key=%s status=%d", _mask_api_key(api_key), resp.status_code)
 
         if resp.status_code == 200:
             data = resp.json()
-            raw = data.get("message", {}).get("content", "")
-            if raw and raw.strip():
-                log.info("[Ollama] BASARILI model=%s cevap=%d karakter", model, len(raw))
-                return _extract_json(raw)
-            else:
-                log.warning("[Ollama] %s bos cevap donderdi", model)
-                last_error = f"Bos cevap: {model}"
-                continue
+            try:
+                raw = data["candidates"][0]["content"]["parts"][0]["text"]
+            except (KeyError, IndexError):
+                raise ValueError(f"Gemini beklenmeyen cevap formati:\n{json.dumps(data, indent=2)[:400]}")
 
-        elif resp.status_code == 404:
-            log.warning("[Ollama] %s bulunamadi (HTTP 404) — sonraki deneniyor", model)
-            last_error = f"{model}: HTTP 404"
+            log.info("[Gemini] cevap uzunlugu=%d", len(raw))
+            return _extract_json(raw)
+
+        body = resp.text[:400]
+        if resp.status_code in (429, 503):
+            _mark_gemini_key_cooldown(api_key, resp.status_code)
+            last_quota_error = f"HTTP {resp.status_code}: {body}"
             continue
+        if resp.status_code == 400:
+            raise ValueError(f"Gemini istek hatasi (model veya istek formati hatali?):\n{body}")
+        if resp.status_code == 403:
+            raise ValueError(f"Gemini API key gecersiz, yetkisiz veya proje erisimi kapali:\n{body}")
 
-        elif resp.status_code == 401:
-            raise ValueError("Ollama API key gecersiz veya suresi dolmus.")
+        raise ValueError(f"Gemini API hatasi (HTTP {resp.status_code}):\n{body}")
 
-        else:
-            body = resp.text[:300]
-            last_error = f"{model}: HTTP {resp.status_code} — {body}"
-            log.warning("[Ollama] %s beklenmeyen hata: %s", model, last_error)
-            continue
-
-    raise ValueError(
-        f"Tum modeller basarisiz oldu.\nSon hata: {last_error}\n\n"
-        "Cozum: ollama.com/search?c=cloud adresinden cloud modelleri kontrol et, "
-        "veya kisa sure sonra tekrar dene."
+    wait_min = _gemini_cooldown_wait_minutes(keys)
+    raise GeminiQuotaError(
+        "Tum uygun Gemini API keyleri kota/rate-limit veya servis yogunlugu nedeniyle gecici olarak kullanilamiyor.\n"
+        f"Son hata: {last_quota_error or '429/503'}\n"
+        f"Yaklasik {wait_min} dakika sonra beklemedeki keyler tekrar denenir."
     )
-
 
 # ─────────────────────────────────────────────────────────────
 #  O R T A K   A R A Y Ü Z
 # ─────────────────────────────────────────────────────────────
 PROVIDERS = {
-    "openrouter": _analyze_openrouter,
-    "gemini":     _analyze_gemini,
-    "ollama":     _analyze_ollama,
+    "gemini": _analyze_gemini,
 }
 
 
@@ -354,35 +242,15 @@ class AIAnalyzer:
 
     def validate_config(self) -> list[str]:
         """Yapilandirma sorunlarini listeler."""
-        cfg      = _cfg()
-        provider = cfg.AI_PROVIDER
-        issues   = []
+        cfg = _cfg()
+        issues = []
 
-        if provider not in PROVIDERS:
-            issues.append(f"Bilinmeyen saglayici: '{provider}'")
-            return issues
-
-        if provider == "openrouter":
-            if not cfg.OPENROUTER_API_KEY:
-                issues.append("OpenRouter API key bos")
-            if not cfg.OPENROUTER_MODEL:
-                issues.append("OpenRouter model adi bos")
-            # Hizli key testi
-            if cfg.OPENROUTER_API_KEY:
-                try:
-                    r = requests.get(
-                        f"{cfg.OPENROUTER_BASE_URL}/auth/key",
-                        headers={"Authorization": f"Bearer {cfg.OPENROUTER_API_KEY}"},
-                        timeout=5,
-                    )
-                    if r.status_code != 200:
-                        issues.append(f"API key gecersiz (HTTP {r.status_code})")
-                except Exception as e:
-                    issues.append(f"OpenRouter'a ulasilamiyor: {e}")
-
-        elif provider == "gemini":
-            if not cfg.GEMINI_API_KEY:
-                issues.append("Gemini API key bos")
+        if cfg.AI_PROVIDER != "gemini":
+            issues.append("Bu surum yalnizca Gemini saglayicisini destekler")
+        if cfg.GEMINI_MODEL != "gemini-3.1-flash-lite":
+            issues.append("Gemini modeli gemini-3.1-flash-lite olmali")
+        if not getattr(cfg, "GEMINI_API_KEYS", []):
+            issues.append("Gemini API key listesi bos")
 
         return issues
 
@@ -412,19 +280,27 @@ class AIAnalyzer:
             summary    = self.db.get_summary(hours=hours)
             since_label = f"Son {hours} saat (tam)" if last_ts else "Ilk analiz (tam)"
             new_count   = len(summary)
+            trusted_filtered_count = self.db.get_trusted_connection_count(hours=hours)
         else:
             # Artimli: sadece son analizden bu yana gelenleri gonder
             new_count  = self.db.get_new_connection_count(since_ts=last_ts)
             summary    = self.db.get_summary_since(since_ts=last_ts)
             since_label = f"Son analizden beri ({last_ts[:16]})"
+            trusted_filtered_count = self.db.get_trusted_connection_count(since_ts=last_ts)
 
         # Yeni kayit yok mu? Token harcama, atla.
         if not summary:
-            msg = (
-                f"{since_label} arasinda analiz edilecek yeni harici trafik yok."
-                if new_count == 0
-                else f"{since_label}: {new_count} yeni baglanti var ama hepsi ic ag (filtrelendi)."
-            )
+            if trusted_filtered_count:
+                msg = (
+                    f"{since_label}: {trusted_filtered_count} bağlantı güvenli IP listesi nedeniyle "
+                    "analiz dışında bırakıldı; Gemini'ye veri gönderilmedi."
+                )
+            else:
+                msg = (
+                    f"{since_label} arasında analiz edilecek yeni harici trafik yok."
+                    if new_count == 0
+                    else f"{since_label}: {new_count} yeni bağlantı var ama hepsi iç ağ (filtrelendi)."
+                )
             return {
                 "risk_score": 0.0,
                 "status": "GUVENLI",
@@ -481,57 +357,28 @@ class AIAnalyzer:
         emit_stage("Gönderiliyor…", 40)
         emit_stage("Bekleniyor…", 50)
 
-        # Analiz (GeminiQuotaError durumunda OpenRouter'a fallback)
+        # Analiz: yalniz Gemini; 429/503 durumunda key rotasyonu _analyze_gemini icinde yapilir.
         try:
-            fn     = PROVIDERS[provider]
+            fn = PROVIDERS[provider]
             result = fn(user_msg)
             emit_stage("İşleniyor…", 90)
         except GeminiQuotaError as quota_exc:
-            # Gemini kota doldu — OpenRouter ile dene
-            log.warning("[AIAnalyzer] %s — OpenRouter fallback deneniyor", quota_exc)
-            if "openrouter" in PROVIDERS and provider != "openrouter":
-                try:
-                    emit_stage("Gönderiliyor…", 40)
-                    emit_stage("Bekleniyor…", 50)
-                    result = PROVIDERS["openrouter"](user_msg)
-                    emit_stage("İşleniyor…", 90)
-                    provider = "openrouter (gemini-fallback)"
-                    log.info("[AIAnalyzer] OpenRouter fallback BASARILI")
-                except Exception as fb_exc:
-                    log.error("[AIAnalyzer] fallback da basarisiz: %s", fb_exc)
-                    try:
-                        from notifier import notify_analysis_failed
-                        notify_analysis_failed(str(quota_exc), "gemini+openrouter")
-                    except Exception:
-                        pass
-                    return {
-                        "risk_score": -1,
-                        "status":     "KOTA ASIMI",
-                        "suspicious_connections": [],
-                        "summary": (
-                            f"Gemini kotasi doldu: {quota_exc}\n"
-                            f"OpenRouter fallback da basarisiz: {fb_exc}\n\n"
-                            "Cozum: Gemini icin yeni API key al veya OpenRouter API key'ini kontrol et."
-                        ),
-                    }
-            else:
-                try:
-                    from notifier import notify_analysis_failed
-                    notify_analysis_failed(str(quota_exc), provider)
-                except Exception:
-                    pass
-                return {
-                    "risk_score": -1,
-                    "status":     "KOTA ASIMI",
-                    "suspicious_connections": [],
-                    "summary": (
-                        "Gemini kotasi doldu (HTTP 429/503).\n\n"
-                        "Cozum secenekleri:\n"
-                        "1. Gemini ucretsiz kota saatte resetlenir — kisa sure sonra tekrar dene\n"
-                        "2. Ayarlar'dan OpenRouter'a gec (ucretsiz modeller mevcut)\n"
-                        "3. aistudio.google.com adresinden kota limitini kontrol et"
-                    ),
-                }
+            log.warning("[AIAnalyzer] Gemini key havuzu gecici olarak kullanilamiyor: %s", quota_exc)
+            try:
+                from notifier import notify_analysis_failed
+                notify_analysis_failed(str(quota_exc), provider)
+            except Exception:
+                pass
+            return {
+                "risk_score": -1,
+                "status": "KOTA ASIMI",
+                "suspicious_connections": [],
+                "summary": (
+                    "Uygun Gemini API key yok veya tum uygun keyler gecici olarak beklemede.\n"
+                    f"{quota_exc}\n\n"
+                    "Cozum: Bir sure sonra tekrar dene veya Ayarlar'a yeni Gemini API key ekle."
+                ),
+            }
         except Exception as exc:
             log.error("[AIAnalyzer] hata: %s", exc)
             try:
@@ -545,9 +392,7 @@ class AIAnalyzer:
                 "suspicious_connections": [],
                 "summary": str(exc),
             }
-
-
-        # Alan varsayilanlari
+# Alan varsayilanlari
         result.setdefault("risk_score", 0.0)
         result.setdefault("status", "BILINMIYOR")
         result.setdefault("suspicious_connections", [])
@@ -615,7 +460,10 @@ class AIAnalyzer:
             action = conn.get("action", "").lower()
             ip = conn.get("ip", "")
             
-            if not ip or ip.startswith(("192.168.", "10.", "127.", "172.")):
+            if not ip or is_local_ip(ip):
+                continue
+            if self.db.is_trusted_ip(ip):
+                log.info("[AutoBlock] %s güvenli IP listesinde; engelleme atlandı", ip)
                 continue
             
             if "engelle" in action or "block" in action:

@@ -1,24 +1,28 @@
-"""
-NetSonar — Kill-Switch Modülü
-Windows Güvenlik Duvarı kuralları ile şüpheli IP'leri anında engeller/kaldırır.
-UYARI: Yönetici (Administrator) yetkileri gerektirir.
+"""NetSonar kill switch.
+
+Blocks and unblocks suspicious IP addresses with Windows Firewall rules.
+Administrator privileges are required for the netsh commands to succeed.
 """
 
+from __future__ import annotations
+
 import subprocess
-import re
+
 from database import Database
+from ip_utils import ip_to_rule_token, is_valid_ip, normalized_ip, rule_token_to_ip
 
 RULE_PREFIX = "NetSonar_BLOCK_"
 
 
 def _run(cmd: list[str]) -> tuple[bool, str]:
-    """netsh komutunu çalıştırır, (başarı, çıktı) döndürür."""
+    """Run a netsh command and return (success, output)."""
     try:
         result = subprocess.run(
             cmd,
             capture_output=True,
             text=True,
-            encoding="cp1254",   # Windows Türkçe kod sayfası
+            encoding="cp1254",
+            errors="replace",
             timeout=10,
         )
         return result.returncode == 0, result.stdout + result.stderr
@@ -26,100 +30,91 @@ def _run(cmd: list[str]) -> tuple[bool, str]:
         return False, str(exc)
 
 
-def block_ip(ip: str, reason: str = "NetSonar tarafından engellendi", db: Database = None) -> bool:
-    """
-    Belirli bir IP'ye giden tüm trafiği Windows Güvenlik Duvarı ile engeller.
-    Hem giden (out) hem gelen (in) yönde kural oluşturur.
-    IPv4 ve IPv6 destekler.
-    """
-    if not _is_valid_ip(ip):
-        print(f"[KillSwitch] Geçersiz IP: {ip}")
+def _rule_base_for_ip(ip: str) -> tuple[str | None, str | None]:
+    normalized = normalized_ip(ip)
+    token = ip_to_rule_token(ip)
+    if not normalized or not token:
+        return None, None
+    return normalized, f"{RULE_PREFIX}{token}"
+
+
+def _legacy_rule_token_to_ip(token: str) -> str | None:
+    if token.startswith("ipv6_"):
+        return normalized_ip(token.replace("ipv6_", "").replace("__", "::").replace("_", ":"))
+    return normalized_ip(token.replace("_", "."))
+
+
+def block_ip(ip: str, reason: str = "NetSonar tarafindan engellendi", db: Database = None) -> bool:
+    """Block all inbound and outbound traffic for one IPv4 or IPv6 address."""
+    normalized, rule_base = _rule_base_for_ip(ip)
+    if not normalized or not rule_base:
+        print(f"[KillSwitch] Gecersiz IP: {ip}")
         return False
 
-    # IPv6 adresleri için rule name temizleme
-    if ":" in ip:
-        rule_name = f"{RULE_PREFIX}ipv6_{ip.replace(':', '_').replace(' ', '')}"
-    else:
-        rule_name = f"{RULE_PREFIX}{ip.replace('.', '_')}"
-    
     success = True
-
     for direction in ("out", "in"):
         ok, output = _run([
             "netsh", "advfirewall", "firewall", "add", "rule",
-            f"name={rule_name}_{direction}",
+            f"name={rule_base}_{direction}",
             f"dir={direction}",
             "action=block",
-            f"remoteip={ip}",
+            f"remoteip={normalized}",
             "enable=yes",
             "profile=any",
         ])
         if not ok:
-            print(f"[KillSwitch] [HATA] Kural oluşturulamadı ({direction}): {output.strip()}")
+            print(f"[KillSwitch] [HATA] Kural olusturulamadi ({direction}): {output.strip()}")
             success = False
         else:
-            print(f"[KillSwitch] [OK] {ip} engellendi ({direction})")
+            print(f"[KillSwitch] [OK] {normalized} engellendi ({direction})")
 
     if success and db:
-        db.add_blocked_ip(ip, reason)
+        db.add_blocked_ip(normalized, reason)
 
     return success
 
 
 def unblock_ip(ip: str) -> bool:
-    """Belirli bir IP için oluşturulan güvenlik duvarı kurallarını kaldırır. IPv4 ve IPv6 destekler."""
-    # IPv6 adresleri için rule name
-    if ":" in ip:
-        rule_base = f"{RULE_PREFIX}ipv6_{ip.replace(':', '_').replace(' ', '')}"
-    else:
-        rule_base = f"{RULE_PREFIX}{ip.replace('.', '_')}"
-    
-    success = True
+    """Remove NetSonar firewall rules for one IPv4 or IPv6 address."""
+    normalized, rule_base = _rule_base_for_ip(ip)
+    if not normalized or not rule_base:
+        print(f"[KillSwitch] Gecersiz IP: {ip}")
+        return False
 
+    success = True
     for direction in ("out", "in"):
         ok, output = _run([
             "netsh", "advfirewall", "firewall", "delete", "rule",
             f"name={rule_base}_{direction}",
         ])
         if not ok:
-            print(f"[KillSwitch] Kural kaldırılamadı ({ip}/{direction}): {output.strip()}")
+            print(f"[KillSwitch] Kural kaldirilamadi ({normalized}/{direction}): {output.strip()}")
             success = False
         else:
-            print(f"[KillSwitch] 🔓 {ip} engeli kaldırıldı ({direction})")
+            print(f"[KillSwitch] {normalized} engeli kaldirildi ({direction})")
 
     return success
 
 
 def list_blocked() -> list[str]:
-    """NetSonar tarafından oluşturulan tüm engelleme kurallarını listeler."""
+    """List IP addresses blocked by NetSonar firewall rules."""
     ok, output = _run([
         "netsh", "advfirewall", "firewall", "show", "rule", f"name={RULE_PREFIX}*"
     ])
     if not ok:
         return []
-    # Kural adlarını parse et
+
     blocked = []
     for line in output.splitlines():
-        if line.strip().startswith("Kural Adı:") or line.strip().startswith("Rule Name:"):
+        stripped = line.strip()
+        if stripped.startswith("Kural Adi:") or stripped.startswith("Kural Adı:") or stripped.startswith("Rule Name:"):
             rule_name = line.split(":", 1)[1].strip()
-            # IP'yi kural adından geri çıkar
-            ip_part = rule_name.replace(RULE_PREFIX, "").replace("_out", "").replace("_in", "")
-            ip = ip_part.replace("_", ".")
-            if _is_valid_ip(ip) and ip not in blocked:
+            token = rule_name.replace(RULE_PREFIX, "").replace("_out", "").replace("_in", "")
+            ip = rule_token_to_ip(token) or _legacy_rule_token_to_ip(token)
+            if ip and ip not in blocked:
                 blocked.append(ip)
     return blocked
 
 
 def _is_valid_ip(ip: str) -> bool:
-    # IPv4 kontrolü
-    ipv4_pattern = r"^(\d{1,3}\.){3}\d{1,3}$"
-    if re.match(ipv4_pattern, ip):
-        parts = ip.split(".")
-        return all(0 <= int(p) <= 255 for p in parts)
-    
-    # IPv6 kontrolü
-    ipv6_pattern = r"^([0-9a-fA-F]{0,4}:){2,7}[0-9a-fA-F]{0,4}$"
-    if re.match(ipv6_pattern, ip):
-        return True
-    
-    return False
+    return is_valid_ip(ip)
