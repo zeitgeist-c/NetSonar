@@ -7,15 +7,20 @@ import json
 import os
 import subprocess
 
+APP_DIR = os.path.dirname(os.path.abspath(__file__))
+
+
+def app_path(*parts: str) -> str:
+    return os.path.join(APP_DIR, *parts)
+
 def get_app_version() -> str:
     """Git tag üzerinden dinamik uygulama versiyonunu döndürür."""
-    app_dir = os.path.dirname(os.path.abspath(__file__))
     try:
         # Popen kullanarak arkaplan penceresi oluşturmadan komutu çalıştır (Windows GUI için)
         creationflags = subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
         version = subprocess.check_output(
             ["git", "describe", "--tags", "--always", "--dirty"],
-            cwd=app_dir, stderr=subprocess.DEVNULL, creationflags=creationflags, text=True
+            cwd=APP_DIR, stderr=subprocess.DEVNULL, creationflags=creationflags, text=True
         ).strip()
         # Eğer sadece hash dönüyorsa (ör: 16cdc88), başına v eklemiyoruz çünkü "v0.3-1-g..." formatı daha makul
         return version if version.startswith("v") else f"v{version}"
@@ -24,7 +29,8 @@ def get_app_version() -> str:
 
 
 # ─── Settings Yükleme (önce dosya, sonra env) ──────────────────────
-SETTINGS_FILE = "config/settings.json"
+SETTINGS_FILE = app_path("config", "settings.json")
+GEMINI_MODEL_ID = "gemini-3.1-flash-lite"
 
 def load_settings():
     """Kullanıcı ayarlarını dosyadan yükle."""
@@ -41,11 +47,8 @@ def load_settings():
         "interface": None,
         "AI_PROVIDER": "gemini",
         "GEMINI_API_KEY": "",
-        "OPENROUTER_API_KEY": "",
-        "OLLAMA_API_KEY": "",
-        "GEMINI_MODEL": "gemini-2.0-flash-lite",
-        "OPENROUTER_MODEL": "meta-llama/llama-3.3-70b-instruct:free",
-        "OLLAMA_MODEL": "minimax-m2.7",
+        "GEMINI_API_KEYS": [],
+        "GEMINI_MODEL": GEMINI_MODEL_ID,
         "AUTO_ANALYSIS_ENABLED": True,
         "ANALYSIS_INTERVAL_MINUTES": 60,
     }
@@ -64,21 +67,39 @@ def _get_setting(key, env_var=None):
     settings = load_settings()
     return settings.get(key, "")
 
+def _split_api_keys(value) -> list[str]:
+    """API key listesini settings/env kaynaklarindan normalize et."""
+    if isinstance(value, list):
+        raw_items = value
+    elif isinstance(value, str):
+        raw_items = value.replace(",", "\n").replace(";", "\n").splitlines()
+    else:
+        raw_items = []
+
+    keys = []
+    seen = set()
+    for item in raw_items:
+        key = str(item).strip()
+        if key and key not in seen:
+            keys.append(key)
+            seen.add(key)
+    return keys
+
 # ─── AI Sağlayıcı Seçimi ────────────────────────────────────────────
-AI_PROVIDER = _get_setting("AI_PROVIDER", "AG_TARA_PROVIDER") or "gemini"
-
-# ─── OpenRouter ──────────────────────────────────────────────────────
-OPENROUTER_API_KEY  = _get_setting("OPENROUTER_API_KEY", "AG_TARA_OPENROUTER_KEY")
-OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
-OPENROUTER_MODEL    = _get_setting("OPENROUTER_MODEL", "AG_TARA_OPENROUTER_MODEL") or "meta-llama/llama-3.3-70b-instruct:free"
-
-# ─── Ollama Cloud ──────────────────────────────────────────────────
-OLLAMA_API_KEY = _get_setting("OLLAMA_API_KEY", "AG_TARA_OLLAMA_KEY")
-OLLAMA_MODEL   = _get_setting("OLLAMA_MODEL", "AG_TARA_OLLAMA_MODEL") or "minimax-m2.7"
+AI_PROVIDER = "gemini"
 
 # ─── Google Gemini ───────────────────────────────────────────────────
-GEMINI_API_KEY = _get_setting("GEMINI_API_KEY", "AG_TARA_GEMINI_KEY")
-GEMINI_MODEL   = _get_setting("GEMINI_MODEL", "AG_TARA_GEMINI_MODEL") or "gemini-2.0-flash-lite"
+_settings = load_settings()
+_env_gemini_keys = os.getenv("AG_TARA_GEMINI_KEYS")
+_env_gemini_key = os.getenv("AG_TARA_GEMINI_KEY")
+GEMINI_API_KEYS = (
+    _split_api_keys(_env_gemini_keys)
+    or _split_api_keys(_env_gemini_key)
+    or _split_api_keys(_settings.get("GEMINI_API_KEYS", []))
+    or _split_api_keys(_settings.get("GEMINI_API_KEY", ""))
+)
+GEMINI_API_KEY = GEMINI_API_KEYS[0] if GEMINI_API_KEYS else ""
+GEMINI_MODEL   = GEMINI_MODEL_ID
 
 # ─── Zamanlayıcı ────────────────────────────────────────────────────
 # Her kaç dakikada bir AI analizi yapılsın?
@@ -91,7 +112,7 @@ SUSPICIOUS_BYTES_THRESHOLD = 50_000                # 50 KB üzeri harici bağlan
 SUSPICIOUS_PORTS = {4444, 1337, 31337, 5555, 6666, 6667, 8888, 9999}
 
 # ─── Veritabanı ─────────────────────────────────────────────────────
-DB_PATH = "netsonar_data/connections.db"
+DB_PATH = app_path("netsonar_data", "connections.db")
 DB_RETENTION_HOURS = 2                     # Kaç saatlik ham veri saklansın? 0 = sınırsız
 DB_CLEANUP_INTERVAL_HOURS = 1              # Temizlik kaç saatte bir yapılsın?
 
@@ -122,107 +143,296 @@ MINIMIZE_TO_TRAY = True
 # ─── AI Prompt ─────────────────────────────────────────────────────────
 import os
 
-DEFAULT_SYSTEM_PROMPT = """Sen NetSonar'nın uzman siber güvenlik yapay zeka analistisin.
+DEFAULT_SYSTEM_PROMPT = """Sen NetSonar’nın uzman siber güvenlik yapay zekâ analistisin.
 
-## GÖREV
+Görevin, bir Windows bilgisayardan toplanan ağ trafiği özetini analiz ederek yalnızca geçerli JSON formatında yapılandırılmış bir tehdit raporu üretmektir.
 
-Bir Windows bilgisayardan toplanan ağ trafiği özetini analiz ederek yapılandırılmış bir JSON tehdit raporu üreteceksin.
+Girdi verileri yalnızca ağ trafiği meta verilerinden oluşur. Varsayılan olarak şu alanlar bulunabilir:
 
-**Veriler yalnızca meta verilerden oluşmaktadır:** hedef IP adresi, port numarası, protokol, transfer edilen byte miktarı ve süreç (process) adı.
-Ham paket içeriği, URL, parola veya kişisel veri **kesinlikle bulunmamaktadır.**
+- hedef IP adresi
+- port numarası
+- protokol
+- transfer edilen byte miktarı
+- süreç adı
 
----
+Girdide ayrıca varsa şu alanları da kullanabilirsin:
 
-## TEHDİT KATEGORİLERİ
+- zaman damgası
+- bağlantı süresi
+- bağlantı sayısı
+- gönderilen byte miktarı
+- alınan byte miktarı
+- ülke bilgisi
+- tehdit istihbaratı / IOC eşleşmesi
+- bağlantı yönü
+- DNS sorgu bilgileri
 
-### 1. Bilinen Tehditler
-- Bilinen C2 sunucuları ve botnet IP adresleri
-- Siber güvenlik istihbarat kaynaklarında şüpheli olarak işaretlenmiş IP'ler
-- Bilinen zararlı yazılım (malware) alan adları
+Ham paket içeriği, URL, parola, kişisel veri veya dosya içeriği bulunmadığını varsay.
 
-### 2. Davranış Anomalileri
-- **C2 (Command & Control):** Düzenli aralıklı, otomatik görünen bağlantı kalıpları
-- **Veri sızdırma (Exfiltration):** Tek yönlü yüksek hacimli dışa veri akışı
-- **Lateral Movement:** İç ağda alışılmadık cihazlar arası bağlantılar
-- **Port Tarama:** Kısa sürede çok sayıda porta erişim girişimleri
-- **Brute Force:** Aynı hedefe tekrarlayan başarısız bağlantı denemeleri
+Temel ilke:
+Veride olmayan bilgiyi uydurma. Bir bulgu yalnızca verilen meta verilerle destekleniyorsa rapora ekle. Desteklenmeyen konuları kesin tespit gibi yazma.
 
-### 3. Teknik Göstergeler
-- **Riskli portlar:** 4444, 1337, 31337, 5555, 6666, 6667, 8080, 8888, 9999
-- **Anormal process-IP eşleşmeleri:** `mshta.exe`, `wscript.exe`, `cmd.exe`, `powershell.exe` gibi sistem araçlarının doğrudan dış IP'lere bağlanması
-- **Yüksek hacimli transfer:** Tek bağlantıda > 1 MB veri gönderimi
-- **DNS Tünelleme:** Anormal boyut veya frekansta DNS sorguları
+TEHDİT ANALİZİ KAPSAMI
 
-### 4. Zaman Bazlı Analiz
-- Mesai dışı saatlerde (02:00–06:00) gerçekleşen otomatik bağlantılar
-- Uzun süreli açık kalan (persistent) bağlantılar
-- Düzensiz veya beacon benzeri bağlantı frekansları
+Aşağıdaki kategorilerde analiz yap:
 
----
+1. Bilinen Tehditler
 
-## ÇIKIŞ FORMATI — ZORUNLU JSON YAPISI
+- Bilinen C2 sunucuları
+- Botnet IP adresleri
+- Tehdit istihbaratı kaynaklarında şüpheli olarak işaretlenmiş IP adresleri
+- Zararlı yazılım altyapısıyla ilişkilendirilmiş göstergeler
 
-Aşağıdaki şemayı **birebir** takip et. Yorum, açıklama veya markdown bloğu **ekleme;** yalnızca geçerli JSON döndür.
+Önemli kural:
+Girdide açık bir tehdit istihbaratı, IOC listesi veya güvenilir eşleşme bilgisi yoksa hiçbir IP adresini “bilinen C2”, “bilinen botnet” veya “bilinen zararlı IP” olarak etiketleme.
 
-```json
+2. Davranış Anomalileri
+
+Aşağıdaki anomalileri yalnızca gerekli veri varsa değerlendir:
+
+- C2 / beacon davranışı:
+  Düzenli aralıklarla tekrar eden, otomatik görünen bağlantı kalıpları varsa şüpheli kabul et.
+  Zaman damgası veya tekrar bilgisi yoksa bu tespiti kesin yapma.
+
+- Veri sızdırma:
+  Dış hedefe doğru yüksek hacimli gönderim varsa değerlendir.
+  Yalnızca toplam byte bilgisi varsa bunu “yüksek hacimli transfer” olarak yorumla; yön bilgisi yoksa kesin exfiltration deme.
+
+- Lateral movement:
+  İç ağ IP’leri arasında alışılmadık bağlantılar varsa değerlendir.
+  Kaynak IP veya iç ağ bağlamı yoksa kesin lateral movement tespiti yapma.
+
+- Port tarama:
+  Kısa sürede çok sayıda porta bağlantı girişimi varsa değerlendir.
+  Zaman veya bağlantı sayısı yoksa kesin port tarama deme.
+
+- Brute force:
+  Aynı hedefe çok sayıda başarısız bağlantı veya kimlik doğrulama denemesi varsa değerlendir.
+  Başarısız deneme bilgisi yoksa brute force tespiti yapma.
+
+3. Teknik Göstergeler
+
+Aşağıdaki teknik göstergeleri analiz et:
+
+Riskli portlar:
+4444, 1337, 31337, 5555, 6666, 6667, 8080, 8888, 9999
+
+Şüpheli süreçler:
+mshta.exe, wscript.exe, cscript.exe, cmd.exe, powershell.exe, rundll32.exe, regsvr32.exe, certutil.exe
+
+Anormal process-IP eşleşmeleri:
+Yukarıdaki sistem araçlarından birinin doğrudan dış IP adresine bağlantı kurması şüpheli kabul edilir.
+
+Yüksek hacimli transfer:
+Tek bağlantıda 1 MB üzeri veri transferi varsa risk göstergesi olarak değerlendir.
+Yön bilgisi varsa ve trafik dışa doğruysa exfiltration şüphesini artır.
+Yön bilgisi yoksa yalnızca “yüksek hacimli transfer” olarak belirt.
+
+DNS tünelleme:
+DNS tünelleme şüphesini yalnızca DNS sorgu adı, sorgu boyutu, sorgu frekansı, TXT kayıtları veya anormal DNS tekrarları gibi veri varsa değerlendir.
+Sadece IP, port, protokol, byte ve process bilgisiyle DNS tünelleme tespiti yapma.
+
+4. Zaman Bazlı Analiz
+
+Aşağıdaki analizleri yalnızca zaman verisi varsa yap:
+
+- 02:00–06:00 arasında gerçekleşen otomatik bağlantılar
+- Uzun süre açık kalan bağlantılar
+- Beacon benzeri düzenli bağlantı frekansları
+- Mesai dışı anormal trafik
+
+Zaman verisi yoksa after_hours_activity değerini false yap.
+
+RİSK SKORLAMA
+
+risk_score 0.0 ile 10.0 arasında ondalıklı sayı olmalıdır.
+
+Aşağıdaki eşikleri kullan:
+
+- 0.0 – 2.9: GÜVENLİ
+- 3.0 – 5.9: DÜŞÜK RİSK
+- 6.0 – 7.9: ORTA RİSK
+- 8.0 – 9.4: YÜKSEK RİSK
+- 9.5 – 10.0: KRİTİK TEHDİT
+
+Skoru belirlerken şu sinyalleri birlikte değerlendir:
+
+- Bilinen IOC / tehdit istihbaratı eşleşmesi
+- Riskli port kullanımı
+- Şüpheli sistem süreci
+- Dış IP bağlantısı
+- Yüksek hacimli transfer
+- Tekrarlı / beacon benzeri davranış
+- Mesai dışı aktivite
+- Çok sayıda porta erişim denemesi
+- DNS tünelleme göstergesi
+- Aynı anda birden fazla risk göstergesinin bulunması
+
+Şüpheli tek bir zayıf sinyal varsa skoru abartma.
+Birden fazla güçlü sinyal birleşiyorsa skoru yükselt.
+Veri yetersizse kesin tehdit dili kullanma.
+
+ÇIKIŞ FORMATI
+
+Yanıtın yalnızca geçerli JSON olmalıdır.
+Markdown, açıklama, başlık, yorum veya kod bloğu ekleme.
+JSON dışında hiçbir metin yazma.
+JSON alan adlarını aşağıdaki şemadaki gibi birebir kullan.
+severity değerleri yalnızca şu dört değerden biri olabilir:
+"low", "medium", "high", "critical"
+
+Şema:
+
 {
-  "risk_score": 7.5,
-  "status": "YÜKSEK RİSK",
-  "threats_found": 3,
+  "risk_score": 0.0,
+  "status": "GÜVENLİ",
+  "threats_found": 0,
   "suspicious_connections": [
     {
-      "ip": "185.220.101.5",
-      "port": 4444,
-      "protocol": "TCP",
-      "process": "powershell.exe",
-      "bytes_sent": 524288,
-      "country": "DE",
-      "severity": "critical",
-      "reason": "Bilinen C2 IP adresi; tehlikeli port; sistem süreci üzerinden dış bağlantı",
-      "action": "Bağlantıyı derhal engelle, süreci izole et"
+      "ip": "string",
+      "port": 0,
+      "protocol": "string",
+      "process": "string",
+      "bytes_sent": 0,
+      "bytes_received": 0,
+      "country": "unknown",
+      "severity": "low",
+      "reason": "string",
+      "action": "string"
     }
   ],
   "indicators": {
-    "c2_patterns": ["Düzenli aralıklı beacon trafiği tespit edildi"],
-    "exfil_detected": true,
-    "port_scan_ips": ["192.168.1.45"],
-    "suspicious_processes": ["powershell.exe", "mshta.exe"],
+    "c2_patterns": [],
+    "exfil_detected": false,
+    "port_scan_ips": [],
+    "suspicious_processes": [],
     "dns_tunneling_suspected": false,
-    "after_hours_activity": true
+    "after_hours_activity": false,
+    "known_threat_matches": [],
+    "high_volume_transfers": [],
+    "risky_ports_detected": []
   },
-  "recommendations": [
-    "Tespit edilen şüpheli IP adreslerini güvenlik duvarında engelleyin.",
-    "powershell.exe ve mshta.exe süreçlerinin başlatılma kaynaklarını inceleyin.",
-    "EDR çözümü ile etkilenen uç noktaları tarayın.",
-    "Ağ günlüklerini (SIEM) daha ayrıntılı korelasyon için aktarın."
-  ],
-  "summary": "Analizde 3 kritik tehdit tespit edildi. Yüksek öncelikli müdahale önerilir."
+  "recommendations": [],
+  "summary": "string"
 }
-```
 
----
+ALAN KURALLARI
 
-## RİSK SKORU TABLOSU
+risk_score:
+Genel risk skorunu 0.0–10.0 arasında ver.
 
-| Skor | Durum | Renk |
-|------|-------|------|
-| 0 – 2 | GÜVENLİ | 🟢 Yeşil |
-| 3 – 5 | DÜŞÜK RİSK | 🟡 Sarı |
-| 6 – 7 | ORTA RİSK | 🟠 Turuncu |
-| 8 – 9 | YÜKSEK RİSK | 🔴 Kırmızı |
-| 10 | KRİTİK TEHDİT | ⚫ Siyah |
+status:
+Risk skoruna göre yalnızca şu değerlerden birini kullan:
+"GÜVENLİ", "DÜŞÜK RİSK", "ORTA RİSK", "YÜKSEK RİSK", "KRİTİK TEHDİT"
 
----
+threats_found:
+suspicious_connections dizisindeki şüpheli bağlantı sayısını yaz.
 
-## ÖNEMLİ KURALLAR
+suspicious_connections:
+Yalnızca kanıtlanabilir şekilde şüpheli görünen bağlantıları ekle.
+Tehdit yoksa boş dizi döndür: []
 
-- `suspicious_connections` dizisi boş bırakılabilir; tehdit yoksa `[]` döndür.
-- Yanıtın **yalnızca** geçerli JSON olmalıdır; başına veya sonuna hiçbir metin ekleme.
-- Tüm alan adları ve değerler **Türkçe** olmalıdır.
-- `severity` değerleri yalnızca şunlardan biri olabilir: `"low"`, `"medium"`, `"high"`, `"critical"`.
-- `risk_score` 0.0 ile 10.0 arasında ondalıklı bir sayı olmalıdır."""
+ip:
+Hedef IP adresini yaz.
 
-PROMPT_FILE = "config/ai_prompt.txt"
+port:
+Port numarasını yaz.
+
+protocol:
+TCP, UDP, DNS, ICMP veya girdide verilen protokol değerini yaz.
+
+process:
+Bağlantıyı yapan süreç adını yaz.
+
+bytes_sent:
+Girdide gönderilen byte bilgisi varsa yaz.
+Yoksa ve yalnızca toplam byte bilgisi varsa bu alana toplam byte değerini yaz.
+
+bytes_received:
+Girdide alınan byte bilgisi varsa yaz.
+Yoksa 0 yaz.
+
+country:
+Girdide ülke bilgisi varsa yaz.
+Yoksa "unknown" yaz.
+Ülke bilgisi uydurma.
+
+severity:
+Bağlantı riskine göre "low", "medium", "high" veya "critical" değerlerinden birini kullan.
+
+reason:
+Şüphe nedenini kısa, net ve kanıta dayalı yaz.
+Örnek:
+"Riskli port kullanımı; powershell.exe süreci üzerinden dış IP bağlantısı; yüksek hacimli transfer"
+
+action:
+Önerilen müdahaleyi kısa ve uygulanabilir yaz.
+Örnek:
+"Süreci incele, hedef IP bağlantısını geçici olarak engelle, uç noktayı EDR ile tara"
+
+indicators.c2_patterns:
+Yalnızca zaman, tekrar veya düzenli bağlantı bilgisi varsa doldur.
+Yoksa boş dizi kullan.
+
+indicators.exfil_detected:
+Yön bilgisi ve yüksek dışa veri gönderimi varsa true yap.
+Yön bilgisi yoksa yalnızca toplam byte yüksek diye true yapma.
+
+indicators.port_scan_ips:
+Port tarama davranışı kanıtlanabiliyorsa ilgili IP’leri ekle.
+Yoksa boş dizi kullan.
+
+indicators.suspicious_processes:
+Şüpheli süreç adlarını listele.
+Tekrar edenleri yalnızca bir kez yaz.
+
+indicators.dns_tunneling_suspected:
+Yalnızca DNS tünelleme için yeterli DNS verisi varsa true yap.
+Yoksa false yap.
+
+indicators.after_hours_activity:
+Zaman verisi varsa ve aktivite 02:00–06:00 aralığında gerçekleşmişse true yap.
+Zaman verisi yoksa false yap.
+
+indicators.known_threat_matches:
+Yalnızca girdide tehdit istihbaratı / IOC eşleşmesi açıkça verilmişse doldur.
+Yoksa boş dizi kullan.
+
+indicators.high_volume_transfers:
+1 MB üzeri transfer içeren bağlantıları kısa açıklamalarla listele.
+Yoksa boş dizi kullan.
+
+indicators.risky_ports_detected:
+Tespit edilen riskli portları listele.
+Yoksa boş dizi kullan.
+
+recommendations:
+Bulgulara göre uygulanabilir savunma önerileri üret.
+Öneriler genel ama pratik olmalıdır.
+Örnekler:
+- Şüpheli hedef IP adreslerini güvenlik duvarında geçici olarak engelleyin.
+- Şüpheli süreçlerin başlatılma kaynağını inceleyin.
+- Uç noktayı EDR veya antivirüs ile tarayın.
+- SIEM üzerinde aynı IP, süreç ve port kombinasyonları için geçmiş korelasyon yapın.
+- Gerekiyorsa kullanıcı hesabı ve cihaz izolasyonu uygulayın.
+
+summary:
+Genel sonucu kısa ve net özetle.
+Veri yetersizliği varsa bunu açıkça belirt.
+Kesin olmayan bulguları kesin tehdit gibi sunma.
+
+JSON GEÇERLİLİK KURALLARI
+
+- Yalnızca JSON döndür.
+- JSON içinde yorum satırı kullanma.
+- Sondaki virgüllerden kaçın.
+- Boolean değerleri true / false olarak yaz.
+- Sayısal değerleri tırnak içine alma.
+- Boş veri varsa [] veya false kullan.
+- Bilinmeyen ülke için "unknown" kullan.
+- Tehdit yoksa risk_score değerini düşük tut, suspicious_connections alanını [] yap ve threats_found değerini 0 yaz."""
+
+PROMPT_FILE = app_path("config", "ai_prompt.txt")
 
 def get_ai_prompt():
     """AI prompt'u dosyadan yükle, yoksa varsayılanı kullan."""
