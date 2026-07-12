@@ -10,7 +10,7 @@ import time
 from datetime import datetime
 
 import psutil
-from scapy.all import sniff, IP, TCP, UDP, get_if_list
+from scapy.all import sniff, IP, IPv6, TCP, UDP, get_if_list
 
 from database import Database
 from notifier import notify_suspicious_port, notify_high_traffic
@@ -79,12 +79,21 @@ def _get_process(src_port: int, dst_port: int = 0) -> str:
 
 def _packet_handler(packet, db: Database):
     """Her yakalanan paketi işler, veritabanına yazar ve anlık kontroller yapar."""
-    if not packet.haslayer(IP):
+    if not (packet.haslayer(IP) or packet.haslayer(IPv6)):
         return
 
-    ip = packet[IP]
     proto = "OTHER"
     src_port = dst_port = 0
+    size = len(packet)
+
+    if packet.haslayer(IP):
+        ip = packet[IP]
+        src_ip = ip.src
+        dst_ip = ip.dst
+    else:
+        ip = packet[IPv6]
+        src_ip = ip.src
+        dst_ip = ip.dst
 
     if packet.haslayer(TCP):
         proto = "TCP"
@@ -95,14 +104,12 @@ def _packet_handler(packet, db: Database):
         src_port = packet[UDP].sport
         dst_port = packet[UDP].dport
 
-    size    = len(packet)
     process = _get_process(src_port, dst_port)
-    dst_ip  = ip.dst
 
     # Veritabanına yaz
     db.insert_connection({
         "timestamp": datetime.now().isoformat(),
-        "src_ip":   ip.src,
+        "src_ip":   src_ip,
         "dst_ip":   dst_ip,
         "dst_port": dst_port,
         "protocol": proto,
@@ -152,6 +159,8 @@ class CaptureEngine:
 
     def set_interface(self, interface: str):
         """Arayüz değiştir (aktifken değiştirme, önce stop() çağır)."""
+        if self._running:
+            raise RuntimeError("Arayuz degistirmeden once yakalamayi durdurun.")
         self._interface = interface
 
     def start(self):
@@ -177,7 +186,13 @@ class CaptureEngine:
         print(f"[CaptureEngine] [OK] Dinleme basladi ({iface_name}).")
 
     def stop(self):
+        if not self._running:
+            self.db.flush()
+            return
         self._running = False
+        for thread in (self._sniff_thread, self._map_thread, self._counter_thread):
+            if thread and thread.is_alive():
+                thread.join(timeout=2)
         self.db.flush()
         print("[CaptureEngine] [STOP] Dinleme durduruldu, tampon yazildi.")
 
@@ -185,20 +200,28 @@ class CaptureEngine:
         kwargs = {
             "prn": lambda pkt: _packet_handler(pkt, self.db),
             "store": False,
-            "stop_filter": lambda _: not self._running,
+            "timeout": 1,
         }
         if self._interface:
             kwargs["iface"] = self._interface
-        sniff(**kwargs)
+        while self._running:
+            try:
+                sniff(**kwargs)
+            except Exception as exc:
+                print(f"[CaptureEngine] Sniff hatasi: {exc}")
+                time.sleep(2)
 
     def _map_updater(self):
         while self._running:
             _update_process_map()
-            time.sleep(2)
+            time.sleep(5)
 
     def _counter_resetter(self):
         while self._running:
-            time.sleep(_COUNTER_RESET_SECONDS)
+            for _ in range(_COUNTER_RESET_SECONDS):
+                if not self._running:
+                    return
+                time.sleep(1)
             with _counter_lock:
                 _ip_byte_counter.clear()
                 _ip_notified.clear()
