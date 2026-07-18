@@ -6,10 +6,13 @@ Administrator privileges are required for the netsh commands to succeed.
 
 from __future__ import annotations
 
+import logging
 import subprocess
 
 from database import Database
 from ip_utils import ip_to_rule_token, is_valid_ip, normalized_ip, rule_token_to_ip
+
+log = logging.getLogger("NetSonar.KillSwitch")
 
 RULE_PREFIX = "NetSonar_BLOCK_"
 
@@ -48,7 +51,7 @@ def block_ip(ip: str, reason: str = "NetSonar tarafindan engellendi", db: Databa
     """Block all inbound and outbound traffic for one IPv4 or IPv6 address."""
     normalized, rule_base = _rule_base_for_ip(ip)
     if not normalized or not rule_base:
-        print(f"[KillSwitch] Gecersiz IP: {ip}")
+        log.warning("Geçersiz IP: %s", ip)
         return False
 
     success = True
@@ -63,10 +66,10 @@ def block_ip(ip: str, reason: str = "NetSonar tarafindan engellendi", db: Databa
             "profile=any",
         ])
         if not ok:
-            print(f"[KillSwitch] [HATA] Kural olusturulamadi ({direction}): {output.strip()}")
+            log.error("Kural oluşturulamadı (%s): %s", direction, output.strip())
             success = False
         else:
-            print(f"[KillSwitch] [OK] {normalized} engellendi ({direction})")
+            log.info("%s engellendi (%s)", normalized, direction)
 
     if success and db:
         db.add_blocked_ip(normalized, reason)
@@ -78,7 +81,7 @@ def unblock_ip(ip: str) -> bool:
     """Remove NetSonar firewall rules for one IPv4 or IPv6 address."""
     normalized, rule_base = _rule_base_for_ip(ip)
     if not normalized or not rule_base:
-        print(f"[KillSwitch] Gecersiz IP: {ip}")
+        log.warning("Geçersiz IP: %s", ip)
         return False
 
     success = True
@@ -88,10 +91,10 @@ def unblock_ip(ip: str) -> bool:
             f"name={rule_base}_{direction}",
         ])
         if not ok:
-            print(f"[KillSwitch] Kural kaldirilamadi ({normalized}/{direction}): {output.strip()}")
+            log.warning("Kural kaldırılamadı (%s/%s): %s", normalized, direction, output.strip())
             success = False
         else:
-            print(f"[KillSwitch] {normalized} engeli kaldirildi ({direction})")
+            log.info("%s engeli kaldırıldı (%s)", normalized, direction)
 
     return success
 

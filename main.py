@@ -40,10 +40,14 @@ def _require_admin():
     """Admin degilse UAC ile yeniden baslatir."""
     if not _is_admin():
         try:
+            if getattr(sys, "frozen", False):
+                parameters = " ".join(f'"{a}"' for a in sys.argv[1:])
+            else:
+                parameters = " ".join(f'"{a}"' for a in sys.argv)
             ctypes.windll.shell32.ShellExecuteW(
                 None, "runas",
                 sys.executable,
-                " ".join(f'"{a}"' for a in sys.argv),
+                parameters,
                 None, 1,
             )
         except Exception:
@@ -65,7 +69,6 @@ def main():
     # Windows'ta GUI modunda konsol penceresini gizle
     if not args.no_gui and sys.platform == "win32":
         try:
-            import ctypes
             kernel32 = ctypes.windll.kernel32
             user32 = ctypes.windll.user32
             console_window = kernel32.GetConsoleWindow()

@@ -21,7 +21,6 @@ import requests
 import threading
 import time as _time
 from datetime import datetime
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from ip_utils import is_local_ip
 
 log = logging.getLogger("NetSonar.AI")

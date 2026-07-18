@@ -8,6 +8,7 @@ import csv
 from pathlib import Path
 from datetime import datetime
 from database import Database
+from config import user_data_path
 
 
 def export_report(report: dict, format: str = "json", filepath: str = None) -> str:
@@ -25,7 +26,7 @@ def export_report(report: dict, format: str = "json", filepath: str = None) -> s
     if filepath is None:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         ext = format.lower()
-        filepath = f"netsonar_data/reports/rapor_{timestamp}.{ext}"
+        filepath = user_data_path("netsonar_data", "reports", f"rapor_{timestamp}.{ext}")
     
     Path(filepath).parent.mkdir(parents=True, exist_ok=True)
     
@@ -130,7 +131,11 @@ def export_all_reports(db: Database, format: str = "json", output_dir: str = Non
         Oluşturulan dosyaların listesi
     """
     if output_dir is None:
-        output_dir = f"netsonar_data/reports/_all_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        output_dir = user_data_path(
+            "netsonar_data",
+            "reports",
+            f"_all_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+        )
     
     Path(output_dir).mkdir(parents=True, exist_ok=True)
     

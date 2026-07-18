@@ -1,43 +1,34 @@
-"""
-NetSonar - PyQt6 arayüzü
-Ağ izleme ve AI analiz paneli
+﻿"""
+NetSonar - PyQt6 arayÃ¼zÃ¼
+AÄŸ izleme ve AI analiz paneli
 """
 
 import sys
 import os
 import json
+import logging
 from datetime import datetime
-from config import get_app_version
+from config import get_app_version, app_path
 
+log = logging.getLogger("NetSonar.GUI")
 
-# dns_cache lazy import edilir — başlangıçta yüklenmiyor
-_dns_cache = None
-def _resolve(ip):
-    global _dns_cache
-    if _dns_cache is None:
-        try:
-            import dns_cache as _dc
-            _dns_cache = _dc
-        except Exception:
-            return ip
-    return _dns_cache.resolve(ip)
 
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QGridLayout, QTableWidget, QTableWidgetItem, QHeaderView, QPushButton, QLabel,
-    QTabWidget, QLineEdit, QComboBox, QCheckBox, QSpinBox, QFrame, QSizePolicy,
+    QLineEdit, QComboBox, QCheckBox, QFrame, QSizePolicy,
     QTextEdit, QTextBrowser, QSystemTrayIcon, QMenu, QMessageBox, QFormLayout,
-    QGroupBox, QRadioButton, QButtonGroup, QScrollArea, QSplitter,
-    QProgressBar, QWidgetAction, QDialog, QStackedWidget, QListWidget,
+    QGroupBox, QScrollArea, QSplitter,
+    QProgressBar, QDialog, QStackedWidget, QListWidget,
     QListWidgetItem,
 )
 from PyQt6.QtCore import Qt, QTimer, QThread, pyqtSignal, pyqtSlot, QSize
 from PyQt6.QtGui import (
-    QIcon, QColor, QFont, QPixmap, QPainter, QAction, QBrush,
+    QIcon, QColor, QPixmap, QPainter, QAction, QBrush,
     QLinearGradient, QPainterPath, QPen,
 )
 
-# ─── Renk Paleti (Cyber-Noir SOC) ─────────────────────────────────────
+# â”€â”€â”€ Renk Paleti (Cyber-Noir SOC) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 C = {
     "bg":        "#090E1A",
     "bg1":       "#0E1627",
@@ -58,9 +49,8 @@ C = {
     "mono":      "JetBrains Mono",
 }
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-APP_ICON_FILE = os.path.join(BASE_DIR, "netsonar.ico")
-APP_LOGO_FILE = os.path.join(BASE_DIR, "assets", "netsonar.png")
+APP_ICON_FILE = app_path("netsonar.ico")
+APP_LOGO_FILE = app_path("assets", "netsonar.png")
 
 
 def _app_icon():
@@ -90,7 +80,7 @@ def _app_logo_pixmap(size=30):
     return pix.scaled(size, size, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
 
 STYLESHEET = f"""
-/* ── Temel ── */
+/* â”€â”€ Temel â”€â”€ */
 QMainWindow, QWidget {{
     background: {C["bg"]};
     color: {C["text"]};
@@ -98,7 +88,7 @@ QMainWindow, QWidget {{
     font-size: 13px;
 }}
 
-/* ── Tab ── */
+/* â”€â”€ Tab â”€â”€ */
 QTabWidget::pane {{
     border: 1px solid {C["border"]};
     background: {C["bg1"]};
@@ -121,7 +111,7 @@ QTabBar::tab:selected {{
 }}
 QTabBar::tab:hover {{ color: {C["text2"]}; }}
 
-/* ── Tablo ── */
+/* â”€â”€ Tablo â”€â”€ */
 QTableWidget {{
     background: {C["bg2"]};
     gridline-color: {C["border"]};
@@ -147,7 +137,7 @@ QHeaderView::section {{
     font-family: 'JetBrains Mono', 'Consolas', monospace;
 }}
 
-/* ── Butonlar ── */
+/* â”€â”€ Butonlar â”€â”€ */
 QPushButton {{
     background: {C["accent2"]};
     color: {C["text"]};
@@ -190,7 +180,7 @@ QPushButton#ghost {{
 QPushButton#ghost:hover   {{ border-color: {C["accent2"]}; color: {C["text"]}; }}
 QPushButton#ghost:pressed {{ background: {C["border"]}; color: {C["text"]}; }}
 
-/* ── Input ── */
+/* â”€â”€ Input â”€â”€ */
 QLineEdit, QComboBox, QSpinBox {{
     background: {C["bg3"]};
     color: {C["text"]};
@@ -212,7 +202,7 @@ QComboBox QAbstractItemView {{
     selection-background-color: rgba(0,212,255,0.1);
 }}
 
-/* ── GroupBox ── */
+/* â”€â”€ GroupBox â”€â”€ */
 QGroupBox {{
     border: 1px solid {C["border"]};
     border-radius: 8px;
@@ -232,7 +222,7 @@ QGroupBox::title {{
     color: {C["text3"]};
 }}
 
-/* ── ScrollBar ── */
+/* â”€â”€ ScrollBar â”€â”€ */
 QScrollBar:vertical {{
     background: {C["bg1"]};
     width: 6px;
@@ -254,7 +244,7 @@ QScrollBar::handle:horizontal {{
 }}
 QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{ width: 0; }}
 
-/* ── TextEdit ── */
+/* â”€â”€ TextEdit â”€â”€ */
 QTextEdit, QTextBrowser {{
     background: {C["bg3"]};
     color: {C["text"]};
@@ -265,7 +255,7 @@ QTextEdit, QTextBrowser {{
     padding: 6px;
 }}
 
-/* ── CheckBox ── */
+/* â”€â”€ CheckBox â”€â”€ */
 QCheckBox {{
     color: {C["text2"]};
     spacing: 8px;
@@ -283,7 +273,7 @@ QCheckBox::indicator:checked {{
 }}
 QCheckBox::indicator:hover {{ border-color: {C["accent2"]}; }}
 
-/* ── ProgressBar ── */
+/* â”€â”€ ProgressBar â”€â”€ */
 QProgressBar {{
     background: {C["bg3"]};
     border: 1px solid {C["border"]};
@@ -297,12 +287,12 @@ QProgressBar::chunk {{
     border-radius: 3px;
 }}
 
-/* ── QDialog ── */
+/* â”€â”€ QDialog â”€â”€ */
 QDialog {{
     background: {C["bg1"]};
 }}
 
-/* ── SplashBar ── */
+/* â”€â”€ SplashBar â”€â”€ */
 QSplitter::handle {{
     background: {C["border"]};
     width: 1px;
@@ -322,24 +312,9 @@ QLabel#subtitle {{
 """
 
 
-# ═══════════════════════════════════════════════════════════════════════
-#  WORKER THREADS  (değişmedi)
-# ═══════════════════════════════════════════════════════════════════════
-
-class AIWorker(QThread):
-    finished = pyqtSignal(dict)
-    error    = pyqtSignal(str)
-    def __init__(self, analyzer, force_full=False):
-        super().__init__()
-        self.analyzer   = analyzer
-        self.force_full = force_full
-    def run(self):
-        try:
-            result = self.analyzer.analyze(hours=1, force_full=self.force_full)
-            self.finished.emit(result)
-        except Exception as exc:
-            self.error.emit(str(exc))
-
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+#  WORKER THREADS  (deÄŸiÅŸmedi)
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 class AnalysisWorker(QThread):
     finished = pyqtSignal(dict)
@@ -364,11 +339,11 @@ class AnalysisWorker(QThread):
 
 class AnalysisProgressWidget(QWidget):
     stages = [
-        "Hazırlanıyor…",
-        "İşleniyor…",
-        "Gönderiliyor…",
-        "Bekleniyor…",
-        "İşleniyor…",
+        "HazÄ±rlanÄ±yorâ€¦",
+        "Ä°ÅŸleniyorâ€¦",
+        "GÃ¶nderiliyorâ€¦",
+        "Bekleniyorâ€¦",
+        "Ä°ÅŸleniyorâ€¦",
     ]
 
     def __init__(self, parent=None):
@@ -437,7 +412,7 @@ class AnalysisProgressWidget(QWidget):
 
 
 class StatsWorker(QThread):
-    """Ana istatistikleri (stats) arka planda çeker."""
+    """Ana istatistikleri (stats) arka planda Ã§eker."""
     done = pyqtSignal(dict)
 
     def __init__(self, db):
@@ -453,7 +428,7 @@ class StatsWorker(QThread):
 
 
 class DashboardWorker(QThread):
-    """Dashboard için tüm ağır DB sorgularını arka planda çalıştırır."""
+    """Dashboard iÃ§in tÃ¼m aÄŸÄ±r DB sorgularÄ±nÄ± arka planda Ã§alÄ±ÅŸtÄ±rÄ±r."""
     done = pyqtSignal(dict)
 
     def __init__(self, db):
@@ -493,9 +468,9 @@ class DashboardWorker(QThread):
         self.done.emit(result)
 
 
-# ═══════════════════════════════════════════════════════════════════════
-#  YARDIMCI FONKSİYONLAR
-# ═══════════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+#  YARDIMCI FONKSÄ°YONLAR
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 def _fmt(b):
     if b < 1_024:          return f"{b} B"
@@ -540,12 +515,12 @@ def _wrap_scroll(widget):
     return scroll
 
 
-# ═══════════════════════════════════════════════════════════════════════
-#  UI YARDIMCI WİDGET'LER
-# ═══════════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+#  UI YARDIMCI WÄ°DGET'LER
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 class Separator(QFrame):
-    """İnce yatay çizgi ayırıcı."""
+    """Ä°nce yatay Ã§izgi ayÄ±rÄ±cÄ±."""
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setFixedHeight(1)
@@ -553,7 +528,7 @@ class Separator(QFrame):
 
 
 class SectionLabel(QLabel):
-    """Küçük büyük harfli bölüm başlığı."""
+    """KÃ¼Ã§Ã¼k bÃ¼yÃ¼k harfli bÃ¶lÃ¼m baÅŸlÄ±ÄŸÄ±."""
     def __init__(self, text, parent=None):
         super().__init__(text, parent)
         self.setStyleSheet(
@@ -583,7 +558,7 @@ class Tag(QLabel):
 
 
 class StatCard(QFrame):
-    """Sol kenarlıklı istatistik kartı."""
+    """Sol kenarlÄ±klÄ± istatistik kartÄ±."""
     COLORS = {
         "blue":  C["accent"],
         "red":   C["danger"],
@@ -625,7 +600,7 @@ class StatCard(QFrame):
 
 
 class MiniLineChart(QFrame):
-    """Hafif çizgi grafik — bağımlılık yok."""
+    """Hafif Ã§izgi grafik â€” baÄŸÄ±mlÄ±lÄ±k yok."""
     def __init__(self, data=None, color=None, parent=None):
         super().__init__(parent)
         self._data  = data or []
@@ -670,7 +645,7 @@ class MiniLineChart(QFrame):
 
 
 class CardHeader(QFrame):
-    """Başlık + sağ aksiyonları olan kart başlığı."""
+    """BaÅŸlÄ±k + saÄŸ aksiyonlarÄ± olan kart baÅŸlÄ±ÄŸÄ±."""
     def __init__(self, title, subtitle="", parent=None):
         super().__init__(parent)
         self.setStyleSheet(
@@ -697,12 +672,9 @@ class CardHeader(QFrame):
     def add_widget(self, w):
         self._right.addWidget(w)
 
-    def set_subtitle(self, text):
-        pass
-
 
 class NeoCard(QFrame):
-    """Kenarlıklı, başlıklı kart container."""
+    """KenarlÄ±klÄ±, baÅŸlÄ±klÄ± kart container."""
     def __init__(self, title="", subtitle="", parent=None):
         super().__init__(parent)
         self.setStyleSheet(
@@ -732,9 +704,9 @@ class NeoCard(QFrame):
             self._hdr.add_widget(w)
 
 
-# ═══════════════════════════════════════════════════════════════════════
-#  DASHBOARD SEKMESİ
-# ═══════════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+#  DASHBOARD SEKMESÄ°
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 class DashboardTab(QWidget):
     request_block = pyqtSignal(str)
@@ -756,10 +728,10 @@ class DashboardTab(QWidget):
 
         cards_row = QHBoxLayout()
         cards_row.setSpacing(10)
-        self.card_conns = StatCard("Bugünkü Bağlantı", "0", "blue", "canlı izleme")
+        self.card_conns = StatCard("BugÃ¼nkÃ¼ BaÄŸlantÄ±", "0", "blue", "canlÄ± izleme")
         self.card_threats = StatCard("Tehdit", "0", "red", "toplam")
         self.card_blocked = StatCard("Engellenen", "0", "amber", "IP adresi")
-        self.card_reports = StatCard("AI Raporu", "0", "green", "kayıtlı")
+        self.card_reports = StatCard("AI Raporu", "0", "green", "kayÄ±tlÄ±")
         for card in (self.card_conns, self.card_threats, self.card_blocked, self.card_reports):
             card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
             cards_row.addWidget(card)
@@ -776,7 +748,7 @@ class DashboardTab(QWidget):
         speed_row = QHBoxLayout()
         self._speed_lbl = QLabel("0.0 KB/s")
         self._speed_lbl.setStyleSheet(f"color:{C['accent']}; font-family:'JetBrains Mono',monospace; font-size:18px; font-weight:700; border:none;")
-        self._cmp_lbl = _muted_label("Anlık trafik hızı")
+        self._cmp_lbl = _muted_label("AnlÄ±k trafik hÄ±zÄ±")
         speed_row.addWidget(self._speed_lbl)
         speed_row.addWidget(self._cmp_lbl)
         speed_row.addStretch()
@@ -784,7 +756,7 @@ class DashboardTab(QWidget):
 
         chart_row = QHBoxLayout()
         chart_row.setSpacing(10)
-        for title, color in (("Gönderim", C["success"]), ("İndirim", C["accent"])):
+        for title, color in (("GÃ¶nderim", C["success"]), ("Ä°ndirim", C["accent"])):
             chart_box = QFrame()
             chart_box.setStyleSheet(f"QFrame {{ background:{C['bg3']}; border:1px solid {C['border']}; border-radius:6px; }}")
             chart_layout = QVBoxLayout(chart_box)
@@ -795,7 +767,7 @@ class DashboardTab(QWidget):
             chart.setMinimumHeight(72)
             chart_layout.addWidget(chart)
             chart_row.addWidget(chart_box, 1)
-            if title == "Gönderim":
+            if title == "GÃ¶nderim":
                 self._upload_chart = chart
             else:
                 self._download_chart = chart
@@ -803,7 +775,7 @@ class DashboardTab(QWidget):
 
         self._traffic_table = QTableWidget()
         self._traffic_table.setColumnCount(4)
-        self._traffic_table.setHorizontalHeaderLabels(["Dönem", "Gönderim", "İndirim", "Toplam"])
+        self._traffic_table.setHorizontalHeaderLabels(["DÃ¶nem", "GÃ¶nderim", "Ä°ndirim", "Toplam"])
         _configure_table(self._traffic_table)
         self._traffic_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         self._traffic_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
@@ -815,7 +787,7 @@ class DashboardTab(QWidget):
         meta_row = QHBoxLayout()
         meta_row.setSpacing(10)
         for attr, label, color in (
-            ("_proc_lbl", "Süreçler", C["text2"]),
+            ("_proc_lbl", "SÃ¼reÃ§ler", C["text2"]),
             ("_proto_lbl", "Protokol", C["accent"]),
             ("_active_lbl", "Aktif IP", C["teal"]),
         ):
@@ -835,12 +807,12 @@ class DashboardTab(QWidget):
 
         splitter.addWidget(self._traffic_card)
 
-        self._topip_card = NeoCard("En Yüksek Trafik", "son 24 saat")
+        self._topip_card = NeoCard("En YÃ¼ksek Trafik", "son 24 saat")
         top_body = self._topip_card.body_layout()
         top_body.setContentsMargins(0, 0, 0, 0)
         self._topip_table = QTableWidget()
         self._topip_table.setColumnCount(3)
-        self._topip_table.setHorizontalHeaderLabels(["IP", "Veri", "Bağlantı"])
+        self._topip_table.setHorizontalHeaderLabels(["IP", "Veri", "BaÄŸlantÄ±"])
         _configure_table(self._topip_table)
         self._topip_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         self._topip_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
@@ -853,7 +825,7 @@ class DashboardTab(QWidget):
         outer.addWidget(_wrap_scroll(content), 1)
 
     def refresh(self):
-        """Tüm DB sorgularını arka planda çalıştırır — UI bloklanmaz."""
+        """TÃ¼m DB sorgularÄ±nÄ± arka planda Ã§alÄ±ÅŸtÄ±rÄ±r â€” UI bloklanmaz."""
         if hasattr(self, "_dash_worker") and self._dash_worker.isRunning():
             return
         self._dash_worker = DashboardWorker(self.db)
@@ -861,7 +833,7 @@ class DashboardTab(QWidget):
         self._dash_worker.start()
 
     def _on_data_ready(self, data):
-        """Worker tamamlandığında UI thread'de tüm alanları güncelle."""
+        """Worker tamamlandÄ±ÄŸÄ±nda UI thread'de tÃ¼m alanlarÄ± gÃ¼ncelle."""
         traffic  = data.get("traffic", [])
         top_ips  = data.get("top_ips", [])
         speed    = data.get("speed", {})
@@ -870,7 +842,7 @@ class DashboardTab(QWidget):
         active   = data.get("active", 0)
         timeline = data.get("timeline", [])
 
-        labels = ["Saat", "Gün", "Hafta", "Ay", "Yıl"]
+        labels = ["Saat", "GÃ¼n", "Hafta", "Ay", "YÄ±l"]
         self._traffic_table.setUpdatesEnabled(False)
         self._traffic_table.setRowCount(0)
         for i, p in enumerate(traffic[:len(labels)]):
@@ -880,7 +852,7 @@ class DashboardTab(QWidget):
                 labels[i],
                 _fmt(p.get("upload", 0)),
                 _fmt(p.get("download", 0)),
-                f"{_fmt(p.get('total', 0))} ({p.get('conn_count', 0):,} bağlantı)",
+                f"{_fmt(p.get('total', 0))} ({p.get('conn_count', 0):,} baÄŸlantÄ±)",
             ]
             for col, val in enumerate(values):
                 item = QTableWidgetItem(str(val))
@@ -892,7 +864,7 @@ class DashboardTab(QWidget):
         if speed:
             self._speed_lbl.setText(f"{speed.get('total_kbs', 0):.1f} KB/s")
         if procs:
-            self._proc_lbl.setText(" · ".join(p["process"][:12] for p in procs))
+            self._proc_lbl.setText(" Â· ".join(p["process"][:12] for p in procs))
         if protos:
             self._proto_lbl.setText("  ".join(f"{k}:{v['percentage']:.0f}%" for k, v in protos.items()))
         self._active_lbl.setText(str(active))
@@ -916,32 +888,32 @@ class DashboardTab(QWidget):
         self._topip_table.setUpdatesEnabled(True)
 
 
-# ═══════════════════════════════════════════════════════════════════════
-#  AI ANALİZ SEKMESİ
-# ═══════════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+#  AI ANALÄ°Z SEKMESÄ°
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 def _show_trusted_ip_dialog(parent, db, initial_ip=""):
     dialog = QDialog(parent)
-    dialog.setWindowTitle("Güvenli IP Ekle")
+    dialog.setWindowTitle("GÃ¼venli IP Ekle")
     dialog.setMinimumWidth(440)
     layout = QVBoxLayout(dialog)
     form = QFormLayout()
     ip_input = QLineEdit(str(initial_ip or ""))
-    ip_input.setPlaceholderText("Örnek: 8.8.8.8 veya 2001:4860:4860::8888")
+    ip_input.setPlaceholderText("Ã–rnek: 8.8.8.8 veya 2001:4860:4860::8888")
     note_input = QLineEdit()
-    note_input.setPlaceholderText("Neden güvenli? (isteğe bağlı)")
+    note_input.setPlaceholderText("Neden gÃ¼venli? (isteÄŸe baÄŸlÄ±)")
     form.addRow("IP adresi:", ip_input)
-    form.addRow("Açıklama:", note_input)
+    form.addRow("AÃ§Ä±klama:", note_input)
     layout.addLayout(form)
-    info = QLabel("Bu IP bağlantı geçmişinde görünmeye devam eder; yalnızca sonraki AI analizlerinden ve otomatik engellemeden çıkarılır.")
+    info = QLabel("Bu IP baÄŸlantÄ± geÃ§miÅŸinde gÃ¶rÃ¼nmeye devam eder; yalnÄ±zca sonraki AI analizlerinden ve otomatik engellemeden Ã§Ä±karÄ±lÄ±r.")
     info.setWordWrap(True)
     info.setStyleSheet(f"color:{C['text3']}; font-size:11px;")
     layout.addWidget(info)
     buttons = QHBoxLayout()
     buttons.addStretch()
-    cancel = QPushButton("İptal")
+    cancel = QPushButton("Ä°ptal")
     cancel.setObjectName("ghost")
-    save = QPushButton("Güvenli Listeye Ekle")
+    save = QPushButton("GÃ¼venli Listeye Ekle")
     save.setObjectName("primary")
     cancel.clicked.connect(dialog.reject)
     buttons.addWidget(cancel)
@@ -1035,7 +1007,7 @@ class AnalysisTab(QWidget):
         )
         risk_lay.addWidget(self._risk_score, 0, 0, 3, 1)
 
-        self._risk_status = QLabel("Henüz analiz yapılmadı")
+        self._risk_status = QLabel("HenÃ¼z analiz yapÄ±lmadÄ±")
         self._risk_status.setWordWrap(True)
         self._risk_status.setStyleSheet(f"font-size:17px; font-weight:700; color:{C['text3']}; border:none;")
         risk_lay.addWidget(self._risk_status, 0, 1)
@@ -1045,10 +1017,10 @@ class AnalysisTab(QWidget):
         self._risk_level.setStyleSheet(f"font-size:13px; font-weight:700; color:{C['text2']}; border:none;")
         risk_lay.addWidget(self._risk_level, 1, 1)
 
-        self._risk_time = _muted_label("Analiz geçmişi yükleniyor…")
+        self._risk_time = _muted_label("Analiz geÃ§miÅŸi yÃ¼kleniyorâ€¦")
         risk_lay.addWidget(self._risk_time, 2, 1)
 
-        self._provider_lbl = QLabel("AI sağlayıcısı: -")
+        self._provider_lbl = QLabel("AI saÄŸlayÄ±cÄ±sÄ±: -")
         self._provider_lbl.setWordWrap(True)
         self._provider_lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         self._provider_lbl.setStyleSheet(
@@ -1058,7 +1030,7 @@ class AnalysisTab(QWidget):
         risk_lay.setColumnStretch(1, 1)
         lay.addWidget(risk_frame)
 
-        report_card = NeoCard("Analiz Sonucu", "risklerin sade ve uygulanabilir özeti")
+        report_card = NeoCard("Analiz Sonucu", "risklerin sade ve uygulanabilir Ã¶zeti")
         report_card.body_layout().setContentsMargins(0, 0, 0, 0)
         self._report_browser = QTextBrowser()
         self._report_browser.setOpenExternalLinks(False)
@@ -1066,16 +1038,16 @@ class AnalysisTab(QWidget):
         self._report_browser.setStyleSheet(
             f"QTextBrowser {{ background:{C['bg2']}; border:1px solid {C['border']}; border-radius:8px; color:{C['text']}; font-size:13px; padding:4px; }}"
         )
-        self._set_report_empty_state("Henüz görüntülenecek bir analiz sonucu yok.")
+        self._set_report_empty_state("HenÃ¼z gÃ¶rÃ¼ntÃ¼lenecek bir analiz sonucu yok.")
         report_card.body_layout().addWidget(self._report_browser)
         lay.addWidget(report_card)
 
-        susp_card = NeoCard("Şüpheli Bağlantılar", "neden ve önerilen işlem ayrı gösterilir")
+        susp_card = NeoCard("ÅÃ¼pheli BaÄŸlantÄ±lar", "neden ve Ã¶nerilen iÅŸlem ayrÄ± gÃ¶sterilir")
         susp_body = susp_card.body_layout()
         susp_body.setContentsMargins(0, 0, 0, 0)
         self._susp_table = QTableWidget()
         self._susp_table.setColumnCount(6)
-        self._susp_table.setHorizontalHeaderLabels(["IP / Port", "Süreç", "Risk nedeni", "Önerilen işlem", "Durum", "İşlem"])
+        self._susp_table.setHorizontalHeaderLabels(["IP / Port", "SÃ¼reÃ§", "Risk nedeni", "Ã–nerilen iÅŸlem", "Durum", "Ä°ÅŸlem"])
         _configure_table(self._susp_table)
         header = self._susp_table.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
@@ -1089,14 +1061,14 @@ class AnalysisTab(QWidget):
         susp_body.addWidget(self._susp_table)
         lay.addWidget(susp_card)
 
-        self._technical_btn = QPushButton("Teknik ayrıntıyı göster")
+        self._technical_btn = QPushButton("Teknik ayrÄ±ntÄ±yÄ± gÃ¶ster")
         self._technical_btn.setObjectName("ghost")
         self._technical_btn.setCheckable(True)
         self._technical_btn.setMinimumHeight(38)
         self._technical_btn.toggled.connect(self._toggle_technical_details)
         lay.addWidget(self._technical_btn, 0, Qt.AlignmentFlag.AlignLeft)
 
-        self._technical_card = NeoCard("AI'ye Gönderilen Teknik Veri", "yalnızca inceleme ve hata ayıklama için")
+        self._technical_card = NeoCard("AI'ye GÃ¶nderilen Teknik Veri", "yalnÄ±zca inceleme ve hata ayÄ±klama iÃ§in")
         tech_body = self._technical_card.body_layout()
         tech_body.setContentsMargins(0, 0, 0, 0)
         self._preview_browser = QTextBrowser()
@@ -1108,12 +1080,12 @@ class AnalysisTab(QWidget):
         self._technical_card.setVisible(False)
         lay.addWidget(self._technical_card)
 
-        hist_card = NeoCard("Rapor Geçmişi", "bir satıra tıklayarak raporu yeniden görüntüleyin")
+        hist_card = NeoCard("Rapor GeÃ§miÅŸi", "bir satÄ±ra tÄ±klayarak raporu yeniden gÃ¶rÃ¼ntÃ¼leyin")
         hist_body = hist_card.body_layout()
         hist_body.setContentsMargins(0, 0, 0, 0)
         self._hist_table = QTableWidget()
         self._hist_table.setColumnCount(4)
-        self._hist_table.setHorizontalHeaderLabels(["Tarih", "Sağlayıcı", "Risk", "Durum"])
+        self._hist_table.setHorizontalHeaderLabels(["Tarih", "SaÄŸlayÄ±cÄ±", "Risk", "Durum"])
         _configure_table(self._hist_table)
         self._hist_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         self._hist_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
@@ -1134,19 +1106,19 @@ class AnalysisTab(QWidget):
     def _toggle_technical_details(self, visible):
         self._technical_card.setVisible(visible)
         self._technical_btn.setText(
-            "Teknik ayrıntıyı gizle" if visible else "Teknik ayrıntıyı göster"
+            "Teknik ayrÄ±ntÄ±yÄ± gizle" if visible else "Teknik ayrÄ±ntÄ±yÄ± gÃ¶ster"
         )
 
     def _export(self, fmt):
         from exporter import export_report
         if not self._current_report:
-            QMessageBox.warning(self, "Uyarı", "Dışa aktarılacak rapor yok.")
+            QMessageBox.warning(self, "UyarÄ±", "DÄ±ÅŸa aktarÄ±lacak rapor yok.")
             return
         try:
             fp = export_report(self._current_report, fmt)
-            QMessageBox.information(self, "Başarılı", f"Rapor kaydedildi:\n{fp}")
+            QMessageBox.information(self, "BaÅŸarÄ±lÄ±", f"Rapor kaydedildi:\n{fp}")
         except Exception as exc:
-            QMessageBox.critical(self, "Hata", f"Dışa aktarma hatası:\n{exc}")
+            QMessageBox.critical(self, "Hata", f"DÄ±ÅŸa aktarma hatasÄ±:\n{exc}")
 
     def _display_report(self, r, provider=None):
         from html import escape
@@ -1160,15 +1132,15 @@ class AnalysisTab(QWidget):
             provider = str(provider).upper()
 
         if not isinstance(score, (int, float)) or score < 0:
-            color, score_txt, level, icon = C["danger"], "Hata", "Analiz hatası", "✕"
+            color, score_txt, level, icon = C["danger"], "Hata", "Analiz hatasÄ±", "âœ•"
         elif score < 3:
-            color, score_txt, level, icon = C["success"], f"{score:.1f}", "Düşük risk", "✓"
+            color, score_txt, level, icon = C["success"], f"{score:.1f}", "DÃ¼ÅŸÃ¼k risk", "âœ“"
         elif score < 6:
             color, score_txt, level, icon = C["warning"], f"{score:.1f}", "Orta risk", "!"
         elif score < 8:
-            color, score_txt, level, icon = C["danger"], f"{score:.1f}", "Yüksek risk", "⚠"
+            color, score_txt, level, icon = C["danger"], f"{score:.1f}", "YÃ¼ksek risk", "âš "
         else:
-            color, score_txt, level, icon = "#ff1744", f"{score:.1f}", "Kritik risk", "⚠"
+            color, score_txt, level, icon = "#ff1744", f"{score:.1f}", "Kritik risk", "âš "
 
         self._risk_score.setText(score_txt)
         self._risk_score.setStyleSheet(f"font-size:38px;font-weight:700;color:{color};font-family:'JetBrains Mono',monospace;border:none;")
@@ -1186,16 +1158,16 @@ class AnalysisTab(QWidget):
         else:
             analysis_time_text = datetime.now().strftime("%d.%m.%Y %H:%M")
         self._risk_time.setText(f"Son analiz: {analysis_time_text}")
-        self._provider_lbl.setText(f"AI sağlayıcısı: {provider}")
+        self._provider_lbl.setText(f"AI saÄŸlayÄ±cÄ±sÄ±: {provider}")
 
         meta = r.get("_meta", {}) or {}
-        preview = f"[Atlandı] {meta.get('reason','')}" if meta.get("skipped") else str(meta.get("raw_payload", ""))
-        self._preview_browser.setPlainText(preview or "Teknik veri kaydedilmemiş.")
+        preview = f"[AtlandÄ±] {meta.get('reason','')}" if meta.get("skipped") else str(meta.get("raw_payload", ""))
+        self._preview_browser.setPlainText(preview or "Teknik veri kaydedilmemiÅŸ.")
         if meta.get("est_tokens"):
-            self._provider_lbl.setText(f"AI sağlayıcısı: {provider}\nYaklaşık {meta['est_tokens']} token")
+            self._provider_lbl.setText(f"AI saÄŸlayÄ±cÄ±sÄ±: {provider}\nYaklaÅŸÄ±k {meta['est_tokens']} token")
 
         conns = [c for c in (r.get("suspicious_connections", []) or []) if isinstance(c, dict)]
-        summary = str(r.get("summary", "") or "Analiz sonucu için açıklama bulunmuyor.")
+        summary = str(r.get("summary", "") or "Analiz sonucu iÃ§in aÃ§Ä±klama bulunmuyor.")
         summary_lines = [x.strip() for x in summary.splitlines() if x.strip()] or [summary]
         reasons, actions = [], []
         for conn in conns:
@@ -1210,14 +1182,14 @@ class AnalysisTab(QWidget):
         conn_html = "".join(
             f"<div style='margin-bottom:8px;padding:10px 12px;background:{C['bg2']};border:1px solid {C['border']};border-radius:7px;'>"
             f"<b style='color:{C['warning']};'>{escape(str(c.get('ip','')))}:{escape(str(c.get('port','')))}</b>"
-            f"<span style='color:{C['text3']};'> &nbsp; {escape(str(c.get('process','') or 'Bilinmeyen süreç'))}</span></div>" for c in conns
-        ) or f"<p style='color:{C['success']};'>✓ Şüpheli bağlantı tespit edilmedi.</p>"
+            f"<span style='color:{C['text3']};'> &nbsp; {escape(str(c.get('process','') or 'Bilinmeyen sÃ¼reÃ§'))}</span></div>" for c in conns
+        ) or f"<p style='color:{C['success']};'>âœ“ ÅÃ¼pheli baÄŸlantÄ± tespit edilmedi.</p>"
         card=f"background:{C['bg3']};border:1px solid {C['border']};border-radius:8px;padding:14px 16px;margin-bottom:12px;"
         html = f'''<html><body style="background:{C['bg2']};color:{C['text']};font-family:'Segoe UI';font-size:13px;padding:12px;">
-        <div style="{card}border-left:4px solid {color};"><b style="color:{C['accent']};">KISA SONUÇ</b><div style="margin-top:10px;">{paras(summary_lines)}</div></div>
-        <div style="{card}"><b style="color:{C['warning']};">TESPİT EDİLEN RİSKLER</b><div style="margin-top:10px;">{bullets(reasons,'Belirgin bir risk nedeni bildirilmedi.',C['warning'])}</div></div>
-        <div style="{card}"><b style="color:{C['accent']};">ÖNERİLEN İŞLEMLER</b><div style="margin-top:10px;">{bullets(actions,'Ek bir işlem önerilmedi.',C['accent'])}</div></div>
-        <div style="{card}"><b>ŞÜPHELİ BAĞLANTILAR ({len(conns)})</b><div style="margin-top:10px;">{conn_html}</div></div>
+        <div style="{card}border-left:4px solid {color};"><b style="color:{C['accent']};">KISA SONUÃ‡</b><div style="margin-top:10px;">{paras(summary_lines)}</div></div>
+        <div style="{card}"><b style="color:{C['warning']};">TESPÄ°T EDÄ°LEN RÄ°SKLER</b><div style="margin-top:10px;">{bullets(reasons,'Belirgin bir risk nedeni bildirilmedi.',C['warning'])}</div></div>
+        <div style="{card}"><b style="color:{C['accent']};">Ã–NERÄ°LEN Ä°ÅLEMLER</b><div style="margin-top:10px;">{bullets(actions,'Ek bir iÅŸlem Ã¶nerilmedi.',C['accent'])}</div></div>
+        <div style="{card}"><b>ÅÃœPHELÄ° BAÄLANTILAR ({len(conns)})</b><div style="margin-top:10px;">{conn_html}</div></div>
         </body></html>'''
         self._report_browser.setHtml(html)
 
@@ -1225,7 +1197,7 @@ class AnalysisTab(QWidget):
         self._susp_table.setRowCount(0)
         if not conns:
             self._susp_table.setRowCount(1); self._susp_table.setSpan(0,0,1,6)
-            item=QTableWidgetItem("Şüpheli bağlantı tespit edilmedi."); item.setForeground(QColor(C["success"]))
+            item=QTableWidgetItem("ÅÃ¼pheli baÄŸlantÄ± tespit edilmedi."); item.setForeground(QColor(C["success"]))
             self._susp_table.setItem(0,0,item)
         for conn in conns:
             row=self._susp_table.rowCount(); self._susp_table.insertRow(row)
@@ -1234,20 +1206,20 @@ class AnalysisTab(QWidget):
                 item=QTableWidgetItem(str(val)); item.setToolTip(str(val))
                 item.setForeground(QColor(color if col==4 else C["text2"])); self._susp_table.setItem(row,col,item)
             ip = str(conn.get("ip", "") or "").strip()
-            trust_btn = QPushButton("Güvenli")
+            trust_btn = QPushButton("GÃ¼venli")
             trust_btn.setObjectName("ghost")
             trust_btn.setMinimumSize(76, 30)
             trust_btn.setEnabled(bool(ip) and not self.db.is_trusted_ip(ip))
-            trust_btn.setText("Güvenli ✓" if self.db.is_trusted_ip(ip) else "Güvenli")
+            trust_btn.setText("GÃ¼venli âœ“" if self.db.is_trusted_ip(ip) else "GÃ¼venli")
             trust_btn.clicked.connect(lambda _, target=ip: self._mark_trusted(target))
             self._susp_table.setCellWidget(row, 5, trust_btn)
 
     def _mark_trusted(self, ip):
         if not ip:
-            QMessageBox.warning(self, "IP Bulunamadı", "Bu risk satırında geçerli bir IP adresi yok.")
+            QMessageBox.warning(self, "IP BulunamadÄ±", "Bu risk satÄ±rÄ±nda geÃ§erli bir IP adresi yok.")
             return
         if _show_trusted_ip_dialog(self, self.db, ip):
-            QMessageBox.information(self, "Güvenli IP", f"{ip} sonraki AI analizlerinin dışında bırakılacak.")
+            QMessageBox.information(self, "GÃ¼venli IP", f"{ip} sonraki AI analizlerinin dÄ±ÅŸÄ±nda bÄ±rakÄ±lacak.")
             self._display_report(self._current_report or {})
 
     def _load_history(self):
@@ -1292,7 +1264,7 @@ class AnalysisTab(QWidget):
                 self._current_report = parsed_content
                 self._display_report(parsed_content, provider=latest.get("provider", ""))
             except Exception as e:
-                print(f"[AnalysisTab] Rapor gösterilemedi: {e}")
+                log.error("Rapor gösterilemedi: %s", e)
 
     def _show_history_report(self, row, _column):
         if row < 0 or row >= len(getattr(self, "_history_reports", [])):
@@ -1309,21 +1281,21 @@ class AnalysisTab(QWidget):
             self._display_report(parsed, provider=report.get("provider", ""))
             self._hist_table.selectRow(row)
         except (TypeError, ValueError, json.JSONDecodeError) as exc:
-            self._set_report_empty_state(f"Seçilen rapor okunamadı: {exc}")
+            self._set_report_empty_state(f"SeÃ§ilen rapor okunamadÄ±: {exc}")
 
     def refresh(self):
         self._load_history()
 
 
-# ═══════════════════════════════════════════════════════════════════════
-#  AYARLAR SEKMESİ
-# ═══════════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+#  AYARLAR SEKMESÄ°
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 # (SettingsTab class continues below after MainWindow)
 
 
-# ═══════════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 #  ANA PENCERE
-# ═══════════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 class MainWindow(QMainWindow):
     def __init__(self, db, analyzer, engine, scheduler):
@@ -1332,7 +1304,7 @@ class MainWindow(QMainWindow):
         self.analyzer  = analyzer
         self.engine    = engine
         self.scheduler = scheduler
-        self.setWindowTitle(f"NetSonar {get_app_version()} — AI Ağ İzleyici")
+        self.setWindowTitle(f"NetSonar {get_app_version()} â€” AI AÄŸ Ä°zleyici")
         self.setMinimumSize(1280, 760)
         self.resize(1280, 800)
         self.setStyleSheet(STYLESHEET)
@@ -1340,7 +1312,7 @@ class MainWindow(QMainWindow):
         self._setup_tray()
         self._setup_timer()
 
-    # ── UI ─────────────────────────────────────────────────────────────
+    # â”€â”€ UI â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     def _setup_ui(self):
         central = QWidget()
         self.setCentralWidget(central)
@@ -1352,7 +1324,7 @@ class MainWindow(QMainWindow):
         root.addWidget(self._build_tabs(), 1)
         root.addWidget(self._build_statusbar())
 
-    # ── Topbar ─────────────────────────────────────────────────────────
+    # â”€â”€ Topbar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     def _build_topbar(self):
         bar = QFrame()
         bar.setStyleSheet(
@@ -1379,7 +1351,7 @@ class MainWindow(QMainWindow):
             f"font-size:17px; font-weight:700; color:{C['text']}; "
             f"font-family:'JetBrains Mono','Consolas',monospace; letter-spacing:0.03em; border:none;"
         )
-        subtitle = QLabel("Ağ koruması ve AI analiz")
+        subtitle = QLabel("AÄŸ korumasÄ± ve AI analiz")
         subtitle.setStyleSheet(f"color:{C['text3']}; font-size:11px; border:none;")
         title_box.addWidget(logo)
         title_box.addWidget(subtitle)
@@ -1390,7 +1362,7 @@ class MainWindow(QMainWindow):
         lay.addStretch()
 
         for obj, label, slot in [
-            ("primary", "Analizi Başlat", self._run_quick_analysis),
+            ("primary", "Analizi BaÅŸlat", self._run_quick_analysis),
         ]:
             btn = QPushButton(label)
             btn.setMinimumHeight(36)
@@ -1408,7 +1380,7 @@ class MainWindow(QMainWindow):
 
         return bar
 
-    # ── Sekmeler ───────────────────────────────────────────────────────
+    # â”€â”€ Sekmeler â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     def _build_tabs(self):
         shell = QFrame()
         layout = QHBoxLayout(shell); layout.setContentsMargins(0,0,0,0); layout.setSpacing(0)
@@ -1420,13 +1392,13 @@ class MainWindow(QMainWindow):
             QListWidget::item:hover {{ background:{C['bg3']}; color:{C['text']}; }}
             QListWidget::item:selected {{ background:{C['accent2']}; color:#FFFFFF; border-left:3px solid {C['accent']}; }}
         """)
-        for title,tip in [("Panel","Dashboard"),("AI Analiz","AI reports"),("Bağlantılar","Connections"),("Engellenenler","Blocked IPs"),("Güvenli IP'ler","Trusted IPs"),("Ayarlar","Settings")]:
+        for title,tip in [("Panel","Dashboard"),("AI Analiz","AI reports"),("BaÄŸlantÄ±lar","Connections"),("Engellenenler","Blocked IPs"),("GÃ¼venli IP'ler","Trusted IPs"),("Ayarlar","Settings")]:
             item=QListWidgetItem(title); item.setToolTip(tip); item.setSizeHint(QSize(194,48)); self._navigation.addItem(item)
         self._tabs=QStackedWidget()
         self._dashboard_tab=DashboardTab(self.db); self._dashboard_tab.request_block.connect(self._block_ip)
         self._analysis_tab=self._data_tab=self._blocked_tab=self._trusted_tab=self._settings_tab=None
         def _placeholder():
-            w=QWidget(); lay=QVBoxLayout(w); lbl=QLabel("Yükleniyor…"); lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            w=QWidget(); lay=QVBoxLayout(w); lbl=QLabel("YÃ¼kleniyorâ€¦"); lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
             lbl.setStyleSheet(f"color:{C['text2']}; font-size:13px;"); lay.addWidget(lbl); return w
         self._tabs.addWidget(self._dashboard_tab)
         for _ in range(5): self._tabs.addWidget(_placeholder())
@@ -1451,9 +1423,9 @@ class MainWindow(QMainWindow):
             lbl.setStyleSheet(f"color:{col}; font-size:11px; font-family:'JetBrains Mono',monospace; border:none;")
             return lbl
 
-        self._status_label = sb_item("İzleme aktif", C["success"])
+        self._status_label = sb_item("Ä°zleme aktif", C["success"])
         lay.addWidget(self._status_label)
-        self._sb_iface = sb_item("Arayüz: -")
+        self._sb_iface = sb_item("ArayÃ¼z: -")
         lay.addWidget(self._sb_iface)
         self._sb_ai = sb_item("AI: Gemini")
         lay.addWidget(self._sb_ai)
@@ -1467,7 +1439,7 @@ class MainWindow(QMainWindow):
         return bar
 
     def _on_tab_changed(self, idx):
-        """İlk açılışta sekme widget'larını oluştur (lazy), sonra refresh et."""
+        """Ä°lk aÃ§Ä±lÄ±ÅŸta sekme widget'larÄ±nÄ± oluÅŸtur (lazy), sonra refresh et."""
         if idx == 0:
             self._dashboard_tab.refresh()
 
@@ -1518,7 +1490,7 @@ class MainWindow(QMainWindow):
 
 
     def _refresh_all(self):
-        """Stats'ı arka planda çek, UI'ı bloklamadan güncelle."""
+        """Stats'Ä± arka planda Ã§ek, UI'Ä± bloklamadan gÃ¼ncelle."""
         if hasattr(self, "_stats_worker") and self._stats_worker.isRunning():
             return
         self._stats_worker = StatsWorker(self.db)
@@ -1536,12 +1508,12 @@ class MainWindow(QMainWindow):
             if self._tabs.currentIndex() == 0:
                 dash.refresh()
         except Exception as e:
-            print(f"Stats update error: {e}")
+            log.error("Stats update error: %s", e)
 
     def _run_quick_analysis(self):
         if getattr(self, "_worker", None) and self._worker.isRunning():
             return
-        self._status_label.setText("● Analiz çalışıyor…")
+        self._status_label.setText("â— Analiz Ã§alÄ±ÅŸÄ±yorâ€¦")
         self._status_label.setStyleSheet(
             f"color:{C['warning']}; font-size:11px; font-family:'JetBrains Mono',monospace; border:none;"
         )
@@ -1557,23 +1529,23 @@ class MainWindow(QMainWindow):
             status = result.get("status", "")
 
             if risk_score == -1:
-                self._status_label.setText("● Hata oluştu")
+                self._status_label.setText("â— Hata oluÅŸtu")
                 self._status_label.setStyleSheet(
                     f"color:{C['danger']}; font-size:11px; font-family:'JetBrains Mono',monospace; border:none;"
                 )
                 error_msg = result.get("summary", "Bilinmeyen hata")
                 QMessageBox.warning(
-                    self, "Analiz Hatası",
-                    f"Analiz sırasında hata oluştu:\n\n{error_msg}\n\n"
-                    "Lütfen Ayarlar'dan API anahtarınızı kontrol edin."
+                    self, "Analiz HatasÄ±",
+                    f"Analiz sÄ±rasÄ±nda hata oluÅŸtu:\n\n{error_msg}\n\n"
+                    "LÃ¼tfen Ayarlar'dan API anahtarÄ±nÄ±zÄ± kontrol edin."
                 )
             else:
-                self._status_label.setText("● Analiz tamamlandı")
+                self._status_label.setText("â— Analiz tamamlandÄ±")
                 self._status_label.setStyleSheet(
                     f"color:{C['success']}; font-size:11px; font-family:'JetBrains Mono',monospace; border:none;"
                 )
 
-            QTimer.singleShot(5000, lambda: self._status_label.setText("● İzleme aktif"))
+            QTimer.singleShot(5000, lambda: self._status_label.setText("â— Ä°zleme aktif"))
 
         def failed(message):
             done({
@@ -1605,35 +1577,35 @@ class MainWindow(QMainWindow):
             notify_ip_blocked(ip)
             self._refresh_all()
         else:
-            QMessageBox.critical(self, "Hata", f"{ip} engellenemedi.\nYönetici yetkisi gerekli.")
+            QMessageBox.critical(self, "Hata", f"{ip} engellenemedi.\nYÃ¶netici yetkisi gerekli.")
 
-    # ── System Tray ────────────────────────────────────────────────────
+    # â”€â”€ System Tray â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     def _setup_tray(self):
         self.tray = QSystemTrayIcon(_app_icon(), self)
         menu = QMenu()
-        show_a = QAction("NetSonar'ı Göster", self)
+        show_a = QAction("NetSonar'Ä± GÃ¶ster", self)
         show_a.triggered.connect(self.showNormal)
         menu.addAction(show_a)
-        ana_a = QAction("Analizi Başlat", self)
+        ana_a = QAction("Analizi BaÅŸlat", self)
         ana_a.triggered.connect(self._run_quick_analysis)
         menu.addAction(ana_a)
         menu.addSeparator()
-        quit_a = QAction("Çıkış", self)
+        quit_a = QAction("Ã‡Ä±kÄ±ÅŸ", self)
         quit_a.triggered.connect(self._quit)
         menu.addAction(quit_a)
         self.tray.setContextMenu(menu)
-        self.tray.setToolTip("NetSonar - Ağ koruması aktif")
+        self.tray.setToolTip("NetSonar - AÄŸ korumasÄ± aktif")
         self.tray.activated.connect(lambda r: self.showNormal() if r == QSystemTrayIcon.ActivationReason.Trigger else None)
         self.tray.show()
 
     def _setup_timer(self):
-        # İlk refresh pencere açıldıktan 1.5 saniye sonra başlasın
+        # Ä°lk refresh pencere aÃ§Ä±ldÄ±ktan 1.5 saniye sonra baÅŸlasÄ±n
         QTimer.singleShot(1500, self._refresh_all)
         # Periyodik refresh: 90 saniyede bir
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._refresh_all)
         self._timer.start(90_000)
-        # Saat: sadece pencere görünürken güncelle
+        # Saat: sadece pencere gÃ¶rÃ¼nÃ¼rken gÃ¼ncelle
         self._clock = QTimer(self)
         self._clock.timeout.connect(self._tick_clock)
         self._clock.start(1000)
@@ -1643,7 +1615,7 @@ class MainWindow(QMainWindow):
             self._sb_time.setText(datetime.now().strftime("%d.%m.%Y %H:%M:%S"))
 
     def _init_statusbar_config(self):
-        """Statusbar'daki AI bilgisini başlangıçta bir kez yükle."""
+        """Statusbar'daki AI bilgisini baÅŸlangÄ±Ã§ta bir kez yÃ¼kle."""
         try:
             import config as cfg
             self._sb_ai.setText(f"AI: GEMINI - {cfg.GEMINI_MODEL}")
@@ -1655,7 +1627,7 @@ class MainWindow(QMainWindow):
         if load_settings().get("MINIMIZE_TO_TRAY", True):
             event.ignore()
             self.hide()
-            self.tray.showMessage("NetSonar Arka Planda", "İzleme devam ediyor.", QSystemTrayIcon.MessageIcon.Information, 2000)
+            self.tray.showMessage("NetSonar Arka Planda", "Ä°zleme devam ediyor.", QSystemTrayIcon.MessageIcon.Information, 2000)
         else:
             self._quit()
 
@@ -1678,13 +1650,13 @@ class MainWindow(QMainWindow):
         QApplication.quit()
 
 
-# ═══════════════════════════════════════════════════════════════════════
-#  VERİ TAB (AnalysisDataTab - Sekme Olarak)
-# ═══════════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+#  VERÄ° TAB (AnalysisDataTab - Sekme Olarak)
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
-# ═══════════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 #  DATA TAB (Veri Sekmesi)
-# ═══════════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 class DataTabWorker(QThread):
     done = pyqtSignal(list, str)
@@ -1697,7 +1669,7 @@ class DataTabWorker(QThread):
         last_ts = self.db.get_last_analysis_time()
         if last_ts is None:
             rows = self.db.get_summary(hours=1, limit=500)
-            since_label = "Son 1 saat (henüz analiz yapılmadı)"
+            since_label = "Son 1 saat (henÃ¼z analiz yapÄ±lmadÄ±)"
         else:
             rows = self.db.get_summary_since(since_ts=last_ts, limit=500)
             since_label = f"Son analizden beri: {last_ts[:16]}"
@@ -1720,19 +1692,19 @@ class DataTab(QWidget):
         root.setContentsMargins(20, 16, 20, 16)
         root.setSpacing(12)
 
-        # ── Başlık + İstatistik ───────────────────────────────────────
+        # â”€â”€ BaÅŸlÄ±k + Ä°statistik â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         hdr = QHBoxLayout()
-        title = QLabel("Analize Hazır Veri")
+        title = QLabel("Analize HazÄ±r Veri")
         title.setObjectName("title")
         hdr.addWidget(title)
 
-        self._stats_lbl = QLabel("Veriler yükleniyor...")
+        self._stats_lbl = QLabel("Veriler yÃ¼kleniyor...")
         self._stats_lbl.setStyleSheet(f"color:{C['text3']}; font-size:12px;")
         hdr.addWidget(self._stats_lbl)
         hdr.addStretch()
         root.addLayout(hdr)
 
-        # ── Sol: Tablo, Sağ: Detay ───────────────────────────────
+        # â”€â”€ Sol: Tablo, SaÄŸ: Detay â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.setHandleWidth(1)
 
@@ -1748,13 +1720,13 @@ class DataTab(QWidget):
         filter_row.setSpacing(8)
 
         self._search = QLineEdit()
-        self._search.setPlaceholderText("⌕  IP veya süreç ara…")
+        self._search.setPlaceholderText("âŒ•  IP veya sÃ¼reÃ§ araâ€¦")
         self._search.setMinimumHeight(34)
         self._search.textChanged.connect(self._filter_debounce)
         filter_row.addWidget(self._search, 2)
 
         self._proto_combo = QComboBox()
-        self._proto_combo.addItems(["Tümü", "TCP", "UDP", "OTHER"])
+        self._proto_combo.addItems(["TÃ¼mÃ¼", "TCP", "UDP", "OTHER"])
         self._proto_combo.setMinimumHeight(34)
         self._proto_combo.currentTextChanged.connect(lambda _: self._filter())
         filter_row.addWidget(self._proto_combo)
@@ -1764,17 +1736,17 @@ class DataTab(QWidget):
         self._page_size_combo.setCurrentIndex(0)
         self._page_size_combo.setMinimumHeight(34)
         self._page_size_combo.currentTextChanged.connect(self._on_page_size_changed)
-        lbl = QLabel("Göster:")
+        lbl = QLabel("GÃ¶ster:")
         lbl.setStyleSheet(f"color:{C['text3']}; font-size:11px;")
         filter_row.addWidget(lbl)
         filter_row.addWidget(self._page_size_combo)
         vl.addLayout(filter_row)
 
-        # Hızlı Filtreler
+        # HÄ±zlÄ± Filtreler
         quick_row = QHBoxLayout()
         quick_row.setSpacing(6)
 
-        self._filter_suspicious = QCheckBox("🔴 Şüpheli Port")
+        self._filter_suspicious = QCheckBox("ğŸ”´ ÅÃ¼pheli Port")
         self._filter_suspicious.stateChanged.connect(lambda _: self._filter())
         quick_row.addWidget(self._filter_suspicious)
 
@@ -1782,7 +1754,7 @@ class DataTab(QWidget):
         self._filter_high_traffic.stateChanged.connect(lambda _: self._filter())
         quick_row.addWidget(self._filter_high_traffic)
 
-        self._filter_after_hours = QCheckBox("🌙 Mesai Dışı")
+        self._filter_after_hours = QCheckBox("ğŸŒ™ Mesai DÄ±ÅŸÄ±")
         self._filter_after_hours.stateChanged.connect(lambda _: self._filter())
         quick_row.addWidget(self._filter_after_hours)
 
@@ -1792,7 +1764,7 @@ class DataTab(QWidget):
         # Tablo
         self.table = QTableWidget()
         self.table.setColumnCount(8)
-        self.table.setHorizontalHeaderLabels(["DURUM", "BAĞ", "HEDEF IP", "PORT", "PROTO", "VERİ", "SÜREÇ", ""])
+        self.table.setHorizontalHeaderLabels(["DURUM", "BAÄ", "HEDEF IP", "PORT", "PROTO", "VERÄ°", "SÃœREÃ‡", ""])
         self.table.verticalHeader().setVisible(False)
         _configure_table(self.table)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
@@ -1812,12 +1784,12 @@ class DataTab(QWidget):
         # Sayfalama
         page_row = QHBoxLayout()
         page_row.addStretch()
-        self._prev_btn = QPushButton("◀ Önceki")
+        self._prev_btn = QPushButton("â—€ Ã–nceki")
         self._prev_btn.setObjectName("ghost")
         self._prev_btn.clicked.connect(lambda: self._change_page(-1))
         self._page_lbl = QLabel("Sayfa 1")
         self._page_lbl.setStyleSheet(f"color:{C['text3']}; font-family:'JetBrains Mono',monospace; font-size:11px;")
-        self._next_btn = QPushButton("Sonraki ▶")
+        self._next_btn = QPushButton("Sonraki â–¶")
         self._next_btn.setObjectName("ghost")
         self._next_btn.clicked.connect(lambda: self._change_page(1))
         page_row.addWidget(self._prev_btn)
@@ -1828,7 +1800,7 @@ class DataTab(QWidget):
 
         splitter.addWidget(left)
 
-        # Sağ Panel: Detay
+        # SaÄŸ Panel: Detay
         self._detail_panel = self._create_detail_panel()
         splitter.addWidget(self._detail_panel)
         splitter.setSizes([600, 250])
@@ -1842,7 +1814,7 @@ class DataTab(QWidget):
         vl.setContentsMargins(12, 12, 12, 12)
         vl.setSpacing(8)
 
-        lbl = QLabel("Bağlantı Detayı")
+        lbl = QLabel("BaÄŸlantÄ± DetayÄ±")
         lbl.setStyleSheet(f"color:{C['accent']}; font-weight:700; font-size:12px; border:none;")
         vl.addWidget(lbl)
 
@@ -1851,12 +1823,12 @@ class DataTab(QWidget):
         dv.setSpacing(4)
         dv.setContentsMargins(0, 8, 0, 8)
 
-        self._detail_ip = QLabel("IP: —")
-        self._detail_port = QLabel("Port: —")
-        self._detail_proto = QLabel("Protokol: —")
-        self._detail_bytes = QLabel("Toplam Veri: —")
-        self._detail_process = QLabel("Süreç: —")
-        self._detail_time = QLabel("Son Görülme: —")
+        self._detail_ip = QLabel("IP: â€”")
+        self._detail_port = QLabel("Port: â€”")
+        self._detail_proto = QLabel("Protokol: â€”")
+        self._detail_bytes = QLabel("Toplam Veri: â€”")
+        self._detail_process = QLabel("SÃ¼reÃ§: â€”")
+        self._detail_time = QLabel("Son GÃ¶rÃ¼lme: â€”")
 
         for lbl in [self._detail_ip, self._detail_port, self._detail_proto,
                      self._detail_bytes, self._detail_process, self._detail_time]:
@@ -1871,11 +1843,11 @@ class DataTab(QWidget):
         rv.setSpacing(2)
         rv.setContentsMargins(0, 8, 0, 0)
 
-        rl = QLabel("🔴 Risk Göstergeleri")
+        rl = QLabel("ğŸ”´ Risk GÃ¶stergeleri")
         rl.setStyleSheet(f"color:{C['danger']}; font-weight:700; font-size:11px; border:none;")
         rv.addWidget(rl)
 
-        self._risk_list = QLabel("Bağlantı seçin")
+        self._risk_list = QLabel("BaÄŸlantÄ± seÃ§in")
         self._risk_list.setWordWrap(True)
         self._risk_list.setStyleSheet(f"color:{C['text3']}; font-size:12px; border:none;")
         rv.addWidget(self._risk_list)
@@ -1896,7 +1868,7 @@ class DataTab(QWidget):
         if self._loading:
             return
         self._loading = True
-        self._stats_lbl.setText("Veriler yükleniyor...")
+        self._stats_lbl.setText("Veriler yÃ¼kleniyor...")
         self._worker = DataTabWorker(self.db)
         self._worker.done.connect(self._on_data_loaded)
         self._worker.start()
@@ -1904,10 +1876,8 @@ class DataTab(QWidget):
     def _on_data_loaded(self, rows, since_label):
         self._loading = False
         total_bytes = sum(r.get('total_bytes', 0) for r in rows)
-        self._stats_lbl.setText(f"{len(rows)} bağlantı, {_fmt(total_bytes)} veri — {since_label}")
+        self._stats_lbl.setText(f"{len(rows)} baÄŸlantÄ±, {_fmt(total_bytes)} veri â€” {since_label}")
         self._all_rows = rows
-        self._page = 0
-        self._populate_table(rows)
         self._page = 0
         self._populate_table(rows)
 
@@ -1938,7 +1908,7 @@ class DataTab(QWidget):
             is_suspicious = dst_port in _SP or row.get('is_suspicious_port')
             is_high_traffic = row.get('is_high_traffic') or total_bytes > 1_000_000
 
-            status_icon = "🔴" if is_suspicious else ("⚠️" if is_high_traffic else "✅")
+            status_icon = "ğŸ”´" if is_suspicious else ("âš ï¸" if is_high_traffic else "âœ…")
             status = QTableWidgetItem(status_icon)
             status.setForeground(QColor(C["danger"]) if is_suspicious else QColor(C["text3"]))
             self.table.setItem(r, 0, status)
@@ -2000,7 +1970,7 @@ class DataTab(QWidget):
         self._detail_port.setText(f"Port: {port}")
         self._detail_proto.setText(f"Protokol: {proto}")
         self._detail_bytes.setText(f"Toplam Veri: {bytes_val}")
-        self._detail_process.setText(f"Süreç: {process}")
+        self._detail_process.setText(f"SÃ¼reÃ§: {process}")
 
         try:
             from config import SUSPICIOUS_PORTS
@@ -2010,9 +1980,9 @@ class DataTab(QWidget):
 
         risk_items = []
         if is_suspicious_port:
-            risk_items.append("⚠️ Bilinen tehlikeli port")
+            risk_items.append("âš ï¸ Bilinen tehlikeli port")
         if "powershell" in process.lower() or "cmd" in process.lower() or "wscript" in process.lower():
-            risk_items.append("⚠️ Sistem süreci dış bağlantı")
+            risk_items.append("âš ï¸ Sistem sÃ¼reci dÄ±ÅŸ baÄŸlantÄ±")
 
         if risk_items:
             self._risk_list.setText("\n".join(risk_items))
@@ -2061,7 +2031,7 @@ class DataTab(QWidget):
         for row in self._all_rows:
             if text and text not in row.get('dst_ip', '').lower() and text not in row.get('process', '').lower():
                 continue
-            if proto != "Tümü" and row.get('protocol', '') != proto:
+            if proto != "TÃ¼mÃ¼" and row.get('protocol', '') != proto:
                 continue
 
             is_susp = row.get('dst_port', 0) in SUSPICIOUS_PORTS
@@ -2091,9 +2061,9 @@ class DataTab(QWidget):
         self._populate_table(self._all_rows)
 
 
-# ═══════════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 #  BLOCKED TAB (Engellenenler Sekmesi)
-# ═══════════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 class BlockedTab(QWidget):
     def __init__(self, db):
@@ -2121,7 +2091,7 @@ class BlockedTab(QWidget):
 
         self.table = QTableWidget()
         self.table.setColumnCount(4)
-        self.table.setHorizontalHeaderLabels(["IP ADRESİ", "SEBEP", "TARİH", "EYLEM"])
+        self.table.setHorizontalHeaderLabels(["IP ADRESÄ°", "SEBEP", "TARÄ°H", "EYLEM"])
         self.table.verticalHeader().setVisible(False)
         _configure_table(self.table)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
@@ -2132,12 +2102,12 @@ class BlockedTab(QWidget):
 
         page_row = QHBoxLayout()
         page_row.addStretch()
-        self._prev_btn = QPushButton("◀ Önceki")
+        self._prev_btn = QPushButton("â—€ Ã–nceki")
         self._prev_btn.setObjectName("ghost")
         self._prev_btn.clicked.connect(lambda: self._change_page(-1))
         self._page_lbl = QLabel("Sayfa 1")
         self._page_lbl.setStyleSheet(f"color:{C['text3']}; font-family:'JetBrains Mono',monospace; font-size:11px;")
-        self._next_btn = QPushButton("Sonraki ▶")
+        self._next_btn = QPushButton("Sonraki â–¶")
         self._next_btn.setObjectName("ghost")
         self._next_btn.clicked.connect(lambda: self._change_page(1))
         page_row.addWidget(self._prev_btn)
@@ -2165,7 +2135,7 @@ class BlockedTab(QWidget):
         total = len(blocked)
         today = sum(1 for b in blocked if b.get('blocked_at', '').startswith(datetime.now().strftime('%Y-%m-%d')))
 
-        self._stats_lbl.setText(f"Toplam: {total} | Bugün: {today}")
+        self._stats_lbl.setText(f"Toplam: {total} | BugÃ¼n: {today}")
         self._page = 0
         self._populate_table()
 
@@ -2195,7 +2165,7 @@ class BlockedTab(QWidget):
             dt_item.setForeground(QColor(C["text3"]))
             self.table.setItem(r, 2, dt_item)
 
-            unblock_btn = QPushButton("Kaldır")
+            unblock_btn = QPushButton("KaldÄ±r")
             unblock_btn.setMinimumSize(78, 30)
             unblock_btn.setObjectName("ghost")
             unblock_btn.clicked.connect(lambda _, ipt=ip: self._unblock_ip(ipt))
@@ -2211,8 +2181,8 @@ class BlockedTab(QWidget):
 
     def _unblock_ip(self, ip):
         reply = QMessageBox.question(
-            self, "Engel Kaldır",
-            f"<b>{ip}</b> IP'sinin engelini kaldırmak istiyor musunuz",
+            self, "Engel KaldÄ±r",
+            f"<b>{ip}</b> IP'sinin engelini kaldÄ±rmak istiyor musunuz",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
         if reply != QMessageBox.StandardButton.Yes:
@@ -2233,15 +2203,15 @@ class BlockedTab(QWidget):
         self._populate_table()
 
 
-# ═══════════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 #  SETTINGS TAB (Ayarlar Sekmesi)
-# ═══════════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 
 
-# ═══════════════════════════════════════════════════════════════════════
-#  TRUSTED TAB (Güvenli IP'ler)
-# ═══════════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+#  TRUSTED TAB (GÃ¼venli IP'ler)
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 class TrustedTab(QWidget):
     def __init__(self, db):
@@ -2258,9 +2228,9 @@ class TrustedTab(QWidget):
 
         hdr = QHBoxLayout()
         title_box = QVBoxLayout()
-        title = QLabel("Güvenli IP Adresleri")
+        title = QLabel("GÃ¼venli IP Adresleri")
         title.setObjectName("title")
-        subtitle = QLabel("Bu IP'ler bağlantı geçmişinde kalır, ancak AI analizine ve otomatik engellemeye katılmaz.")
+        subtitle = QLabel("Bu IP'ler baÄŸlantÄ± geÃ§miÅŸinde kalÄ±r, ancak AI analizine ve otomatik engellemeye katÄ±lmaz.")
         subtitle.setWordWrap(True)
         subtitle.setStyleSheet(f"color:{C['text3']}; font-size:12px;")
         title_box.addWidget(title)
@@ -2280,7 +2250,7 @@ class TrustedTab(QWidget):
 
         self.table = QTableWidget()
         self.table.setColumnCount(4)
-        self.table.setHorizontalHeaderLabels(["IP ADRESİ", "AÇIKLAMA", "EKLENME TARİHİ", "EYLEM"])
+        self.table.setHorizontalHeaderLabels(["IP ADRESÄ°", "AÃ‡IKLAMA", "EKLENME TARÄ°HÄ°", "EYLEM"])
         _configure_table(self.table)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
@@ -2300,7 +2270,7 @@ class TrustedTab(QWidget):
 
     def _on_loaded(self, entries):
         self._loading = False
-        self._stats_lbl.setText(f"Toplam {len(entries)} güvenli IP")
+        self._stats_lbl.setText(f"Toplam {len(entries)} gÃ¼venli IP")
         self.table.setRowCount(0)
         for entry in entries:
             row = self.table.rowCount()
@@ -2308,7 +2278,7 @@ class TrustedTab(QWidget):
             ip = entry.get("ip", "")
             values = [
                 ip,
-                entry.get("note", "") or "—",
+                entry.get("note", "") or "â€”",
                 entry.get("added_at", "")[:19].replace("T", " "),
             ]
             for col, value in enumerate(values):
@@ -2316,7 +2286,7 @@ class TrustedTab(QWidget):
                 item.setForeground(QColor(C["success"] if col == 0 else C["text2"]))
                 item.setToolTip(str(value))
                 self.table.setItem(row, col, item)
-            remove_btn = QPushButton("Listeden Çıkar")
+            remove_btn = QPushButton("Listeden Ã‡Ä±kar")
             remove_btn.setObjectName("ghost")
             remove_btn.setMinimumSize(104, 30)
             remove_btn.clicked.connect(lambda _, target=ip: self._remove_ip(target))
@@ -2329,8 +2299,8 @@ class TrustedTab(QWidget):
     def _remove_ip(self, ip):
         reply = QMessageBox.question(
             self,
-            "Güvenli Listeden Çıkar",
-            f"<b>{ip}</b> yeniden sonraki AI analizlerine katılsın mı?",
+            "GÃ¼venli Listeden Ã‡Ä±kar",
+            f"<b>{ip}</b> yeniden sonraki AI analizlerine katÄ±lsÄ±n mÄ±?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
         if reply != QMessageBox.StandardButton.Yes:
@@ -2338,7 +2308,7 @@ class TrustedTab(QWidget):
         if self.db.remove_trusted_ip(ip):
             self.refresh()
         else:
-            QMessageBox.warning(self, "Kayıt Bulunamadı", f"{ip} güvenli listede bulunamadı.")
+            QMessageBox.warning(self, "KayÄ±t BulunamadÄ±", f"{ip} gÃ¼venli listede bulunamadÄ±.")
 
 
 class SettingsTab(QWidget):
@@ -2365,14 +2335,14 @@ class SettingsTab(QWidget):
         cv.setSpacing(14)
 
         # AI settings
-        ai_gb = QGroupBox("AI Ayarları")
+        ai_gb = QGroupBox("AI AyarlarÄ±")
         ai_fl = QFormLayout(ai_gb)
         ai_fl.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
 
         self._provider_fixed = QLabel("Gemini")
         self._provider_fixed.setWordWrap(True)
         self._provider_fixed.setStyleSheet(f"color:{C['accent']}; font-weight:700;")
-        ai_fl.addRow("AI sağlayıcı:", self._provider_fixed)
+        ai_fl.addRow("AI saÄŸlayÄ±cÄ±:", self._provider_fixed)
 
         self._fixed_model = QLabel("gemini-3.1-flash-lite")
         self._fixed_model.setWordWrap(True)
@@ -2385,17 +2355,17 @@ class SettingsTab(QWidget):
         self._api_key=QLineEdit(); self._api_key.setPlaceholderText("Gemini API keys")
         self._api_key.setEchoMode(QLineEdit.EchoMode.Password); self._api_key.setMinimumHeight(40)
         self._api_key.textChanged.connect(self._on_api_key_changed)
-        self._show_keys_btn=QPushButton("Göster"); self._show_keys_btn.setObjectName("ghost")
+        self._show_keys_btn=QPushButton("GÃ¶ster"); self._show_keys_btn.setObjectName("ghost")
         self._show_keys_btn.setCheckable(True); self._show_keys_btn.clicked.connect(self._toggle_api_keys)
         key_layout.addWidget(self._api_key,1); key_layout.addWidget(self._show_keys_btn)
         ai_fl.addRow("Gemini API keyleri:",key_row)
 
-        self._key_status = QLabel("Kayıtlı key yok")
+        self._key_status = QLabel("KayÄ±tlÄ± key yok")
         self._key_status.setWordWrap(True)
         self._key_status.setStyleSheet(f"color:{C['text3']}; font-size:12px;")
         ai_fl.addRow("Key durumu:", self._key_status)
 
-        self._model_status = QLabel("Sabit model kullanılıyor. OpenRouter/Ollama ve alternatif model seçimi devre dışı.")
+        self._model_status = QLabel("Sabit model kullanÄ±lÄ±yor. OpenRouter/Ollama ve alternatif model seÃ§imi devre dÄ±ÅŸÄ±.")
         self._model_status.setWordWrap(True)
         self._model_status.setStyleSheet(f"color:{C['text3']}; font-size:12px;")
         ai_fl.addRow("Not:", self._model_status)
@@ -2406,7 +2376,7 @@ class SettingsTab(QWidget):
         timing_gb = QGroupBox("Analiz Zamanlama")
         timing_fl = QFormLayout(timing_gb)
 
-        self._auto_analysis_cb = QCheckBox("Açık")
+        self._auto_analysis_cb = QCheckBox("AÃ§Ä±k")
         self._auto_analysis_cb.setChecked(True)
         timing_fl.addRow("Otomatik Analiz:", self._auto_analysis_cb)
 
@@ -2423,8 +2393,8 @@ class SettingsTab(QWidget):
 
         cv.addWidget(timing_gb)
 
-        # Güvenlik
-        sec_gb = QGroupBox("Güvenlik")
+        # GÃ¼venlik
+        sec_gb = QGroupBox("GÃ¼venlik")
         sec_fl = QFormLayout(sec_gb)
 
         self._auto_block_cb = QCheckBox("Otomatik IP engelleme")
@@ -2441,10 +2411,10 @@ class SettingsTab(QWidget):
         sys_gb = QGroupBox("Sistem")
         sys_fl = QFormLayout(sys_gb)
 
-        self._autostart_cb = QCheckBox("Windows'ta otomatik başlat")
+        self._autostart_cb = QCheckBox("Windows'ta otomatik baÅŸlat")
         sys_fl.addRow("", self._autostart_cb)
 
-        self._tray_cb = QCheckBox("Kapatılınca tepsiye küçült")
+        self._tray_cb = QCheckBox("KapatÄ±lÄ±nca tepsiye kÃ¼Ã§Ã¼lt")
         self._tray_cb.setChecked(True)
         sys_fl.addRow("", self._tray_cb)
 
@@ -2454,7 +2424,7 @@ class SettingsTab(QWidget):
         prompt_gb = QGroupBox("AI Prompt")
         prompt_vl = QVBoxLayout(prompt_gb)
 
-        desc = QLabel("AI'nin trafik analizinde kullandığı talimatlar.")
+        desc = QLabel("AI'nin trafik analizinde kullandÄ±ÄŸÄ± talimatlar.")
         desc.setStyleSheet(f"color:{C['text3']}; font-size:11px;")
         desc.setWordWrap(True)
         prompt_vl.addWidget(desc)
@@ -2465,7 +2435,7 @@ class SettingsTab(QWidget):
 
         pbr = QHBoxLayout()
         pbr.addStretch()
-        reset_btn = QPushButton("Varsayılana Sıfırla")
+        reset_btn = QPushButton("VarsayÄ±lana SÄ±fÄ±rla")
         reset_btn.setObjectName("ghost")
         reset_btn.clicked.connect(self._reset_prompt)
         pbr.addWidget(reset_btn)
@@ -2527,7 +2497,7 @@ class SettingsTab(QWidget):
 
     def _toggle_api_keys(self, visible):
         self._api_key.setEchoMode(QLineEdit.EchoMode.Normal if visible else QLineEdit.EchoMode.Password)
-        self._show_keys_btn.setText("Gizle" if visible else "Göster")
+        self._show_keys_btn.setText("Gizle" if visible else "GÃ¶ster")
 
     def _update_key_status(self):
         keys = []
@@ -2539,10 +2509,10 @@ class SettingsTab(QWidget):
                 keys.append(key)
                 seen_keys.add(key)
         if not keys:
-            self._key_status.setText("Kayıtlı Gemini API key yok")
+            self._key_status.setText("KayÄ±tlÄ± Gemini API key yok")
             self._key_status.setStyleSheet(f"color:{C['warning']}; font-size:11px;")
         else:
-            self._key_status.setText(f"{len(keys)} Gemini API key kayıtlı. 429/503 durumunda key 30 dakika bekletilir.")
+            self._key_status.setText(f"{len(keys)} Gemini API key kayÄ±tlÄ±. 429/503 durumunda key 30 dakika bekletilir.")
             self._key_status.setStyleSheet(f"color:{C['success']}; font-size:11px;")
 
     def _reset_prompt(self):
@@ -2590,188 +2560,19 @@ class SettingsTab(QWidget):
             if p.strip():
                 save_ai_prompt(p)
 
-            QMessageBox.information(self, "✓ Başarılı", "Ayarlar kaydedildi.\nDeğişiklikler bir sonraki analizde geçerli olur.")
+            QMessageBox.information(self, "âœ“ BaÅŸarÄ±lÄ±", "Ayarlar kaydedildi.\nDeÄŸiÅŸiklikler bir sonraki analizde geÃ§erli olur.")
 
         except Exception as e:
             QMessageBox.warning(self, "Hata", f"Ayarlar kaydedilirken hata:\n{e}")
 
 
-# ═══════════════════════════════════════════════════════════════════════
-#  POPUP DİALOGLAR
-# ═══════════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+#  UYGULAMA BAÅLATICI
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
-def _dialog_base(parent, title, w=960, h=660):
-    """Temel QDialog oluşturucu."""
-    d = QDialog(parent)
-    d.setWindowTitle(title)
-    d.setMinimumSize(w, h)
-    d.setStyleSheet(STYLESHEET)
-    return d
-
-
-class ConnectionsPopup(QDialog):
-    def __init__(self, db, parent=None, filter_type="recent"):
-        super().__init__(parent)
-        self.db = db
-        self.filter_type = filter_type
-        titles = {"recent": "Tüm Bağlantılar", "frequent": "En Sık Bağlanılan",
-                  "transfer": "En Fazla Veri Transferi", "ports": "Port Çeşitliliği"}
-        self.setWindowTitle(f"{titles.get(filter_type,'Bağlantılar')}")
-        self.setMinimumSize(960, 660)
-        self.setStyleSheet(STYLESHEET)
-        self._page = 0; self._page_size = 50
-        self._setup_ui()
-        self._load_data()
-
-    def _setup_ui(self):
-        lay = QVBoxLayout(self)
-        lay.setContentsMargins(20, 16, 20, 16)
-        lay.setSpacing(10)
-
-        hdr = QHBoxLayout()
-        title = QLabel(self.windowTitle())
-        title.setObjectName("title")
-        hdr.addWidget(title); hdr.addStretch()
-        lay.addLayout(hdr)
-
-        filter_row = QHBoxLayout()
-        self._search = QLineEdit()
-        self._search.setPlaceholderText("⌕  IP, port, süreç ara…")
-        self._search.setMinimumHeight(34)
-        self._search.textChanged.connect(self._filter)
-        self._proto = QComboBox()
-        self._proto.addItems(["Tümü","TCP","UDP","OTHER"])
-        self._proto.setMinimumHeight(34)
-        self._proto.currentTextChanged.connect(self._filter)
-        lbl = QLabel("Protokol:"); lbl.setStyleSheet(f"color:{C['text3']};")
-        filter_row.addWidget(self._search, 2); filter_row.addWidget(lbl); filter_row.addWidget(self._proto); filter_row.addStretch()
-        lay.addLayout(filter_row)
-
-        self._table = QTableWidget()
-        self._table.setColumnCount(8)
-        self._table.setHorizontalHeaderLabels(["ZAMAN","KAYNAK IP","HEDEF IP","PORT","PROTOKOL","VERİ (KB)","SÜREÇ","EYLEM"])
-        self._table.verticalHeader().setVisible(False)
-        self._table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
-        lay.addWidget(self._table, 1)
-
-        page_row = QHBoxLayout(); page_row.addStretch()
-        prev = QPushButton("◀ Önceki"); prev.setObjectName("ghost"); prev.clicked.connect(lambda: self._change_page(-1))
-        self._plbl = QLabel("Sayfa 1"); self._plbl.setStyleSheet(f"color:{C['text3']}; font-family:'JetBrains Mono',monospace; min-width:80px;")
-        nxt = QPushButton("Sonraki ▶"); nxt.setObjectName("ghost"); nxt.clicked.connect(lambda: self._change_page(1))
-        page_row.addWidget(prev); page_row.addWidget(self._plbl); page_row.addWidget(nxt); page_row.addStretch()
-        lay.addLayout(page_row)
-
-    def _load_data(self):
-        if   self.filter_type == "frequent": rows = self.db.get_frequent_connections(hours=24, limit=100)
-        elif self.filter_type == "transfer": rows = self.db.get_top_transfer_connections(hours=24, limit=100)
-        elif self.filter_type == "ports":    rows = self.db.get_diverse_port_connections(hours=24, limit=100)
-        else:                                rows = self.db.get_recent_connections(limit=self._page_size, offset=self._page*self._page_size)
-        self._populate(rows)
-
-    def _populate(self, rows):
-        self._table.setRowCount(0)
-        for row in rows:
-            r = self._table.rowCount(); self._table.insertRow(r)
-            ts = row.get("timestamp","")[:19].replace("T"," ")
-            for col, val in enumerate([ts, row.get("src_ip",""), row.get("dst_ip",""),
-                                        str(row.get("dst_port","")), row.get("protocol",""),
-                                        f"{row.get('bytes',0)/1024:.1f}", row.get("process","")]):
-                item = QTableWidgetItem(val)
-                item.setForeground(QColor(C["text2"]))
-                self._table.setItem(r, col, item)
-            btn = QPushButton("Engelle"); btn.setMinimumSize(78, 30); btn.setObjectName("danger")
-            btn.clicked.connect(lambda _, ip=row.get("dst_ip"): self._block(ip))
-            self._table.setCellWidget(r, 7, btn)
-
-    def _filter(self):
-        text = self._search.text().lower(); proto = self._proto.currentText()
-        rows = self.db.get_recent_connections(limit=200)
-        filtered = [r for r in rows if (not text or text in str(r.get("dst_ip","")).lower() or text in str(r.get("process","")).lower()) and (proto=="Tümü" or r.get("protocol")==proto)]
-        self._populate(filtered[:50])
-
-    def _change_page(self, delta):
-        self._page = max(0, self._page + delta)
-        self._load_data()
-        self._plbl.setText(f"Sayfa {self._page+1}")
-
-    def _block(self, ip):
-        from kill_switch import block_ip
-        from notifier import notify_ip_blocked
-        if block_ip(ip, "Bağlantı listesinden engellendi", None): notify_ip_blocked(ip)
-
-
-class ReportPopup(QDialog):
-    def __init__(self, db, parent=None):
-        super().__init__(parent)
-        self.db = db
-        self.setWindowTitle("AI Raporu")
-        self.setMinimumSize(620, 480)
-        self.setStyleSheet(STYLESHEET)
-        lay = QVBoxLayout(self)
-        lay.setContentsMargins(24, 20, 24, 20); lay.setSpacing(12)
-        title = QLabel("AI Güvenlik Raporu"); title.setObjectName("title"); lay.addWidget(title)
-        self._content = QTextBrowser()
-        self._content.setStyleSheet(f"QTextBrowser {{ background:{C['bg2']}; border-radius:8px; border:1px solid {C['border']}; }}")
-        lay.addWidget(self._content, 1)
-        br = QHBoxLayout(); br.addStretch()
-        cb = QPushButton("Kapat"); cb.setObjectName("ghost"); cb.setMinimumSize(100,34); cb.clicked.connect(self.accept)
-        br.addWidget(cb); lay.addLayout(br)
-        self._load()
-
-    def _load(self):
-        report = self.db.get_latest_report()
-        if not report: self._content.setHtml(f"<p style='color:{C['text3']};padding:12px;'>Henüz rapor bulunmuyor.</p>"); return
-        try: data = json.loads(report.get("content","{}"))
-        except: data = {}
-        risk = report.get("risk_score", 0)
-        color = C["success"] if risk < 3 else C["warning"] if risk < 6 else C["danger"]
-        html = (f"<div style='padding:12px;background:{C['bg2']};color:{C['text']};font-family:Segoe UI,sans-serif;font-size:13px;'>"
-                f"<h2 style='color:{color};font-family:JetBrains Mono,monospace;'>{risk:.1f}/10 &nbsp; {report.get('status','')}</h2>"
-                f"<p style='color:{C['text3']};font-size:11px;font-family:JetBrains Mono,monospace;'>{report.get('created_at','')[:19].replace('T',' ')}</p>"
-                f"<hr style='border-color:{C['border']};'>"
-                f"<h3 style='color:{C['accent']};font-size:12px;letter-spacing:0.06em;'>ÖZET</h3>"
-                f"<p style='line-height:1.65;'>{data.get('summary','Yok')}</p></div>")
-        self._content.setHtml(html)
-
-
-class BlockedIPsPopup(QDialog):
-    def __init__(self, db, parent=None):
-        super().__init__(parent)
-        self.db = db
-        self.setWindowTitle("Engellenen IP'ler")
-        self.setMinimumSize(660, 560)
-        self.setStyleSheet(STYLESHEET)
-        lay = QVBoxLayout(self)
-        lay.setContentsMargins(24, 20, 24, 20); lay.setSpacing(12)
-        title = QLabel("Engellenen IP Adresleri"); title.setObjectName("title"); lay.addWidget(title)
-        self._table = QTableWidget()
-        self._table.setColumnCount(3)
-        self._table.setHorizontalHeaderLabels(["IP ADRESİ","SEBEP","TARİH"])
-        self._table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        self._table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        self._table.verticalHeader().setVisible(False)
-        lay.addWidget(self._table, 1)
-        br = QHBoxLayout(); br.addStretch()
-        cb = QPushButton("Kapat"); cb.setObjectName("ghost"); cb.setMinimumSize(120,38); cb.clicked.connect(self.accept)
-        br.addWidget(cb); lay.addLayout(br)
-        self._load()
-
-    def _load(self):
-        blocked = self.db.get_blocked_ips()
-        self._table.setRowCount(0)
-        for entry in blocked:
-            r = self._table.rowCount(); self._table.insertRow(r)
-            ip = entry.get("ip","")
-            ip_i = QTableWidgetItem(ip); ip_i.setForeground(QColor(C["danger"]))
-            re_i = QTableWidgetItem(entry.get("reason","-")); re_i.setForeground(QColor(C["text2"]))
-            dt_i = QTableWidgetItem(entry.get("blocked_at","")[:19].replace("T"," ")); dt_i.setForeground(QColor(C["text3"]))
-            self._table.setItem(r, 0, ip_i); self._table.setItem(r, 1, re_i); self._table.setItem(r, 2, dt_i)
-
-
-
-# ═══════════════════════════════════════════════════════════════════════
-#  UYGULAMA BAŞLATICI
-# ═══════════════════════════════════════════════════════════════════════
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+#  UYGULAMA BAÅLATICI
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
 def run_gui(db, analyzer, engine, scheduler):
     # Windows bildirimlerini python.exe yerine NetSonar uygulamas?yla ili?kilendir.
@@ -2792,6 +2593,6 @@ def run_gui(db, analyzer, engine, scheduler):
     app.setQuitOnLastWindowClosed(False)
     window = MainWindow(db=db, analyzer=analyzer, engine=engine, scheduler=scheduler)
     window.show()
-    # Config bilgisini hemen göster, ağır DB sorgularını timer başlatır
+    # Config bilgisini hemen gÃ¶ster, aÄŸÄ±r DB sorgularÄ±nÄ± timer baÅŸlatÄ±r
     window._init_statusbar_config()
     return app.exec()

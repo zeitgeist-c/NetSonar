@@ -1,0 +1,9 @@
+PyInstaller==6.19.0
+PyQt6==6.10.2
+scapy==2.7.0
+psutil==7.2.2
+APScheduler==3.11.2
+pytz==2026.1.post1
+requests==2.32.5
+winotify==1.1.0
+plyer==2.1.0

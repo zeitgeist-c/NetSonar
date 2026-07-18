@@ -7,6 +7,7 @@ UYARI: Yönetici (Administrator) yetkileri gerektirir.
 
 import threading
 import time
+import logging
 from datetime import datetime
 
 import psutil
@@ -15,6 +16,8 @@ from scapy.all import sniff, IP, IPv6, TCP, UDP, get_if_list
 from database import Database
 from notifier import notify_suspicious_port, notify_high_traffic
 from config import SUSPICIOUS_PORTS, SUSPICIOUS_BYTES_THRESHOLD
+
+log = logging.getLogger("NetSonar.Capture")
 
 
 def get_network_interfaces() -> list[dict]:
@@ -183,7 +186,7 @@ class CaptureEngine:
         self._sniff_thread.start()
 
         iface_name = self._interface if self._interface else "Tümü"
-        print(f"[CaptureEngine] [OK] Dinleme basladi ({iface_name}).")
+        log.info("Dinleme başladı (%s)", iface_name)
 
     def stop(self):
         if not self._running:
@@ -194,7 +197,7 @@ class CaptureEngine:
             if thread and thread.is_alive():
                 thread.join(timeout=2)
         self.db.flush()
-        print("[CaptureEngine] [STOP] Dinleme durduruldu, tampon yazildi.")
+        log.info("Dinleme durduruldu, tampon yazıldı.")
 
     def _sniff_loop(self):
         kwargs = {
@@ -208,7 +211,7 @@ class CaptureEngine:
             try:
                 sniff(**kwargs)
             except Exception as exc:
-                print(f"[CaptureEngine] Sniff hatasi: {exc}")
+                log.error("Sniff hatası: %s", exc)
                 time.sleep(2)
 
     def _map_updater(self):

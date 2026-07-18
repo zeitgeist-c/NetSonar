@@ -6,15 +6,36 @@ API anahtarlarını ve uygulama ayarlarını buradan düzenle.
 import json
 import os
 import subprocess
+import sys
 
-APP_DIR = os.path.dirname(os.path.abspath(__file__))
+APP_VERSION = "v0.3"
+IS_FROZEN = bool(getattr(sys, "frozen", False))
+APP_DIR = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+
+if IS_FROZEN:
+    USER_DATA_DIR = os.path.join(
+        os.environ.get("LOCALAPPDATA", os.path.expanduser("~")),
+        "NetSonar",
+    )
+else:
+    # Gelistirme ortamindaki mevcut veri yerlesimini koru.
+    USER_DATA_DIR = APP_DIR
 
 
 def app_path(*parts: str) -> str:
+    """Paketle gelen salt-okunur kaynaklar icin yol dondur."""
     return os.path.join(APP_DIR, *parts)
+
+
+def user_data_path(*parts: str) -> str:
+    """Ayar, veritabani, log ve raporlar icin yazilabilir yol dondur."""
+    return os.path.join(USER_DATA_DIR, *parts)
+
 
 def get_app_version() -> str:
     """Git tag üzerinden dinamik uygulama versiyonunu döndürür."""
+    if IS_FROZEN:
+        return APP_VERSION
     try:
         # Popen kullanarak arkaplan penceresi oluşturmadan komutu çalıştır (Windows GUI için)
         creationflags = subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
@@ -25,11 +46,11 @@ def get_app_version() -> str:
         # Eğer sadece hash dönüyorsa (ör: 16cdc88), başına v eklemiyoruz çünkü "v0.3-1-g..." formatı daha makul
         return version if version.startswith("v") else f"v{version}"
     except Exception:
-        return "v0.3"  # Fallback
+        return APP_VERSION
 
 
 # ─── Settings Yükleme (önce dosya, sonra env) ──────────────────────
-SETTINGS_FILE = app_path("config", "settings.json")
+SETTINGS_FILE = user_data_path("config", "settings.json")
 GEMINI_MODEL_ID = "gemini-3.1-flash-lite"
 
 def load_settings():
@@ -58,14 +79,6 @@ def save_settings(data: dict):
     os.makedirs(os.path.dirname(SETTINGS_FILE), exist_ok=True)
     with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
-
-# ─── Yardımcı fonksiyon ──────────────────────────────────────────────
-def _get_setting(key, env_var=None):
-    """Environment variable'dan önce, sonra settings.json'dan al."""
-    if env_var and os.getenv(env_var):
-        return os.getenv(env_var)
-    settings = load_settings()
-    return settings.get(key, "")
 
 def _split_api_keys(value) -> list[str]:
     """API key listesini settings/env kaynaklarindan normalize et."""
@@ -112,7 +125,7 @@ SUSPICIOUS_BYTES_THRESHOLD = 50_000                # 50 KB üzeri harici bağlan
 SUSPICIOUS_PORTS = {4444, 1337, 31337, 5555, 6666, 6667, 8888, 9999}
 
 # ─── Veritabanı ─────────────────────────────────────────────────────
-DB_PATH = app_path("netsonar_data", "connections.db")
+DB_PATH = user_data_path("netsonar_data", "connections.db")
 DB_RETENTION_HOURS = 2                     # Kaç saatlik ham veri saklansın? 0 = sınırsız
 DB_CLEANUP_INTERVAL_HOURS = 1              # Temizlik kaç saatte bir yapılsın?
 
@@ -141,7 +154,6 @@ AUTO_BLOCK_MIN_RISK_SCORE = 7.0
 MINIMIZE_TO_TRAY = True
 
 # ─── AI Prompt ─────────────────────────────────────────────────────────
-import os
 
 DEFAULT_SYSTEM_PROMPT = """Sen NetSonar’nın uzman siber güvenlik yapay zekâ analistisin.
 
@@ -432,13 +444,16 @@ JSON GEÇERLİLİK KURALLARI
 - Bilinmeyen ülke için "unknown" kullan.
 - Tehdit yoksa risk_score değerini düşük tut, suspicious_connections alanını [] yap ve threats_found değerini 0 yaz."""
 
-PROMPT_FILE = app_path("config", "ai_prompt.txt")
+PROMPT_FILE = user_data_path("config", "ai_prompt.txt")
+DEFAULT_PROMPT_FILE = app_path("config", "ai_prompt.txt")
 
 def get_ai_prompt():
     """AI prompt'u dosyadan yükle, yoksa varsayılanı kullan."""
-    if os.path.exists(PROMPT_FILE):
+    for prompt_file in (PROMPT_FILE, DEFAULT_PROMPT_FILE):
+        if not os.path.exists(prompt_file):
+            continue
         try:
-            with open(PROMPT_FILE, "r", encoding="utf-8") as f:
+            with open(prompt_file, "r", encoding="utf-8") as f:
                 return f.read()
         except Exception:
             pass
