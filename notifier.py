@@ -2,10 +2,13 @@
 NetSonar — Masaustu Bildirim Modulu
 ==================================
 Kural: Yalnizca AI analizi tamamlaninca veya basarisiz olunca bildirim goster.
-Diger olaylar (port uyarisi, yuksek trafik vb.) sadece konsola yazilir.
+Diger olaylar (port uyarisi, yuksek trafik vb.) sadece log'a yazilir.
 """
 
+import logging
 from datetime import datetime
+
+log = logging.getLogger("NetSonar.Notifier")
 
 
 def _send_toast(title: str, message: str, severity: str = "info"):
@@ -27,7 +30,7 @@ def _send_toast(title: str, message: str, severity: str = "info"):
     except ImportError:
         pass
     except Exception as exc:
-        print(f"[Notifier] winotify hatasi: {exc}")
+        log.error("winotify hatası: %s", exc)
 
     # Fallback: plyer
     try:
@@ -43,9 +46,10 @@ def _send_toast(title: str, message: str, severity: str = "info"):
 
 
 def _log(title: str, message: str, level: str = "INFO"):
-    """Her durumda konsola yaz."""
-    ts = datetime.now().strftime("%H:%M:%S")
-    print(f"[{ts}] [{level}] {title}: {message}")
+    """Her durumda log'a yaz."""
+    levels = {"INFO": log.info, "WARNING": log.warning, "ERROR": log.error}
+    logger_fn = levels.get(level, log.info)
+    logger_fn("%s: %s", title, message)
 
 
 # ─── Sadece loglanan olaylar (bildirim GÖNDERILMEZ) ──────────────────

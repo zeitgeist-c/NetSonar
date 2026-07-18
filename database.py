@@ -6,12 +6,14 @@ Otomatik temizlik: DB_RETENTION_DAYS sonra eski kayıtları siler.
 
 import sqlite3
 import threading
-import time
+import logging
 import ipaddress
 from datetime import datetime, timedelta
 from pathlib import Path
 from config import DB_PATH, DB_RETENTION_HOURS, DB_CLEANUP_INTERVAL_HOURS
 from ip_utils import sql_local_src_expr, sql_public_dst_filter
+
+log = logging.getLogger("NetSonar.DB")
 
 
 class Database:
@@ -469,7 +471,6 @@ class Database:
 
     # ─── Engelleme Kaydı ─────────────────────────────────────────
     def add_blocked_ip(self, ip: str, reason: str):
-        from datetime import datetime
         with self._lock:
             self.conn.execute(
                 "INSERT OR REPLACE INTO blocked_ips (ip, reason, blocked_at) VALUES (?,?,?)",
@@ -484,7 +485,6 @@ class Database:
 
     # ─── Rapor Kaydı ─────────────────────────────────────────────
     def save_report(self, provider: str, risk_score: float, status: str, content: str):
-        from datetime import datetime
         with self._lock:
             self.conn.execute(
                 "INSERT INTO reports (created_at, provider, risk_score, status, content) VALUES (?,?,?,?,?)",
@@ -526,7 +526,7 @@ class Database:
             self.conn.commit()
             
             if deleted_conns > 0 or deleted_reports > 0:
-                print(f"[Database] Temizlik: {deleted_conns} bağlantı, {deleted_reports} rapor silindi. VACUUM uygulanıyor...")
+                log.info("Temizlik: %d bağlantı, %d rapor silindi. VACUUM uygulanıyor...", deleted_conns, deleted_reports)
                 self.conn.execute("VACUUM")
 
             
@@ -566,9 +566,8 @@ class Database:
 
     def get_traffic_speed(self, minutes: int = 5) -> dict:
         """Son N dakikadaki ortalama trafik hızını KB/s olarak döndürür."""
-        import datetime
         with self._lock:
-            cutoff = (datetime.datetime.now() - datetime.timedelta(minutes=minutes)).isoformat()
+            cutoff = (datetime.now() - timedelta(minutes=minutes)).isoformat()
             row = self.conn.execute("""
                 SELECT 
                     COALESCE(SUM(bytes), 0) as total_bytes
@@ -589,9 +588,8 @@ class Database:
 
     def get_top_processes(self, hours: int = 1, limit: int = 5) -> list[dict]:
         """En çok trafik yapan süreçleri döndürür."""
-        import datetime
         with self._lock:
-            cutoff = (datetime.datetime.now() - datetime.timedelta(hours=hours)).isoformat()
+            cutoff = (datetime.now() - timedelta(hours=hours)).isoformat()
             rows = self.conn.execute("""
                 SELECT 
                     process,
@@ -608,9 +606,8 @@ class Database:
 
     def get_active_connections_count(self, minutes: int = 60) -> int:
         """Son N dakikadaki aktif bağlantı sayısını döndürür."""
-        import datetime
         with self._lock:
-            cutoff = (datetime.datetime.now() - datetime.timedelta(minutes=minutes)).isoformat()
+            cutoff = (datetime.now() - timedelta(minutes=minutes)).isoformat()
             row = self.conn.execute("""
                 SELECT COUNT(DISTINCT dst_ip) as count
                 FROM connections
@@ -620,9 +617,8 @@ class Database:
 
     def get_protocol_distribution(self, hours: int = 24) -> dict:
         """Protokol dağılımını yüzde olarak döndürür."""
-        import datetime
         with self._lock:
-            cutoff = (datetime.datetime.now() - datetime.timedelta(hours=hours)).isoformat()
+            cutoff = (datetime.now() - timedelta(hours=hours)).isoformat()
             rows = self.conn.execute("""
                 SELECT 
                     protocol,
@@ -646,12 +642,11 @@ class Database:
 
     def get_traffic_comparison(self) -> dict:
         """Bugün vs Dün, Bu Hafta vs Geçen Hafta karşılaştırması."""
-        import datetime
         with self._lock:
-            today_start = datetime.datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
-            yesterday_start = today_start - datetime.timedelta(days=1)
-            week_start = today_start - datetime.timedelta(days=today_start.weekday())
-            last_week_start = week_start - datetime.timedelta(days=7)
+            today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+            yesterday_start = today_start - timedelta(days=1)
+            week_start = today_start - timedelta(days=today_start.weekday())
+            last_week_start = week_start - timedelta(days=7)
             
             # Bugün
             today_data = self.conn.execute("""
@@ -705,15 +700,14 @@ class Database:
 
     def get_traffic_timeline(self, hours: int = 24, points: int = 12) -> list[dict]:
         """Grafik için zaman çizgisi verisi. Son N saatlik veriyi N noktaya böler."""
-        import datetime
         with self._lock:
-            now = datetime.datetime.now()
+            now = datetime.now()
             results = []
             interval_minutes = (hours * 60) // points
             
             for i in range(points):
-                end_time = now - datetime.timedelta(minutes=i * interval_minutes)
-                start_time = end_time - datetime.timedelta(minutes=interval_minutes)
+                end_time = now - timedelta(minutes=i * interval_minutes)
+                start_time = end_time - timedelta(minutes=interval_minutes)
                 
                 row = self.conn.execute("""
                     SELECT COALESCE(SUM(bytes), 0) as total_bytes, COUNT(*) as conn_count

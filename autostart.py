@@ -5,8 +5,10 @@ Bilgisayar açılınca NetSonar'yı otomatik başlatır.
 
 import os
 import sys
+import logging
 import winreg
 
+log = logging.getLogger("NetSonar.Autostart")
 
 APP_NAME = "NetSonar"
 
@@ -51,7 +53,7 @@ def enable_autostart() -> bool:
         winreg.CloseKey(key)
         return True
     except Exception as exc:
-        print(f"Otomatik başlatma etkinleştirilirken hata: {exc}")
+        log.error("Otomatik başlatma etkinleştirilirken hata: %s", exc)
         return False
 
 
@@ -71,5 +73,5 @@ def disable_autostart() -> bool:
         winreg.CloseKey(key)
         return True
     except Exception as exc:
-        print(f"Otomatik başlatma devre dışı bırakılırken hata: {exc}")
+        log.error("Otomatik başlatma devre dışı bırakılırken hata: %s", exc)
         return False

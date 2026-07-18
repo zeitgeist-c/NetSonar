@@ -6,9 +6,10 @@ Belirli IP veya portlar için otomatik bildirim oluşturur.
 import json
 from pathlib import Path
 from typing import Optional
+from config import user_data_path
 
 
-ALERTS_FILE = Path("netsonar_data/custom_alerts.json")
+ALERTS_FILE = Path(user_data_path("netsonar_data", "custom_alerts.json"))
 
 
 class AlertRule:
