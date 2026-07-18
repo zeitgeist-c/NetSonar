@@ -1,7 +1,7 @@
-"""NetSonar kill switch.
+"""NetSonar kill switch modülü.
 
-Blocks and unblocks suspicious IP addresses with Windows Firewall rules.
-Administrator privileges are required for the netsh commands to succeed.
+Şüpheli IP adreslerini Windows Güvenlik Duvarı kurallarıyla engeller ve kaldırır.
+netsh komutlarının çalışması için yönetici yetkisi gereklidir.
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ RULE_PREFIX = "NetSonar_BLOCK_"
 
 
 def _run(cmd: list[str]) -> tuple[bool, str]:
-    """Run a netsh command and return (success, output)."""
+    """Bir netsh komutu çalıştırır ve (başarılı, çıktı) döndürür."""
     try:
         result = subprocess.run(
             cmd,
@@ -78,7 +78,7 @@ def block_ip(ip: str, reason: str = "NetSonar tarafindan engellendi", db: Databa
 
 
 def unblock_ip(ip: str) -> bool:
-    """Remove NetSonar firewall rules for one IPv4 or IPv6 address."""
+    """Bir IPv4 veya IPv6 adresi için NetSonar güvenlik duvarı kurallarını kaldırır."""
     normalized, rule_base = _rule_base_for_ip(ip)
     if not normalized or not rule_base:
         log.warning("Geçersiz IP: %s", ip)
@@ -100,7 +100,7 @@ def unblock_ip(ip: str) -> bool:
 
 
 def list_blocked() -> list[str]:
-    """List IP addresses blocked by NetSonar firewall rules."""
+    """NetSonar güvenlik duvarı kurallarıyla engellenmiş IP adreslerini listeler."""
     ok, output = _run([
         "netsh", "advfirewall", "firewall", "show", "rule", f"name={RULE_PREFIX}*"
     ])
