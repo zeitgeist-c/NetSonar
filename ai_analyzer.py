@@ -6,7 +6,7 @@ Onemli degisiklik: openai kutuphanesine bagimliliik tamamen kaldirildi.
 Tum API cagirilari dogrudan `requests` ile yapilir — daha guvenilir ve debug edilebilir.
 
 Hangi API kullanilir?
-  config.py → AI_PROVIDER = "gemini"; model = "gemini-3.1-flash-lite"
+  config.py → AI_PROVIDER = "gemini"; model kullanıcı ayarından seçilir
 
 Veri akisi:
   DB → ozetlenmis JSON → SYSTEM_PROMPT + kullanici mesaji → AI → JSON rapor
@@ -139,6 +139,12 @@ def _analyze_gemini(user_msg: str) -> dict:
     model = cfg.GEMINI_MODEL
     endpoint = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 
+    generation_config = {
+        "maxOutputTokens": 2048,
+    }
+    if model == "gemini-3.1-flash-lite":
+        generation_config["temperature"] = 0.2
+
     payload = {
         "system_instruction": {
             "parts": [{"text": cfg.AI_PROMPT}]
@@ -146,10 +152,7 @@ def _analyze_gemini(user_msg: str) -> dict:
         "contents": [
             {"role": "user", "parts": [{"text": user_msg}]}
         ],
-        "generationConfig": {
-            "temperature": 0.2,
-            "maxOutputTokens": 2048,
-        },
+        "generationConfig": generation_config,
     }
 
     active_keys = _available_gemini_keys(keys)
@@ -246,8 +249,11 @@ class AIAnalyzer:
 
         if cfg.AI_PROVIDER != "gemini":
             issues.append("Bu surum yalnizca Gemini saglayicisini destekler")
-        if cfg.GEMINI_MODEL != "gemini-3.1-flash-lite":
-            issues.append("Gemini modeli gemini-3.1-flash-lite olmali")
+        if cfg.GEMINI_MODEL not in cfg.SUPPORTED_GEMINI_MODELS:
+            issues.append(
+                f"Desteklenmeyen Gemini modeli: {cfg.GEMINI_MODEL}. "
+                f"Seçenekler: {', '.join(cfg.SUPPORTED_GEMINI_MODELS)}"
+            )
         if not getattr(cfg, "GEMINI_API_KEYS", []):
             issues.append("Gemini API key listesi bos")
 

@@ -5,8 +5,11 @@ from PyInstaller.utils.hooks import collect_submodules
 project_root = Path(SPECPATH).parent
 
 datas = [
+    (str(project_root / "netsonar-v3.ico"), "."),
     (str(project_root / "netsonar.ico"), "."),
+    (str(project_root / "assets" / "netsonar-mark-v3.png"), "assets"),
     (str(project_root / "assets" / "netsonar.png"), "assets"),
+    (str(project_root / "assets" / "icons"), "assets/icons"),
     (str(project_root / "config" / "ai_prompt.txt"), "config"),
 ]
 hiddenimports = [
@@ -47,7 +50,7 @@ exe = EXE(
     target_arch="x86_64",
     codesign_identity=None,
     entitlements_file=None,
-    icon=str(project_root / "netsonar.ico"),
+    icon=str(project_root / "netsonar-v3.ico"),
     uac_admin=True,
 )
 coll = COLLECT(

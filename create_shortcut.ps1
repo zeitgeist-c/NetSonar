@@ -6,7 +6,7 @@ $Shortcut = $WshShell.CreateShortcut($ShortcutPath)
 $CurrentDir = Get-Location
 $PythonPath = Join-Path $CurrentDir ".venv\Scripts\pythonw.exe"
 $ScriptPath = Join-Path $CurrentDir "main.py"
-$IconPath = Join-Path $CurrentDir "netsonar.ico"
+$IconPath = Join-Path $CurrentDir "netsonar-v3.ico"
 
 $Shortcut.TargetPath = $PythonPath
 $Shortcut.Arguments = "`"$ScriptPath`""

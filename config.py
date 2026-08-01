@@ -8,7 +8,7 @@ import os
 import subprocess
 import sys
 
-APP_VERSION = "v0.3"
+APP_VERSION = "v0.4.6"
 IS_FROZEN = bool(getattr(sys, "frozen", False))
 APP_DIR = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
 
@@ -43,7 +43,7 @@ def get_app_version() -> str:
             ["git", "describe", "--tags", "--always", "--dirty"],
             cwd=APP_DIR, stderr=subprocess.DEVNULL, creationflags=creationflags, text=True
         ).strip()
-        # Eğer sadece hash dönüyorsa (ör: 16cdc88), başına v eklemiyoruz çünkü "v0.3-1-g..." formatı daha makul
+        # Eğer sadece hash dönüyorsa (ör: 16cdc88), başına v eklemiyoruz çünkü "v0.4.6-1-g..." formatı daha makul
         return version if version.startswith("v") else f"v{version}"
     except Exception:
         return APP_VERSION
@@ -51,16 +51,18 @@ def get_app_version() -> str:
 
 # ─── Settings Yükleme (önce dosya, sonra env) ──────────────────────
 SETTINGS_FILE = user_data_path("config", "settings.json")
-GEMINI_MODEL_ID = "gemini-3.1-flash-lite"
+GEMINI_MODEL_OPTIONS = {
+    "gemini-3.5-flash-lite": "Gemini 3.5 Flash-Lite",
+    "gemini-3.1-flash-lite": "Gemini 3.1 Flash-Lite",
+}
+SUPPORTED_GEMINI_MODELS = tuple(GEMINI_MODEL_OPTIONS)
+DEFAULT_GEMINI_MODEL = "gemini-3.5-flash-lite"
+GEMINI_MODEL_SELECTION_VERSION = 1
+# Eski dış kullanımlarla uyumluluk için varsayılan model takma adı.
+GEMINI_MODEL_ID = DEFAULT_GEMINI_MODEL
 
-def load_settings():
-    """Kullanıcı ayarlarını dosyadan yükle."""
-    if os.path.exists(SETTINGS_FILE):
-        try:
-            with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            pass
+
+def _default_settings() -> dict:
     return {
         "MINIMIZE_TO_TRAY": True,
         "AUTO_BLOCK_ENABLED": False,
@@ -69,16 +71,65 @@ def load_settings():
         "AI_PROVIDER": "gemini",
         "GEMINI_API_KEY": "",
         "GEMINI_API_KEYS": [],
-        "GEMINI_MODEL": GEMINI_MODEL_ID,
+        "GEMINI_MODEL": DEFAULT_GEMINI_MODEL,
+        "GEMINI_MODEL_SELECTION_VERSION": GEMINI_MODEL_SELECTION_VERSION,
         "AUTO_ANALYSIS_ENABLED": True,
         "ANALYSIS_INTERVAL_MINUTES": 60,
     }
 
-def save_settings(data: dict):
-    """Kullanıcı ayarlarını dosyaya kaydet."""
+
+def _write_settings(data: dict):
     os.makedirs(os.path.dirname(SETTINGS_FILE), exist_ok=True)
     with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
+
+
+def _normalize_model_setting(data: dict) -> tuple[dict, bool]:
+    """Model ayarını doğrula ve eski sabit 3.1 kaydını bir kez 3.5'e taşı."""
+    normalized = dict(data)
+    changed = False
+
+    if normalized.get("GEMINI_MODEL_SELECTION_VERSION") != GEMINI_MODEL_SELECTION_VERSION:
+        normalized["GEMINI_MODEL"] = DEFAULT_GEMINI_MODEL
+        normalized["GEMINI_MODEL_SELECTION_VERSION"] = GEMINI_MODEL_SELECTION_VERSION
+        changed = True
+    elif normalized.get("GEMINI_MODEL") not in SUPPORTED_GEMINI_MODELS:
+        normalized["GEMINI_MODEL"] = DEFAULT_GEMINI_MODEL
+        changed = True
+
+    return normalized, changed
+
+def load_settings():
+    """Kullanıcı ayarlarını dosyadan yükle."""
+    if not os.path.exists(SETTINGS_FILE):
+        return _default_settings()
+
+    try:
+        with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if not isinstance(data, dict):
+            raise ValueError("Ayar dosyasının kök değeri nesne olmalı")
+    except Exception:
+        return _default_settings()
+
+    data, changed = _normalize_model_setting(data)
+    if changed:
+        try:
+            _write_settings(data)
+        except OSError:
+            # Salt-okunur bir ayar dosyası API key gibi diğer değerleri geçersiz kılmamalı.
+            pass
+    return data
+
+
+def save_settings(data: dict):
+    """Kullanıcı ayarlarını dosyaya kaydet."""
+    normalized = dict(data)
+    if normalized.get("GEMINI_MODEL") not in SUPPORTED_GEMINI_MODELS:
+        normalized["GEMINI_MODEL"] = DEFAULT_GEMINI_MODEL
+    normalized["GEMINI_MODEL_SELECTION_VERSION"] = GEMINI_MODEL_SELECTION_VERSION
+    _write_settings(normalized)
+
 
 def _split_api_keys(value) -> list[str]:
     """API key listesini settings/env kaynaklarindan normalize et."""
@@ -112,7 +163,9 @@ GEMINI_API_KEYS = (
     or _split_api_keys(_settings.get("GEMINI_API_KEY", ""))
 )
 GEMINI_API_KEY = GEMINI_API_KEYS[0] if GEMINI_API_KEYS else ""
-GEMINI_MODEL   = GEMINI_MODEL_ID
+GEMINI_MODEL = _settings.get("GEMINI_MODEL", DEFAULT_GEMINI_MODEL)
+if GEMINI_MODEL not in SUPPORTED_GEMINI_MODELS:
+    GEMINI_MODEL = DEFAULT_GEMINI_MODEL
 
 # ─── Zamanlayıcı ────────────────────────────────────────────────────
 # Her kaç dakikada bir AI analizi yapılsın?
