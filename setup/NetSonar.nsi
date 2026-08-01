@@ -2,7 +2,7 @@ Unicode True
 !include "MUI2.nsh"
 
 !define APP_NAME "NetSonar"
-!define APP_VERSION "0.3"
+!define APP_VERSION "0.4.6"
 !define APP_EXE "NetSonar.exe"
 
 Name "${APP_NAME}"
@@ -11,14 +11,15 @@ InstallDir "$PROGRAMFILES64\${APP_NAME}"
 InstallDirRegKey HKLM "Software\${APP_NAME}" "InstallDir"
 RequestExecutionLevel admin
 SetCompressor /SOLID lzma
-Icon "..\netsonar.ico"
-UninstallIcon "..\netsonar.ico"
+Icon "..\netsonar-v3.ico"
+UninstallIcon "..\netsonar-v3.ico"
 BrandingText "NetSonar"
-VIProductVersion "0.3.0.0"
+VIProductVersion "0.4.6.0"
 VIAddVersionKey /LANG=1055 "ProductName" "${APP_NAME}"
 VIAddVersionKey /LANG=1055 "FileDescription" "NetSonar Kurulum"
 VIAddVersionKey /LANG=1055 "FileVersion" "${APP_VERSION}"
 VIAddVersionKey /LANG=1055 "ProductVersion" "${APP_VERSION}"
+VIAddVersionKey /LANG=1055 "LegalCopyright" "Copyright 2026 NetSonar"
 
 !define MUI_ABORTWARNING
 !define MUI_FINISHPAGE_RUN "$INSTDIR\${APP_EXE}"

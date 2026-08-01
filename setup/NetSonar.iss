@@ -1,5 +1,5 @@
 #define MyAppName "NetSonar"
-#define MyAppVersion "0.3"
+#define MyAppVersion "0.4.6"
 #define MyAppPublisher "NetSonar"
 #define MyAppExeName "NetSonar.exe"
 
@@ -13,7 +13,7 @@ DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
 OutputDir=build\installer
 OutputBaseFilename=NetSonar-Setup-v{#MyAppVersion}-staging
-SetupIconFile=..\netsonar.ico
+SetupIconFile=..\netsonar-v3.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}
 Compression=lzma2/ultra64
 SolidCompression=yes
