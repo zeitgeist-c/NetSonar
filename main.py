@@ -81,7 +81,22 @@ def main() -> int:
             return 2
         from migration import needs_v05_reset, perform_v05_reset
         if needs_v05_reset(DB_PATH):
-            perform_v05_reset(DB_PATH)
+            try:
+                perform_v05_reset(DB_PATH)
+            except Exception as exc:
+                log.error("Storage migration failed: %s", exc, exc_info=True)
+                if gui_mode:
+                    from PyQt6.QtWidgets import QApplication, QMessageBox
+                    QApplication.instance() or QApplication(sys.argv)
+                    QMessageBox.critical(
+                        None,
+                        "NetSonar v0.5 Migration Failed",
+                        "The storage migration could not be completed. Your old data was "
+                        f"preserved.\n\nError: {exc}\n\nPlease restart NetSonar as administrator.",
+                    )
+                else:
+                    print(f"Storage migration failed; old data preserved: {exc}", file=sys.stderr)
+                return 1
         if gui_mode:
             _hide_console_for_gui()
         from ai_analyzer import AIAnalyzer

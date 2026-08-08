@@ -130,8 +130,10 @@ def reconcile_firewall(db: Database) -> dict:
 def remove_all_netsonar_rules() -> bool:
     """Delete only rules in the NetSonar display group."""
     script = (
-        "Get-NetFirewallRule -DisplayGroup 'NetSonar' -ErrorAction SilentlyContinue | "
-        "Remove-NetFirewallRule -ErrorAction Stop"
+        "$rules = @(Get-NetFirewallRule -DisplayGroup 'NetSonar' "
+        "-ErrorAction SilentlyContinue); "
+        "if ($rules.Count -gt 0) { "
+        "$rules | Remove-NetFirewallRule -ErrorAction Stop }"
     )
     ok, output = _run(["powershell", "-NoProfile", "-NonInteractive", "-Command", script])
     if not ok:
