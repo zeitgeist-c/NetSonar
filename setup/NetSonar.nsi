@@ -2,7 +2,7 @@ Unicode True
 !include "MUI2.nsh"
 
 !define APP_NAME "NetSonar"
-!define APP_VERSION "0.4.6"
+!define APP_VERSION "0.5.0"
 !define APP_EXE "NetSonar.exe"
 
 Name "${APP_NAME}"
@@ -14,7 +14,7 @@ SetCompressor /SOLID lzma
 Icon "..\netsonar-v3.ico"
 UninstallIcon "..\netsonar-v3.ico"
 BrandingText "NetSonar"
-VIProductVersion "0.4.6.0"
+VIProductVersion "0.5.0.0"
 VIAddVersionKey /LANG=1055 "ProductName" "${APP_NAME}"
 VIAddVersionKey /LANG=1055 "FileDescription" "NetSonar Kurulum"
 VIAddVersionKey /LANG=1055 "FileVersion" "${APP_VERSION}"

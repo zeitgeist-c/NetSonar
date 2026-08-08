@@ -7,8 +7,9 @@ import json
 import os
 import subprocess
 import sys
+from settings_service import protect_secret, unprotect_secret, validate_settings
 
-APP_VERSION = "v0.4.6"
+APP_VERSION = "v0.5.0"
 IS_FROZEN = bool(getattr(sys, "frozen", False))
 APP_DIR = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
 
@@ -43,7 +44,7 @@ def get_app_version() -> str:
             ["git", "describe", "--tags", "--always", "--dirty"],
             cwd=APP_DIR, stderr=subprocess.DEVNULL, creationflags=creationflags, text=True
         ).strip()
-        # Eğer sadece hash dönüyorsa (ör: 16cdc88), başına v eklemiyoruz çünkü "v0.4.6-1-g..." formatı daha makul
+        # Hash-only descriptions receive a v prefix for consistent display.
         return version if version.startswith("v") else f"v{version}"
     except Exception:
         return APP_VERSION
@@ -66,6 +67,7 @@ def _default_settings() -> dict:
     return {
         "MINIMIZE_TO_TRAY": True,
         "AUTO_BLOCK_ENABLED": False,
+        "AUTO_BLOCK_MIN_RISK_SCORE": 7.0,
         "autostart": False,
         "interface": None,
         "AI_PROVIDER": "gemini",
@@ -75,10 +77,18 @@ def _default_settings() -> dict:
         "GEMINI_MODEL_SELECTION_VERSION": GEMINI_MODEL_SELECTION_VERSION,
         "AUTO_ANALYSIS_ENABLED": True,
         "ANALYSIS_INTERVAL_MINUTES": 60,
+        "HIGH_TRAFFIC_THRESHOLD_BYTES": 50 * 1024 * 1024,
     }
 
 
 def _write_settings(data: dict):
+    data = dict(data)
+    keys = _split_api_keys(data.get("GEMINI_API_KEYS", []))
+    if not keys:
+        keys = _split_api_keys(data.get("GEMINI_API_KEY", ""))
+    protected = [protect_secret(key) for key in keys]
+    data["GEMINI_API_KEYS"] = protected
+    data["GEMINI_API_KEY"] = protected[0] if protected else ""
     os.makedirs(os.path.dirname(SETTINGS_FILE), exist_ok=True)
     with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
@@ -113,6 +123,20 @@ def load_settings():
         return _default_settings()
 
     data, changed = _normalize_model_setting(data)
+    stored_keys = _split_api_keys(data.get("GEMINI_API_KEYS", [])) or _split_api_keys(
+        data.get("GEMINI_API_KEY", ""))
+    if any(not key.startswith("dpapi:") for key in stored_keys):
+        changed = True
+    data = validate_settings(data, _default_settings())
+    try:
+        keys = [unprotect_secret(key) for key in _split_api_keys(data.get("GEMINI_API_KEYS", []))]
+        if not keys and data.get("GEMINI_API_KEY"):
+            keys = [unprotect_secret(data["GEMINI_API_KEY"])]
+        data["GEMINI_API_KEYS"] = keys
+        data["GEMINI_API_KEY"] = keys[0] if keys else ""
+    except Exception:
+        data["GEMINI_API_KEYS"] = []
+        data["GEMINI_API_KEY"] = ""
     if changed:
         try:
             _write_settings(data)
@@ -124,7 +148,7 @@ def load_settings():
 
 def save_settings(data: dict):
     """Kullanıcı ayarlarını dosyaya kaydet."""
-    normalized = dict(data)
+    normalized = validate_settings(dict(data), _default_settings())
     if normalized.get("GEMINI_MODEL") not in SUPPORTED_GEMINI_MODELS:
         normalized["GEMINI_MODEL"] = DEFAULT_GEMINI_MODEL
     normalized["GEMINI_MODEL_SELECTION_VERSION"] = GEMINI_MODEL_SELECTION_VERSION
@@ -169,10 +193,12 @@ if GEMINI_MODEL not in SUPPORTED_GEMINI_MODELS:
 
 # ─── Zamanlayıcı ────────────────────────────────────────────────────
 # Her kaç dakikada bir AI analizi yapılsın?
-ANALYSIS_INTERVAL_MINUTES = 60
+ANALYSIS_INTERVAL_MINUTES = int(_settings.get("ANALYSIS_INTERVAL_MINUTES", 60))
 
 # Şüpheli bağlantı tespiti için minimum byte eşiği
-SUSPICIOUS_BYTES_THRESHOLD = 50_000                # 50 KB üzeri harici bağlantı
+SUSPICIOUS_BYTES_THRESHOLD = int(
+    _settings.get("HIGH_TRAFFIC_THRESHOLD_BYTES", 50 * 1024 * 1024)
+)
 
 # ─── Bilinen Tehlikeli Portlar ───────────────────────────────────────
 SUSPICIOUS_PORTS = {4444, 1337, 31337, 5555, 6666, 6667, 8888, 9999}
@@ -195,11 +221,11 @@ NOTIFY_REPORTS_ONLY = True
 # ─── Otomatik Engelleme ─────────────────────────────────────────────
 # True: AI "Hemen engelle" dediğinde kullanıcı onayı istemeden firewall'a ekle
 # False: Kullanıcıya sor (GUI'de buton göster)
-AUTO_BLOCK_ENABLED = False
+AUTO_BLOCK_ENABLED = bool(_settings.get("AUTO_BLOCK_ENABLED", False))
 
 # Otomatik engelleme için minimum risk skoru (0-10)
 # Sadece bu skurun üzerindeki öneriler otomatik engellenir
-AUTO_BLOCK_MIN_RISK_SCORE = 7.0
+AUTO_BLOCK_MIN_RISK_SCORE = float(_settings.get("AUTO_BLOCK_MIN_RISK_SCORE", 7.0))
 
 # ─── Sistem ─────────────────────────────────────────────────────────────
 # True: Kapatınca sistem tepsisine küçült

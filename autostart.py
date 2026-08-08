@@ -75,3 +75,9 @@ def disable_autostart() -> bool:
     except Exception as exc:
         log.error("Otomatik başlatma devre dışı bırakılırken hata: %s", exc)
         return False
+
+
+def set_autostart(enabled: bool) -> bool:
+    """Apply and verify the requested registry state."""
+    changed = enable_autostart() if enabled else disable_autostart()
+    return bool(changed and is_autostart_enabled() == bool(enabled))

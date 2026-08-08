@@ -19,12 +19,13 @@ if not exist %PYTHON% (
 )
 
 :: Npcap kontrolu
-if not exist "C:\Windows\System32\Npcap\pcap.dll" (
+if not exist "C:\Windows\System32\Npcap\wpcap.dll" (
     echo UYARI: Npcap bulunamadi. Scapy calismayabilir.
     echo Lutfen https://npcap.com adresinden Npcap yukleyin.
     echo.
 )
 
 echo NetSonar baslatiliyor...
+if not exist "netsonar_data\logs" mkdir "netsonar_data\logs"
 start /b .venv\Scripts\pythonw.exe main.py 2>> netsonar_data\logs\netsonar_err.log
 exit

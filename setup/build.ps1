@@ -10,8 +10,8 @@ $BuildPython = Join-Path $BuildVenv "Scripts\python.exe"
 $BuildDir = Join-Path $SetupDir "build"
 $DistDir = Join-Path $SetupDir "dist"
 $InstallerDir = Join-Path $BuildDir "installer"
-$Installer = Join-Path $SetupDir "NetSonar-Setup-v0.4.6.exe"
-$StagedInstaller = Join-Path $InstallerDir "NetSonar-Setup-v0.4.6-staging.exe"
+$Installer = Join-Path $SetupDir "NetSonar-Setup-v0.5.0.exe"
+$StagedInstaller = Join-Path $InstallerDir "NetSonar-Setup-v0.5.0-staging.exe"
 
 if (-not $PythonPath) {
     $ProjectPython = Join-Path $ProjectRoot ".venv\Scripts\python.exe"

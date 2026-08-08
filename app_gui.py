@@ -28,7 +28,7 @@ from PyQt6.QtWidgets import (
     QLineEdit, QComboBox, QCheckBox, QFrame, QSizePolicy,
     QTextEdit, QTextBrowser, QSystemTrayIcon, QMenu, QMessageBox, QFormLayout,
     QScrollArea, QSplitter, QProgressBar, QDialog, QStackedWidget,
-    QGraphicsOpacityEffect,
+    QGraphicsOpacityEffect, QSpinBox,
 )
 from PyQt6.QtCore import (
     QEasingCurve, QPropertyAnimation, Qt, QTimer, QThread,
@@ -356,7 +356,10 @@ class AnalysisWorker(QThread):
         def stage_cb(name, prog):
             self.stage.emit(name, prog)
         try:
-            result = self.analyzer.analyze(hours=1, force_full=True, stage_callback=stage_cb)
+            if hasattr(self.analyzer, "analyze_pending"):
+                result = self.analyzer.analyze_pending(stage_callback=stage_cb)
+            else:
+                result = self.analyzer.analyze(hours=1, force_full=True, stage_callback=stage_cb)
             self.finished.emit(result)
         except Exception as exc:
             self.error.emit(str(exc))
@@ -747,9 +750,10 @@ NeoCard = PremiumNeoCard
 class DashboardTab(QWidget):
     request_block = pyqtSignal(str)
 
-    def __init__(self, db):
+    def __init__(self, db, engine=None):
         super().__init__()
         self.db = db
+        self.engine = engine
         self._setup_ui()
 
     def _setup_ui(self):
@@ -767,12 +771,13 @@ class DashboardTab(QWidget):
             "Canlı ağ görünümü, güvenlik sinyalleri ve AI raporları tek komuta alanında.",
             "NETSONAR / CANLI GÖRÜNÜM",
         )
-        page_header.add_action(StatusPill("● KORUMA AKTİF", "success"))
+        self._capture_health = StatusPill("● YAKALAMA KAPALI", "danger")
+        page_header.add_action(self._capture_health)
         root.addWidget(page_header)
 
         cards_row = QHBoxLayout()
         cards_row.setSpacing(10)
-        self.card_conns = StatCard("Bugünkü Bağlantı", "0", "blue", "canlı izleme", icon="connections")
+        self.card_conns = StatCard("Bugünkü Akış", "0", "blue", "canlı izleme", icon="connections")
         self.card_threats = StatCard("Tehdit", "0", "red", "toplam", icon="shield")
         self.card_blocked = StatCard("Engellenen", "0", "amber", "IP adresi", icon="blocked")
         self.card_reports = StatCard("AI Raporu", "0", "green", "kayıtlı", icon="ai")
@@ -856,7 +861,7 @@ class DashboardTab(QWidget):
         top_body.setContentsMargins(0, 0, 0, 0)
         self._topip_table = QTableWidget()
         self._topip_table.setColumnCount(3)
-        self._topip_table.setHorizontalHeaderLabels(["IP", "Veri", "Bağlantı"])
+        self._topip_table.setHorizontalHeaderLabels(["IP", "Veri", "Akış"])
         _configure_table(self._topip_table)
         self._topip_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         self._topip_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
@@ -872,6 +877,13 @@ class DashboardTab(QWidget):
         """Tüm DB sorgularını arka planda çalıştırır — UI bloklanmaz."""
         if hasattr(self, "_dash_worker") and self._dash_worker.isRunning():
             return
+        if self.engine and hasattr(self.engine, "health_snapshot"):
+            health = self.engine.health_snapshot()
+            status = {"active": ("success", "● YAKALAMA AKTİF"),
+                      "partial": ("warning", "● YAKALAMA KISMİ"),
+                      "error": ("danger", "● YAKALAMA HATASI"),
+                      "stopped": ("danger", "● YAKALAMA KAPALI")}[health.state]
+            self._capture_health.set_status(status[0], status[1])
         self._dash_worker = DashboardWorker(self.db)
         self._dash_worker.done.connect(self._on_data_ready)
         self._dash_worker.start()
@@ -886,7 +898,7 @@ class DashboardTab(QWidget):
         active   = data.get("active", 0)
         timeline = data.get("timeline", [])
 
-        labels = ["Saat", "Gün", "Hafta", "Ay", "Yıl"]
+        labels = ["Saat", "Bugün", "Bu Hafta", "Son 30 Gün"]
         self._traffic_table.setUpdatesEnabled(False)
         self._traffic_table.setRowCount(0)
         for i, p in enumerate(traffic[:len(labels)]):
@@ -896,7 +908,7 @@ class DashboardTab(QWidget):
                 labels[i],
                 _fmt(p.get("upload", 0)),
                 _fmt(p.get("download", 0)),
-                f"{_fmt(p.get('total', 0))} ({p.get('conn_count', 0):,} bağlantı)",
+                f"{_fmt(p.get('total', 0))} ({p.get('flow_count', p.get('conn_count', 0)):,} akış)",
             ]
             for col, val in enumerate(values):
                 item = QTableWidgetItem(str(val))
@@ -1033,7 +1045,7 @@ class AnalysisTab(QWidget):
 
         page_header = PageHeader(
             "AI Güvenlik Analizi",
-            "Son risk değerlendirmesini inceleyin, şüpheli bağlantıları yönetin ve rapor geçmişine erişin.",
+            "Son risk değerlendirmesini inceleyin, şüpheli akışları yönetin ve rapor geçmişine erişin.",
             "NETSONAR / AI ANALİST",
         )
         page_header.add_action(StatusPill("GEMINI ÇEVRİMİÇİ", "accent"))
@@ -1090,7 +1102,7 @@ class AnalysisTab(QWidget):
         report_card.body_layout().addWidget(self._report_browser)
         lay.addWidget(report_card)
 
-        susp_card = NeoCard("Şüpheli Bağlantılar", "neden ve önerilen işlem ayrı gösterilir")
+        susp_card = NeoCard("Şüpheli Akışlar", "neden ve önerilen işlem ayrı gösterilir")
         susp_body = susp_card.body_layout()
         susp_body.setContentsMargins(0, 0, 0, 0)
         self._susp_table = QTableWidget()
@@ -1218,6 +1230,24 @@ class AnalysisTab(QWidget):
             self._provider_lbl.setText(f"AI sağlayıcısı: {provider}\nYaklaşık {meta['est_tokens']} token")
 
         conns = [c for c in (r.get("suspicious_connections", []) or []) if isinstance(c, dict)]
+        if not conns:
+            for finding in r.get("findings", []) or []:
+                if not isinstance(finding, dict):
+                    continue
+                evidence_rows = finding.get("flow_evidence", []) or [{}]
+                for evidence in evidence_rows:
+                    conns.append({
+                        "ip": evidence.get("remote_ip", ""),
+                        "port": evidence.get("remote_port", ""),
+                        "process": evidence.get("process", ""),
+                        "reason": finding.get("evidence", ""),
+                        "action": finding.get("recommended_action", ""),
+                        "severity": finding.get("severity", ""),
+                        "confidence": finding.get("confidence", 0),
+                        "block_now": finding.get("block_now", False),
+                        "finding_id": finding.get("id"),
+                        "finding_status": finding.get("status", "open"),
+                    })
         summary = str(r.get("summary", "") or "Analiz sonucu için açıklama bulunmuyor.")
         summary_lines = [x.strip() for x in summary.splitlines() if x.strip()] or [summary]
         reasons, actions = [], []
@@ -1234,7 +1264,7 @@ class AnalysisTab(QWidget):
             f"<div style='margin-bottom:8px;padding:10px 12px;background:{C['bg2']};border:1px solid {C['border']};border-radius:7px;'>"
             f"<b style='color:{C['warning']};'>{escape(str(c.get('ip','')))}:{escape(str(c.get('port','')))}</b>"
             f"<span style='color:{C['text3']};'> &nbsp; {escape(str(c.get('process','') or 'Bilinmeyen süreç'))}</span></div>" for c in conns
-        ) or f"<p style='color:{C['success']};'>✓ Şüpheli bağlantı tespit edilmedi.</p>"
+        ) or f"<p style='color:{C['success']};'>✓ Şüpheli akış tespit edilmedi.</p>"
         card=f"background:{C['bg3']};border:1px solid {C['border']};border-radius:8px;padding:14px 16px;margin-bottom:12px;"
         html = f'''<html><body style="background:{C['bg2']};color:{C['text']};font-family:'Segoe UI';font-size:13px;padding:12px;">
         <div style="{card}border-left:4px solid {color};"><b style="color:{C['accent']};">KISA SONUÇ</b><div style="margin-top:10px;">{paras(summary_lines)}</div></div>
@@ -1248,7 +1278,7 @@ class AnalysisTab(QWidget):
         self._susp_table.setRowCount(0)
         if not conns:
             self._susp_table.setRowCount(1); self._susp_table.setSpan(0,0,1,6)
-            item=QTableWidgetItem("Şüpheli bağlantı tespit edilmedi."); item.setForeground(QColor(C["success"]))
+            item=QTableWidgetItem("Şüpheli akış tespit edilmedi."); item.setForeground(QColor(C["success"]))
             self._susp_table.setItem(0,0,item)
         for conn in conns:
             row=self._susp_table.rowCount(); self._susp_table.insertRow(row)
@@ -1433,7 +1463,7 @@ class MainWindow(QMainWindow):
         navigation_items = [
             ("Panel", "dashboard", "Genel bakış paneli"),
             ("AI Analiz", "ai", "AI raporları"),
-            ("Bağlantılar", "connections", "Bağlantı geçmişi"),
+            ("Akışlar", "connections", "Akış geçmişi"),
             ("Engellenenler", "blocked", "Engellenen IP'ler"),
             ("Güvenli IP'ler", "trusted", "Güvenli IP listesi"),
             ("Ayarlar", "settings", "Uygulama ayarları"),
@@ -1441,7 +1471,7 @@ class MainWindow(QMainWindow):
         self._navigation = NavigationRail(navigation_items)
         self._navigation.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._tabs=QStackedWidget()
-        self._dashboard_tab=DashboardTab(self.db); self._dashboard_tab.request_block.connect(self._block_ip)
+        self._dashboard_tab=DashboardTab(self.db, self.engine); self._dashboard_tab.request_block.connect(self._block_ip)
         self._analysis_tab=self._data_tab=self._blocked_tab=self._trusted_tab=self._settings_tab=None
         def _placeholder():
             w=QWidget(); lay=QVBoxLayout(w); lbl=QLabel("Yükleniyor…"); lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -1529,6 +1559,7 @@ class MainWindow(QMainWindow):
             if self._settings_tab is None:
                 self._settings_tab = SettingsTab()
                 self._settings_tab.model_changed.connect(self._on_model_changed)
+                self._settings_tab.settings_changed.connect(self.scheduler.reload_settings)
                 old=self._tabs.widget(5)
                 self._tabs.removeWidget(old); old.deleteLater()
                 self._tabs.insertWidget(5, self._settings_tab)
@@ -1558,6 +1589,8 @@ class MainWindow(QMainWindow):
 
     def _refresh_all(self):
         """Stats'ı arka planda çek, UI'ı bloklamadan güncelle."""
+        if hasattr(self.engine, "health_snapshot") and hasattr(self, "tray"):
+            self.tray.setToolTip(f"NetSonar - Yakalama: {self.engine.health_snapshot().state}")
         if hasattr(self, "_stats_worker") and self._stats_worker.isRunning():
             return
         self._stats_worker = StatsWorker(self.db)
@@ -1665,7 +1698,11 @@ class MainWindow(QMainWindow):
         quit_a.triggered.connect(self._quit)
         menu.addAction(quit_a)
         self.tray.setContextMenu(menu)
-        self.tray.setToolTip("NetSonar - Ağ koruması aktif")
+        if hasattr(self.engine, "health_snapshot"):
+            health = self.engine.health_snapshot()
+            self.tray.setToolTip(f"NetSonar - Yakalama: {health.state}")
+        else:
+            self.tray.setToolTip("NetSonar")
         self.tray.activated.connect(lambda r: self.showNormal() if r == QSystemTrayIcon.ActivationReason.Trigger else None)
         self.tray.show()
 
@@ -1711,16 +1748,10 @@ class MainWindow(QMainWindow):
             self._timer.stop()
         if hasattr(self, "_clock"):
             self._clock.stop()
-        self.engine.stop()
-        self.scheduler.stop()
-        can_close_db = True
         for name in ("_worker", "_stats_worker", "_dash_worker"):
             worker = getattr(self, name, None)
             if worker and worker.isRunning():
                 worker.wait(1500)
-                can_close_db = can_close_db and not worker.isRunning()
-        if can_close_db and hasattr(self.db, "close"):
-            self.db.close()
         self.tray.hide()
         QApplication.quit()
 
@@ -1768,7 +1799,7 @@ class DataTab(QWidget):
         root.setSpacing(16)
 
         page_header = PageHeader(
-            "Bağlantı İstihbaratı",
+            "Akış İncelemesi",
             "Son analizden beri görülen hedefleri filtreleyin ve risk sinyallerini ayrıntılı inceleyin.",
             "NETSONAR / TRAFİK VERİSİ",
         )
@@ -1944,7 +1975,7 @@ class DataTab(QWidget):
     def _on_data_loaded(self, rows, since_label):
         self._loading = False
         total_bytes = sum(r.get('total_bytes', 0) for r in rows)
-        self._stats_lbl.setText(f"{len(rows)} bağlantı, {_fmt(total_bytes)} veri — {since_label}")
+        self._stats_lbl.setText(f"{len(rows)} akış, {_fmt(total_bytes)} veri — {since_label}")
         self._all_rows = rows
         self._page = 0
         self._populate_table(rows)
@@ -2249,7 +2280,7 @@ class BlockedTab(QWidget):
             return
 
         from kill_switch import unblock_ip
-        ok = unblock_ip(ip)
+        ok = unblock_ip(ip, db=self.db)
         if ok:
             self.refresh()
 
@@ -2362,6 +2393,7 @@ class TrustedTab(QWidget):
 
 class SettingsTab(QWidget):
     model_changed = pyqtSignal(str)
+    settings_changed = pyqtSignal()
 
     def __init__(self):
         super().__init__()
@@ -2470,6 +2502,12 @@ class SettingsTab(QWidget):
         self._min_risk_combo.setCurrentIndex(2)
         sec_fl.addRow("Min Risk Skoru:", self._min_risk_combo)
 
+        self._traffic_threshold = QSpinBox()
+        self._traffic_threshold.setRange(1, 10240)
+        self._traffic_threshold.setSuffix(" MB / uzak IP / dakika")
+        self._traffic_threshold.setValue(50)
+        sec_fl.addRow("Yüksek Hacim Eşiği:", self._traffic_threshold)
+
         cv.addWidget(sec_gb)
 
         # Sistem
@@ -2540,13 +2578,17 @@ class SettingsTab(QWidget):
             self._interval_combo.setCurrentIndex(idx)
 
             self._auto_block_cb.setChecked(s.get("AUTO_BLOCK_ENABLED", False))
-            self._autostart_cb.setChecked(s.get("autostart", False))
+            from autostart import is_autostart_enabled
+            self._autostart_cb.setChecked(is_autostart_enabled())
             self._tray_cb.setChecked(s.get("MINIMIZE_TO_TRAY", True))
 
             min_risk = s.get("AUTO_BLOCK_MIN_RISK_SCORE", 7.0)
             idx = self._min_risk_combo.findText(str(min_risk))
             if idx >= 0:
                 self._min_risk_combo.setCurrentIndex(idx)
+            self._traffic_threshold.setValue(max(
+                1, int(s.get("HIGH_TRAFFIC_THRESHOLD_BYTES", 50 * 1024 * 1024)) // (1024 * 1024)
+            ))
 
             api_keys = s.get("GEMINI_API_KEYS", []) or []
             if isinstance(api_keys, str):
@@ -2616,7 +2658,14 @@ class SettingsTab(QWidget):
             s["ANALYSIS_INTERVAL_MINUTES"] = interval_minutes
             s["AUTO_BLOCK_ENABLED"] = self._auto_block_cb.isChecked()
             s["AUTO_BLOCK_MIN_RISK_SCORE"] = float(self._min_risk_combo.currentText())
-            s["autostart"] = self._autostart_cb.isChecked()
+            s["HIGH_TRAFFIC_THRESHOLD_BYTES"] = self._traffic_threshold.value() * 1024 * 1024
+            from autostart import set_autostart, is_autostart_enabled
+            desired_autostart = self._autostart_cb.isChecked()
+            autostart_ok = set_autostart(desired_autostart)
+            if not autostart_ok:
+                self._autostart_cb.setChecked(is_autostart_enabled())
+                raise RuntimeError("Windows otomatik başlatma ayarı uygulanamadı")
+            s["autostart"] = desired_autostart
             s["MINIMIZE_TO_TRAY"] = self._tray_cb.isChecked()
 
             s["GEMINI_API_KEYS"] = api_keys
@@ -2628,6 +2677,7 @@ class SettingsTab(QWidget):
             import config
             importlib.reload(config)
             self.model_changed.emit(config.GEMINI_MODEL)
+            self.settings_changed.emit()
 
             p = self._prompt.toPlainText()
             if p.strip():

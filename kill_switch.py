@@ -1,11 +1,8 @@
-"""NetSonar kill switch modülü.
-
-Şüpheli IP adreslerini Windows Güvenlik Duvarı kurallarıyla engeller ve kaldırır.
-netsh komutlarının çalışması için yönetici yetkisi gereklidir.
-"""
+"""Atomic NetSonar-owned Windows Firewall rule management."""
 
 from __future__ import annotations
 
+import json
 import logging
 import subprocess
 
@@ -13,110 +10,133 @@ from database import Database
 from ip_utils import ip_to_rule_token, is_valid_ip, normalized_ip, rule_token_to_ip
 
 log = logging.getLogger("NetSonar.KillSwitch")
-
 RULE_PREFIX = "NetSonar_BLOCK_"
+RULE_GROUP = "NetSonar"
 
 
 def _run(cmd: list[str]) -> tuple[bool, str]:
-    """Bir netsh komutu çalıştırır ve (başarılı, çıktı) döndürür."""
     try:
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            encoding="cp1254",
-            errors="replace",
-            timeout=10,
-        )
+        result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8",
+                                errors="replace", timeout=15)
         return result.returncode == 0, result.stdout + result.stderr
     except Exception as exc:
         return False, str(exc)
 
 
 def _rule_base_for_ip(ip: str) -> tuple[str | None, str | None]:
-    normalized = normalized_ip(ip)
-    token = ip_to_rule_token(ip)
-    if not normalized or not token:
-        return None, None
-    return normalized, f"{RULE_PREFIX}{token}"
+    value, token = normalized_ip(ip), ip_to_rule_token(ip)
+    return (value, f"{RULE_PREFIX}{token}") if value and token else (None, None)
 
 
-def _legacy_rule_token_to_ip(token: str) -> str | None:
-    if token.startswith("ipv6_"):
-        return normalized_ip(token.replace("ipv6_", "").replace("__", "::").replace("_", ":"))
-    return normalized_ip(token.replace("_", "."))
+def _add_rule(ip: str, rule_base: str, direction: str) -> tuple[bool, str]:
+    return _run(["netsh", "advfirewall", "firewall", "add", "rule",
+                 f"name={rule_base}_{direction}", f"dir={direction}", "action=block",
+                 f"remoteip={ip}", "enable=yes", "profile=any", f"group={RULE_GROUP}"])
 
 
-def block_ip(ip: str, reason: str = "NetSonar tarafindan engellendi", db: Database = None) -> bool:
-    """Block all inbound and outbound traffic for one IPv4 or IPv6 address."""
-    normalized, rule_base = _rule_base_for_ip(ip)
-    if not normalized or not rule_base:
-        log.warning("Geçersiz IP: %s", ip)
+def _delete_rule(rule_base: str, direction: str) -> tuple[bool, str]:
+    return _run(["netsh", "advfirewall", "firewall", "delete", "rule",
+                 f"name={rule_base}_{direction}"])
+
+
+def block_ip(ip: str, reason: str = "NetSonar block", db: Database | None = None) -> bool:
+    value, rule_base = _rule_base_for_ip(ip)
+    if not value or not rule_base:
         return False
-
-    success = True
+    added: list[str] = []
     for direction in ("out", "in"):
-        ok, output = _run([
-            "netsh", "advfirewall", "firewall", "add", "rule",
-            f"name={rule_base}_{direction}",
-            f"dir={direction}",
-            "action=block",
-            f"remoteip={normalized}",
-            "enable=yes",
-            "profile=any",
-        ])
+        ok, output = _add_rule(value, rule_base, direction)
         if not ok:
-            log.error("Kural oluşturulamadı (%s): %s", direction, output.strip())
-            success = False
-        else:
-            log.info("%s engellendi (%s)", normalized, direction)
+            log.error("Firewall add failed (%s): %s", direction, output.strip())
+            for previous in reversed(added):
+                _delete_rule(rule_base, previous)
+            return False
+        added.append(direction)
+    if db:
+        db.add_blocked_ip(value, reason)
+    return True
 
-    if success and db:
-        db.add_blocked_ip(normalized, reason)
 
-    return success
-
-
-def unblock_ip(ip: str) -> bool:
-    """Bir IPv4 veya IPv6 adresi için NetSonar güvenlik duvarı kurallarını kaldırır."""
-    normalized, rule_base = _rule_base_for_ip(ip)
-    if not normalized or not rule_base:
-        log.warning("Geçersiz IP: %s", ip)
+def unblock_ip(ip: str, db: Database | None = None) -> bool:
+    value, rule_base = _rule_base_for_ip(ip)
+    if not value or not rule_base:
         return False
-
-    success = True
+    deleted: list[str] = []
     for direction in ("out", "in"):
-        ok, output = _run([
-            "netsh", "advfirewall", "firewall", "delete", "rule",
-            f"name={rule_base}_{direction}",
-        ])
+        ok, output = _delete_rule(rule_base, direction)
         if not ok:
-            log.warning("Kural kaldırılamadı (%s/%s): %s", normalized, direction, output.strip())
-            success = False
-        else:
-            log.info("%s engeli kaldırıldı (%s)", normalized, direction)
+            log.error("Firewall delete failed (%s): %s", direction, output.strip())
+            for previous in deleted:
+                _add_rule(value, rule_base, previous)
+            return False
+        deleted.append(direction)
+    if db:
+        db.remove_blocked_ip(value)
+    return True
 
-    return success
+
+def _token_to_ip(token: str) -> str | None:
+    return rule_token_to_ip(token)
+
+
+def _query_blocked() -> tuple[bool, list[str]]:
+    """Query complete in/out NetSonar rule pairs without wildcard netsh parsing."""
+    script = (
+        "Get-NetFirewallRule -DisplayGroup 'NetSonar' -ErrorAction SilentlyContinue | "
+        "Select-Object -ExpandProperty DisplayName | ConvertTo-Json -Compress"
+    )
+    ok, output = _run(["powershell", "-NoProfile", "-NonInteractive", "-Command", script])
+    if not ok or not output.strip():
+        return ok, []
+    try:
+        names = json.loads(output.strip())
+        if isinstance(names, str):
+            names = [names]
+    except json.JSONDecodeError:
+        return False, []
+    directions: dict[str, set[str]] = {}
+    for name in names if isinstance(names, list) else []:
+        if not isinstance(name, str) or not name.startswith(RULE_PREFIX):
+            continue
+        direction = "out" if name.endswith("_out") else "in" if name.endswith("_in") else None
+        if direction:
+            token = name[len(RULE_PREFIX):-len(direction)-1]
+            directions.setdefault(token, set()).add(direction)
+    return True, sorted(filter(None, (
+        _token_to_ip(token) for token, values in directions.items() if values == {"in", "out"}
+    )))
 
 
 def list_blocked() -> list[str]:
-    """NetSonar güvenlik duvarı kurallarıyla engellenmiş IP adreslerini listeler."""
-    ok, output = _run([
-        "netsh", "advfirewall", "firewall", "show", "rule", f"name={RULE_PREFIX}*"
-    ])
-    if not ok:
-        return []
+    return _query_blocked()[1]
 
-    blocked = []
-    for line in output.splitlines():
-        stripped = line.strip()
-        if stripped.startswith("Kural Adi:") or stripped.startswith("Kural Adı:") or stripped.startswith("Rule Name:"):
-            rule_name = line.split(":", 1)[1].strip()
-            token = rule_name.replace(RULE_PREFIX, "").replace("_out", "").replace("_in", "")
-            ip = rule_token_to_ip(token) or _legacy_rule_token_to_ip(token)
-            if ip and ip not in blocked:
-                blocked.append(ip)
-    return blocked
+
+def reconcile_firewall(db: Database) -> dict:
+    """Make the database reflect complete NetSonar rule pairs at startup."""
+    queried, values = _query_blocked()
+    if not queried:
+        log.warning("Firewall reconciliation skipped because rule query failed")
+        return {"added": 0, "removed": 0, "total": len(db.get_blocked_ips()), "skipped": True}
+    actual = set(values)
+    recorded = {row["ip"] for row in db.get_blocked_ips()}
+    for ip in recorded - actual:
+        db.remove_blocked_ip(ip)
+    for ip in actual - recorded:
+        db.add_blocked_ip(ip, "Firewall startup reconciliation")
+    return {"added": len(actual - recorded), "removed": len(recorded - actual),
+            "total": len(actual)}
+
+
+def remove_all_netsonar_rules() -> bool:
+    """Delete only rules in the NetSonar display group."""
+    script = (
+        "Get-NetFirewallRule -DisplayGroup 'NetSonar' -ErrorAction SilentlyContinue | "
+        "Remove-NetFirewallRule -ErrorAction Stop"
+    )
+    ok, output = _run(["powershell", "-NoProfile", "-NonInteractive", "-Command", script])
+    if not ok:
+        log.error("NetSonar firewall cleanup failed: %s", output.strip())
+    return ok
 
 
 def _is_valid_ip(ip: str) -> bool:

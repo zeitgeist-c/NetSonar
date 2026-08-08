@@ -6,9 +6,14 @@ Diger olaylar (port uyarisi, yuksek trafik vb.) sadece log'a yazilir.
 """
 
 import logging
+import threading
+import time
 from datetime import datetime
 
 log = logging.getLogger("NetSonar.Notifier")
+_cooldown_lock = threading.Lock()
+_toast_cooldowns: dict[tuple[str, str], float] = {}
+_TOAST_COOLDOWN_SECONDS = 10 * 60
 
 
 def _send_toast(title: str, message: str, severity: str = "info"):
@@ -60,6 +65,26 @@ def notify_suspicious_port(ip: str, port: int, process: str):
 def notify_high_traffic(ip: str, bytes_sent: int, process: str):
     mb = bytes_sent / (1024 * 1024)
     _log("Yuksek Transfer", f"{process} -> {ip}: {mb:.1f} MB", "WARNING")
+
+
+def notify_custom_alert(rule_name: str, ip: str, message: str):
+    """Show at most one toast per rule and remote IP every ten minutes."""
+    key, now = (str(rule_name), str(ip)), time.monotonic()
+    with _cooldown_lock:
+        if now < _toast_cooldowns.get(key, 0):
+            return False
+        _toast_cooldowns[key] = now + _TOAST_COOLDOWN_SECONDS
+    _log(f"Custom alert: {rule_name}", message, "WARNING")
+    _send_toast(f"NetSonar - {rule_name}", message, "warning")
+    return True
+
+
+def notify_retention_warning(expired_flows: int):
+    return notify_custom_alert(
+        "Analysis retention", "local",
+        f"{expired_flows} flow detail record(s) expired after 24 hours without successful analysis. "
+        "Anonymous traffic totals were preserved.",
+    )
 
 
 # ─── Bildirim GONDERILEN olaylar ─────────────────────────────────────
