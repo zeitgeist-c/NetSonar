@@ -1,725 +1,505 @@
-"""
-NetSonar — SQLite Veritabanı Katmanı
-Thread-safe, batch-insert destekli bağlantı ve rapor yönetimi.
-Otomatik temizlik: DB_RETENTION_DAYS sonra eski kayıtları siler.
-"""
+"""NetSonar v0.5 SQLite flow, analysis, finding and rollup storage."""
 
+from __future__ import annotations
+
+import ipaddress
+import json
+import logging
 import sqlite3
 import threading
-import logging
-import ipaddress
 from datetime import datetime, timedelta
 from pathlib import Path
-from config import DB_PATH, DB_RETENTION_HOURS, DB_CLEANUP_INTERVAL_HOURS
-from ip_utils import sql_local_src_expr, sql_public_dst_filter
+
+from config import DB_PATH
 
 log = logging.getLogger("NetSonar.DB")
 
 
 class Database:
-    def __init__(self):
-        Path(DB_PATH).parent.mkdir(parents=True, exist_ok=True)
-        self.conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    def __init__(self, path: str | Path | None = None):
+        self.path = Path(path or DB_PATH)
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.conn = sqlite3.connect(self.path, check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
-        try:
-            self.conn.execute("PRAGMA journal_mode=WAL;")
-        except Exception:
-            pass
-        self._lock = threading.Lock()
-        self._buffer: list[dict] = []
-        self._create_tables()
+        self._lock = threading.RLock()
+        self._closed = False
+        self.conn.execute("PRAGMA auto_vacuum=INCREMENTAL")
+        self.conn.execute("PRAGMA journal_mode=WAL")
+        self.conn.execute("PRAGMA busy_timeout=5000")
+        self.conn.execute("PRAGMA wal_autocheckpoint=1000")
+        self._create_schema()
 
     @staticmethod
     def _cutoff(hours: int | float) -> str:
         return (datetime.now() - timedelta(hours=hours)).isoformat()
 
-    @staticmethod
-    def _public_dst_filter() -> str:
-        return sql_public_dst_filter("dst_ip")
-
-    @staticmethod
-    def _local_src_expr() -> str:
-        return sql_local_src_expr("src_ip")
-
-    @staticmethod
-    def _port_case(column: str, placeholders: str, alias: str) -> str:
-        if placeholders:
-            return f"CASE WHEN {column} IN ({placeholders}) THEN 1 ELSE 0 END AS {alias}"
-        return f"0 AS {alias}"
-
-    # ─── Tablo Oluşturma ──────────────────────────────────────────
-    def _create_tables(self):
+    def _create_schema(self):
         with self._lock:
             self.conn.executescript("""
-                CREATE TABLE IF NOT EXISTS connections (
-                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                    timestamp   TEXT    NOT NULL,
-                    src_ip      TEXT,
-                    dst_ip      TEXT,
-                    dst_port    INTEGER,
-                    protocol    TEXT,
-                    bytes       INTEGER DEFAULT 0,
-                    process     TEXT,
-                    flagged     INTEGER DEFAULT 0
+                CREATE TABLE IF NOT EXISTS app_metadata (
+                    key TEXT PRIMARY KEY, value TEXT NOT NULL
                 );
-
-                CREATE TABLE IF NOT EXISTS reports (
-                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                    created_at  TEXT NOT NULL,
-                    provider    TEXT,
-                    risk_score  REAL,
-                    status      TEXT,
-                    content     TEXT
-                );
-
                 CREATE TABLE IF NOT EXISTS blocked_ips (
-                    ip          TEXT PRIMARY KEY,
-                    reason      TEXT,
-                    blocked_at  TEXT
+                    ip TEXT PRIMARY KEY, reason TEXT, blocked_at TEXT NOT NULL
                 );
-
                 CREATE TABLE IF NOT EXISTS trusted_ips (
-                    ip          TEXT PRIMARY KEY,
-                    note        TEXT,
-                    added_at    TEXT NOT NULL
+                    ip TEXT PRIMARY KEY, note TEXT, added_at TEXT NOT NULL
                 );
-
-            CREATE INDEX IF NOT EXISTS idx_conn_timestamp
-                ON connections (timestamp);
-            CREATE INDEX IF NOT EXISTS idx_conn_dst_ip
-                ON connections (dst_ip);
-            CREATE INDEX IF NOT EXISTS idx_conn_dst_port
-                ON connections (dst_port);
-            CREATE INDEX IF NOT EXISTS idx_conn_process
-                ON connections (process);
-            CREATE INDEX IF NOT EXISTS idx_conn_flagged
-                ON connections (flagged);
-            CREATE INDEX IF NOT EXISTS idx_conn_composite
-                ON connections (dst_ip, dst_port, process);
-            CREATE INDEX IF NOT EXISTS idx_trusted_ips_added_at
-                ON trusted_ips (added_at);
+                CREATE TABLE IF NOT EXISTS analysis_batches (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    high_water_id INTEGER NOT NULL,
+                    flow_count INTEGER NOT NULL DEFAULT 0,
+                    created_at TEXT NOT NULL, started_at TEXT, completed_at TEXT, error TEXT
+                );
+                CREATE TABLE IF NOT EXISTS flow_buckets (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    batch_id INTEGER REFERENCES analysis_batches(id),
+                    bucket_start TEXT NOT NULL,
+                    local_ip TEXT NOT NULL, local_port INTEGER NOT NULL,
+                    remote_ip TEXT NOT NULL, remote_port INTEGER NOT NULL,
+                    protocol TEXT NOT NULL, process TEXT NOT NULL DEFAULT 'unknown',
+                    sent_bytes INTEGER NOT NULL DEFAULT 0,
+                    received_bytes INTEGER NOT NULL DEFAULT 0,
+                    sent_packets INTEGER NOT NULL DEFAULT 0,
+                    received_packets INTEGER NOT NULL DEFAULT 0,
+                    first_seen TEXT NOT NULL, last_seen TEXT NOT NULL,
+                    UNIQUE(bucket_start, local_ip, local_port, remote_ip,
+                           remote_port, protocol, process)
+                );
+                CREATE TABLE IF NOT EXISTS analysis_chunks (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    batch_id INTEGER NOT NULL REFERENCES analysis_batches(id),
+                    chunk_index INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'pending',
+                    response TEXT, error TEXT, UNIQUE(batch_id, chunk_index)
+                );
+                CREATE TABLE IF NOT EXISTS security_findings (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    batch_id INTEGER REFERENCES analysis_batches(id), created_at TEXT NOT NULL,
+                    severity TEXT NOT NULL, confidence REAL NOT NULL, evidence TEXT NOT NULL,
+                    flow_refs TEXT NOT NULL, recommended_action TEXT,
+                    block_now INTEGER NOT NULL DEFAULT 0,
+                    flow_evidence TEXT NOT NULL DEFAULT '[]',
+                    status TEXT NOT NULL DEFAULT 'open'
+                );
+                CREATE TABLE IF NOT EXISTS analysis_runs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    batch_id INTEGER REFERENCES analysis_batches(id), analyzed_at TEXT NOT NULL,
+                    status TEXT NOT NULL, risk_score REAL NOT NULL, flow_count INTEGER NOT NULL DEFAULT 0
+                );
+                CREATE TABLE IF NOT EXISTS hourly_rollups (
+                    hour_start TEXT NOT NULL, protocol TEXT NOT NULL,
+                    sent_bytes INTEGER NOT NULL DEFAULT 0,
+                    received_bytes INTEGER NOT NULL DEFAULT 0,
+                    flow_count INTEGER NOT NULL DEFAULT 0,
+                    PRIMARY KEY(hour_start, protocol)
+                );
+                CREATE INDEX IF NOT EXISTS idx_flow_batch ON flow_buckets(batch_id, id);
+                CREATE INDEX IF NOT EXISTS idx_flow_time ON flow_buckets(last_seen);
+                CREATE INDEX IF NOT EXISTS idx_finding_status ON security_findings(status, created_at);
+                CREATE INDEX IF NOT EXISTS idx_run_time ON analysis_runs(analyzed_at);
             """)
+            self.conn.execute(
+                "INSERT OR REPLACE INTO app_metadata(key,value) VALUES('schema_version','5')"
+            )
             self.conn.commit()
 
-    # ─── Bağlantı Kaydı ──────────────────────────────────────────
-    def insert_connection(self, data: dict):
-        """Thread-safe toplu ekleme (50 pakette bir flush)."""
+    def upsert_flow_bucket(self, data: dict) -> int:
+        fields = dict(data)
+        now = fields.get("last_seen") or datetime.now().isoformat()
+        fields.setdefault("first_seen", now)
+        fields.setdefault("last_seen", now)
+        fields.setdefault("process", "unknown")
+        for key in ("sent_bytes", "received_bytes", "sent_packets", "received_packets"):
+            fields.setdefault(key, 0)
         with self._lock:
-            self._buffer.append(data)
-            if len(self._buffer) >= 50:
-                self._flush_locked()
-
-    def _flush_locked(self):
-        if not self._buffer:
-            return
-        self.conn.executemany(
-            """INSERT INTO connections
-               (timestamp, src_ip, dst_ip, dst_port, protocol, bytes, process)
-               VALUES (:timestamp, :src_ip, :dst_ip, :dst_port, :protocol, :bytes, :process)""",
-            self._buffer,
-        )
-        self.conn.commit()
-        self._buffer.clear()
+            self.conn.execute("""INSERT INTO flow_buckets
+                (bucket_start,local_ip,local_port,remote_ip,remote_port,protocol,process,
+                 sent_bytes,received_bytes,sent_packets,received_packets,first_seen,last_seen)
+                VALUES (:bucket_start,:local_ip,:local_port,:remote_ip,:remote_port,:protocol,:process,
+                        :sent_bytes,:received_bytes,:sent_packets,:received_packets,:first_seen,:last_seen)
+                ON CONFLICT(bucket_start,local_ip,local_port,remote_ip,remote_port,protocol,process)
+                DO UPDATE SET sent_bytes=sent_bytes+excluded.sent_bytes,
+                  received_bytes=received_bytes+excluded.received_bytes,
+                  sent_packets=sent_packets+excluded.sent_packets,
+                  received_packets=received_packets+excluded.received_packets,
+                  first_seen=MIN(first_seen,excluded.first_seen),
+                  last_seen=MAX(last_seen,excluded.last_seen)""", fields)
+            row = self.conn.execute("""SELECT id FROM flow_buckets
+                WHERE bucket_start=:bucket_start AND local_ip=:local_ip AND local_port=:local_port
+                  AND remote_ip=:remote_ip AND remote_port=:remote_port
+                  AND protocol=:protocol AND process=:process""", fields).fetchone()
+            self.conn.commit()
+            return int(row[0])
 
     def flush(self):
-        """Tampondaki verileri anında yaz (uygulama kapanırken çağır)."""
         with self._lock:
-            self._flush_locked()
-
-    # ─── Özet Sorgular ───────────────────────────────────────────
-    def get_summary(self, hours: int = 1, limit: int = 1000000) -> list[dict]:
-        """AI'a gönderilecek grup bazlı özet — ham paket değil metadata.
-        
-        Öncelik sırası (akıllı sıralama):
-        1. Şüpheli portlar (config.SUSPICIOUS_PORTS)
-        2. Yüksek byte transferi (>1MB)
-        3. Çoklu bağlantı sayısı
-        4. Son görülme zamanı
-        """
-        from config import SUSPICIOUS_PORTS, SUSPICIOUS_BYTES_THRESHOLD
-        port_list = list(SUSPICIOUS_PORTS)
-        high_bytes = max(SUSPICIOUS_BYTES_THRESHOLD * 20, 1_000_000)  # 1MB veya daha fazla
-        
-        with self._lock:
-            placeholders = ",".join("?" * len(port_list)) if port_list else ""
-            suspicious_case = self._port_case("dst_port", placeholders, "is_suspicious_port")
-            public_filter = self._public_dst_filter()
-            query = f"""
-                SELECT   dst_ip,
-                         dst_port,
-                         process,
-                         protocol,
-                         SUM(bytes)   AS total_bytes,
-                         COUNT(*)     AS conn_count,
-                         {suspicious_case},
-                         CASE WHEN SUM(bytes) > ? THEN 1 ELSE 0 END AS is_high_traffic
-                FROM connections
-                WHERE timestamp >= ?
-                  AND {public_filter}
-                  AND NOT EXISTS (SELECT 1 FROM trusted_ips t WHERE t.ip = connections.dst_ip)
-                GROUP BY dst_ip, dst_port, process
-                ORDER BY is_suspicious_port DESC,
-                         is_high_traffic DESC,
-                         total_bytes DESC,
-                         conn_count DESC
-                LIMIT ?
-                """
-            params = (*port_list, high_bytes, self._cutoff(hours), limit)
-            cur = self.conn.execute(query, params)
-            return [dict(row) for row in cur.fetchall()]
-
-    def get_last_analysis_time(self) -> str | None:
-        """Son başarılı AI analizinin zamanını döndürür (ISO format, UTC).
-        Başarısız analizler (risk_score=-1) sayılmaz."""
-        with self._lock:
-            row = self.conn.execute(
-                """SELECT created_at FROM reports
-                   WHERE risk_score >= 0
-                   ORDER BY created_at DESC LIMIT 1"""
-            ).fetchone()
-            return row[0] if row else None
-
-    def get_summary_since(self, since_ts: str, limit: int = 1000000) -> list[dict]:
-        """Belirli bir zamandan itibaren gelen YENİ bağlantıların özeti.
-        since_ts: SQLite datetime string örn. '2024-03-24 22:00:00'
-
-        Öncelik sırası (akıllı sıralama):
-          1. Şüpheli portlar (config.SUSPICIOUS_PORTS)
-          2. Yüksek byte transferi (>1MB)
-          3. Çoklu bağlantı sayısı
-        """
-        from config import SUSPICIOUS_PORTS, SUSPICIOUS_BYTES_THRESHOLD
-        port_list = list(SUSPICIOUS_PORTS)
-        high_bytes = max(SUSPICIOUS_BYTES_THRESHOLD * 20, 1_000_000)
-        
-        with self._lock:
-            placeholders = ",".join("?" * len(port_list)) if port_list else ""
-            suspicious_case = self._port_case("dst_port", placeholders, "suspicious_port")
-            public_filter = self._public_dst_filter()
-            query = f"""
-                SELECT   dst_ip,
-                         dst_port,
-                         process,
-                         protocol,
-                         SUM(bytes)                          AS total_bytes,
-                         COUNT(*)                            AS conn_count,
-                         MIN(timestamp)                      AS first_seen,
-                         MAX(timestamp)                      AS last_seen,
-                         {suspicious_case},
-                         CASE WHEN SUM(bytes) > ?
-                              THEN 1 ELSE 0 END              AS is_high_traffic
-                FROM connections
-                WHERE timestamp > ?
-                  AND {public_filter}
-                  AND NOT EXISTS (SELECT 1 FROM trusted_ips t WHERE t.ip = connections.dst_ip)
-                GROUP BY dst_ip, dst_port, process
-                ORDER BY suspicious_port DESC,
-                         is_high_traffic DESC,
-                         total_bytes DESC,
-                         conn_count DESC
-                LIMIT ?
-                """
-            params = (*port_list, high_bytes, since_ts, limit)
-            cur = self.conn.execute(query, params)
-            return [dict(row) for row in cur.fetchall()]
-
-    def get_new_connection_count(self, since_ts: str) -> int:
-        """Son analizden bu yana kaç yeni bağlantı kaydedildi."""
-        with self._lock:
-            row = self.conn.execute(
-                "SELECT COUNT(*) FROM connections WHERE timestamp > ?",
-                (since_ts,),
-            ).fetchone()
-            return row[0] if row else 0
-
-    def get_frequent_connections(self, hours: int = 1, limit: int = 10) -> list[dict]:
-        """En sık bağlanılan IP'ler (en çok bağlantı sayısı)."""
-        with self._lock:
-            cur = self.conn.execute(
-                f"""
-                SELECT dst_ip,
-                       COUNT(*) AS conn_count,
-                       SUM(bytes) AS total_bytes,
-                       MAX(timestamp) AS last_seen
-                FROM connections
-                WHERE timestamp >= ?
-                  AND {self._public_dst_filter()}
-                GROUP BY dst_ip
-                ORDER BY conn_count DESC
-                LIMIT ?
-                """,
-                (self._cutoff(hours), limit),
-            )
-            return [dict(row) for row in cur.fetchall()]
-
-    def get_top_transfer_connections(self, hours: int = 1, limit: int = 10) -> list[dict]:
-        """En fazla veri transferi yapan IP'ler."""
-        with self._lock:
-            cur = self.conn.execute(
-                f"""
-                SELECT dst_ip,
-                       SUM(bytes) AS total_bytes,
-                       COUNT(*) AS conn_count,
-                       MAX(timestamp) AS last_seen
-                FROM connections
-                WHERE timestamp >= ?
-                  AND {self._public_dst_filter()}
-                GROUP BY dst_ip
-                ORDER BY total_bytes DESC
-                LIMIT ?
-                """,
-                (self._cutoff(hours), limit),
-            )
-            return [dict(row) for row in cur.fetchall()]
-
-    def get_diverse_port_connections(self, hours: int = 1, limit: int = 10) -> list[dict]:
-        """En fazla farklı porta bağlanan IP'ler."""
-        with self._lock:
-            cur = self.conn.execute(
-                f"""
-                SELECT dst_ip,
-                       COUNT(DISTINCT dst_port) AS port_count,
-                       SUM(bytes) AS total_bytes,
-                       COUNT(*) AS conn_count,
-                       MAX(timestamp) AS last_seen
-                FROM connections
-                WHERE timestamp >= ?
-                  AND {self._public_dst_filter()}
-                GROUP BY dst_ip
-                ORDER BY port_count DESC
-                LIMIT ?
-                """,
-                (self._cutoff(hours), limit),
-            )
-            return [dict(row) for row in cur.fetchall()]
-
-
-    def get_suspicious_connections(self, hours: int = 1) -> list[dict]:
-        """Son N saatin büyük veya bilinen tehlikeli portlu bağlantıları."""
-        from config import SUSPICIOUS_BYTES_THRESHOLD, SUSPICIOUS_PORTS
-        port_list = list(SUSPICIOUS_PORTS)
-        port_placeholders = ",".join("?" * len(port_list)) if port_list else ""
-        with self._lock:
-            public_filter = self._public_dst_filter()
-            suspicious_having = f"OR dst_port IN ({port_placeholders})" if port_placeholders else ""
-            query = f"""
-                SELECT dst_ip, dst_port, process, SUM(bytes) AS total_bytes
-                FROM connections
-                WHERE timestamp >= ?
-                  AND {public_filter}
-                GROUP BY dst_ip, dst_port, process
-                HAVING total_bytes > ?
-                   {suspicious_having}
-                ORDER BY total_bytes DESC
-                LIMIT 10
-                """
-            params = [self._cutoff(hours), SUSPICIOUS_BYTES_THRESHOLD, *port_list]
-            cur = self.conn.execute(query, params)
-            return [dict(row) for row in cur.fetchall()]
-
-    def get_recent_connections(self, limit: int = 200, offset: int = 0) -> list[dict]:
-        """GUI tablo için en son N bağlantıyı döndürür. Sayfalama için offset kullanılabilir."""
-        with self._lock:
-            cur = self.conn.execute(
-                """SELECT timestamp, src_ip, dst_ip, dst_port, protocol,
-                          bytes, process, flagged
-                   FROM connections
-                   ORDER BY id DESC LIMIT ? OFFSET ?""",
-                (limit, offset),
-            )
-            return [dict(row) for row in cur.fetchall()]
-
-    def get_stats(self) -> dict:
-        """Dashboard istatistik kartları için."""
-        with self._lock:
-            today = self.conn.execute(
-                "SELECT COUNT(*) FROM connections WHERE timestamp >= ?",
-                (self._cutoff(24),),
-            ).fetchone()[0]
-            threats = self.conn.execute(
-                "SELECT COUNT(*) FROM connections WHERE flagged = 1"
-            ).fetchone()[0]
-            blocked = self.conn.execute(
-                "SELECT COUNT(*) FROM blocked_ips"
-            ).fetchone()[0]
-            reports = self.conn.execute(
-                "SELECT COUNT(*) FROM reports"
-            ).fetchone()[0]
-            return {
-                "today_connections": today,
-                "total_threats": threats,
-                "blocked_ips": blocked,
-                "total_reports": reports,
-            }
-
-    def get_all_reports(self) -> list[dict]:
-        """Tüm AI raporlarını döndürür."""
-        with self._lock:
-            cur = self.conn.execute(
-                "SELECT * FROM reports ORDER BY created_at DESC LIMIT 50"
-            )
-            return [dict(row) for row in cur.fetchall()]
-
-    def remove_blocked_ip(self, ip: str):
-        """Engelleme kaydını veritabanından kaldır."""
-        with self._lock:
-            self.conn.execute("DELETE FROM blocked_ips WHERE ip = ?", (ip,))
             self.conn.commit()
 
-    def get_traffic_stats(self) -> list[dict]:
-        """
-        Saat / Gün / Hafta / Ay / Yıl bazında upload+download istatistikleri.
-
-        Upload  = src_ip yerel (bizden giden veri)
-        Download = src_ip harici (bize gelen veri)
-        Yön bilinemiyorsa tüm byte'lar 'transfer' olarak sayılır.
-        """
-        _LOCAL = self._local_src_expr()
-
-        def _query(cutoff: str) -> dict:
-            row = self.conn.execute(
-                f"""
-                SELECT
-                    SUM(CASE WHEN {_LOCAL} THEN bytes ELSE 0 END)       AS upload,
-                    SUM(CASE WHEN NOT ({_LOCAL}) THEN bytes ELSE 0 END) AS download,
-                    SUM(bytes)                                           AS total,
-                    COUNT(*)                                             AS conn_count
-                FROM connections
-                WHERE timestamp >= ?
-                """,
-                (cutoff,),
-            ).fetchone()
-            return {
-                "upload":     row["upload"]   or 0,
-                "download":   row["download"] or 0,
-                "total":      row["total"]    or 0,
-                "conn_count": row["conn_count"] or 0,
-            }
-
+    def claim_pending_batch(self) -> dict | None:
+        now = datetime.now().isoformat()
         with self._lock:
-            return [
-                {"label": "Son 1 Saat",  "short": "Saat",  **_query(self._cutoff(1))},
-                {"label": "Bugün",        "short": "Gün",   **_query(self._cutoff(24))},
-                {"label": "Bu Hafta",     "short": "Hafta", **_query(self._cutoff(24 * 7))},
-                {"label": "Bu Ay",        "short": "Ay",    **_query(self._cutoff(24 * 30))},
-                {"label": "Bu Yıl",       "short": "Yıl",   **_query(self._cutoff(24 * 365))},
-            ]
+            self.conn.execute("BEGIN IMMEDIATE")
+            try:
+                pending = self.conn.execute(
+                    "SELECT id FROM analysis_batches WHERE status='pending' ORDER BY id LIMIT 1"
+                ).fetchone()
+                if pending:
+                    self.conn.execute(
+                        "UPDATE analysis_batches SET status='running',started_at=?,error=NULL WHERE id=?",
+                        (now, pending[0]))
+                    self.conn.commit()
+                    return dict(self.conn.execute(
+                        "SELECT * FROM analysis_batches WHERE id=?", (pending[0],)).fetchone())
+                row = self.conn.execute(
+                    "SELECT MAX(id),COUNT(*) FROM flow_buckets WHERE batch_id IS NULL").fetchone()
+                if row[0] is None:
+                    self.conn.rollback()
+                    return None
+                cursor = self.conn.execute("""INSERT INTO analysis_batches
+                    (status,high_water_id,flow_count,created_at,started_at)
+                    VALUES('running',?,?,?,?)""", (row[0], row[1], now, now))
+                batch_id = cursor.lastrowid
+                self.conn.execute(
+                    "UPDATE flow_buckets SET batch_id=? WHERE batch_id IS NULL AND id<=?",
+                    (batch_id, row[0]))
+                self.conn.commit()
+                return dict(self.conn.execute(
+                    "SELECT * FROM analysis_batches WHERE id=?", (batch_id,)).fetchone())
+            except Exception:
+                self.conn.rollback()
+                raise
 
+    def get_batch_flows(self, batch_id: int, limit: int = 200, offset: int = 0) -> list[dict]:
+        with self._lock:
+            return [dict(row) for row in self.conn.execute(
+                "SELECT * FROM flow_buckets WHERE batch_id=? ORDER BY id LIMIT ? OFFSET ?",
+                (batch_id, limit, offset)).fetchall()]
 
-    # ─── Güvenli IP Kayıtları ──────────────────────────────────────
+    def record_analysis_chunk(self, batch_id: int, chunk_index: int, status: str,
+                              response: str | None = None, error: str | None = None):
+        with self._lock:
+            self.conn.execute("""INSERT INTO analysis_chunks
+                (batch_id,chunk_index,status,response,error) VALUES(?,?,?,?,?)
+                ON CONFLICT(batch_id,chunk_index) DO UPDATE SET
+                  status=excluded.status,response=excluded.response,error=excluded.error""",
+                (batch_id, chunk_index, status, response, error))
+            self.conn.commit()
+
+    def _rollup_batch_locked(self, batch_id: int):
+        self.conn.execute("""INSERT INTO hourly_rollups
+            (hour_start,protocol,sent_bytes,received_bytes,flow_count)
+            SELECT substr(bucket_start,1,13)||':00:00',protocol,
+                   SUM(sent_bytes),SUM(received_bytes),COUNT(*)
+            FROM flow_buckets WHERE batch_id=? GROUP BY substr(bucket_start,1,13),protocol
+            ON CONFLICT(hour_start,protocol) DO UPDATE SET
+              sent_bytes=sent_bytes+excluded.sent_bytes,
+              received_bytes=received_bytes+excluded.received_bytes,
+              flow_count=flow_count+excluded.flow_count""", (batch_id,))
+
+    def complete_batch(self, batch_id: int, risk_score: float, status: str = "safe",
+                       findings: list[dict] | None = None):
+        now = datetime.now().isoformat()
+        with self._lock:
+            self.conn.execute("BEGIN IMMEDIATE")
+            try:
+                batch = self.conn.execute(
+                    "SELECT flow_count FROM analysis_batches WHERE id=? AND status='running'",
+                    (batch_id,)).fetchone()
+                if not batch:
+                    raise ValueError("Batch is not running")
+                self.conn.execute("""INSERT INTO analysis_runs
+                    (batch_id,analyzed_at,status,risk_score,flow_count) VALUES(?,?,?,?,?)""",
+                    (batch_id, now, status, risk_score, batch[0]))
+                for finding in findings or []:
+                    self.conn.execute("""INSERT INTO security_findings
+                        (batch_id,created_at,severity,confidence,evidence,flow_refs,
+                         recommended_action,block_now,flow_evidence,status)
+                        VALUES(?,?,?,?,?,?,?,?,?,'open')""",
+                        (batch_id, now, finding["severity"], finding["confidence"],
+                         finding["evidence"], json.dumps(finding["flow_refs"]),
+                         finding.get("recommended_action", ""), int(finding.get("block_now", False)),
+                         json.dumps(finding.get("flow_evidence", []), ensure_ascii=False)))
+                self._rollup_batch_locked(batch_id)
+                self.conn.execute("DELETE FROM flow_buckets WHERE batch_id=?", (batch_id,))
+                self.conn.execute(
+                    "UPDATE analysis_batches SET status='completed',completed_at=? WHERE id=?",
+                    (now, batch_id))
+                self.conn.commit()
+            except Exception:
+                self.conn.rollback()
+                raise
+
+    def fail_batch(self, batch_id: int, error: str):
+        with self._lock:
+            self.conn.execute("""UPDATE analysis_batches SET status='pending',error=?
+                WHERE id=? AND status='running'""", (str(error)[:2000], batch_id))
+            self.conn.commit()
+
+    def cleanup_old_records(self) -> dict:
+        detail_cutoff, audit_cutoff = self._cutoff(24), self._cutoff(24 * 30)
+        expired_batches = expired_flows = 0
+        with self._lock:
+            self.conn.execute("BEGIN IMMEDIATE")
+            try:
+                batches = self.conn.execute("""SELECT id,flow_count FROM analysis_batches
+                    WHERE status IN('pending','running') AND created_at<?""", (detail_cutoff,)).fetchall()
+                for batch in batches:
+                    self._rollup_batch_locked(batch["id"])
+                    expired_flows += self.conn.execute(
+                        "DELETE FROM flow_buckets WHERE batch_id=?", (batch["id"],)).rowcount
+                    now = datetime.now().isoformat()
+                    self.conn.execute("""UPDATE analysis_batches SET status='expired',completed_at=?
+                        WHERE id=?""", (now, batch["id"]))
+                    self.conn.execute("""INSERT INTO analysis_runs
+                        (batch_id,analyzed_at,status,risk_score,flow_count)
+                        VALUES(?,?,'expired',-1,?)""", (batch["id"], now, batch["flow_count"]))
+                    expired_batches += 1
+                orphan_count = self.conn.execute("""SELECT COUNT(*) FROM flow_buckets
+                    WHERE batch_id IS NULL AND last_seen<?""", (detail_cutoff,)).fetchone()[0]
+                if orphan_count:
+                    self.conn.execute("""INSERT INTO hourly_rollups
+                        (hour_start,protocol,sent_bytes,received_bytes,flow_count)
+                        SELECT substr(bucket_start,1,13)||':00:00',protocol,
+                               SUM(sent_bytes),SUM(received_bytes),COUNT(*)
+                        FROM flow_buckets WHERE batch_id IS NULL AND last_seen<?
+                        GROUP BY substr(bucket_start,1,13),protocol
+                        ON CONFLICT(hour_start,protocol) DO UPDATE SET
+                          sent_bytes=sent_bytes+excluded.sent_bytes,
+                          received_bytes=received_bytes+excluded.received_bytes,
+                          flow_count=flow_count+excluded.flow_count""", (detail_cutoff,))
+                    expired_flows += self.conn.execute("""DELETE FROM flow_buckets
+                        WHERE batch_id IS NULL AND last_seen<?""", (detail_cutoff,)).rowcount
+                old_rollups = self.conn.execute(
+                    "DELETE FROM hourly_rollups WHERE hour_start<?", (audit_cutoff,)).rowcount
+                old_runs = self.conn.execute(
+                    "DELETE FROM analysis_runs WHERE analyzed_at<?", (audit_cutoff,)).rowcount
+                self.conn.execute("""DELETE FROM analysis_batches
+                    WHERE status IN('completed','expired') AND created_at<?""", (audit_cutoff,))
+                self.conn.commit()
+            except Exception:
+                self.conn.rollback()
+                raise
+            self.conn.execute("PRAGMA wal_checkpoint(PASSIVE)")
+            self.conn.execute("PRAGMA incremental_vacuum(200)")
+        return {"expired_batches": expired_batches, "expired_flows": expired_flows,
+                "old_rollups": old_rollups, "old_runs": old_runs,
+                "warning": bool(expired_batches or orphan_count)}
+
     @staticmethod
     def normalize_ip(ip: str) -> str:
-        """Tekil IPv4/IPv6 adresini doğrular ve standart gösterime dönüştürür."""
         value = str(ip or "").strip()
-        if not value:
-            raise ValueError("IP adresi boş bırakılamaz.")
-        if "/" in value:
-            raise ValueError("IP aralığı desteklenmiyor; tek bir IP adresi girin.")
+        if not value or "/" in value:
+            raise ValueError("A single IP address is required")
         try:
             return str(ipaddress.ip_address(value))
         except ValueError as exc:
-            raise ValueError("Geçerli bir IPv4 veya IPv6 adresi girin.") from exc
+            raise ValueError("Invalid IPv4 or IPv6 address") from exc
 
     def add_trusted_ip(self, ip: str, note: str = "") -> dict:
-        normalized = self.normalize_ip(ip)
-        added_at = datetime.now().isoformat()
-        clean_note = str(note or "").strip()
+        value, now = self.normalize_ip(ip), datetime.now().isoformat()
         with self._lock:
             try:
-                self.conn.execute(
-                    "INSERT INTO trusted_ips (ip, note, added_at) VALUES (?,?,?)",
-                    (normalized, clean_note, added_at),
-                )
+                self.conn.execute("INSERT INTO trusted_ips(ip,note,added_at) VALUES(?,?,?)",
+                                  (value, str(note or "").strip(), now))
                 self.conn.commit()
             except sqlite3.IntegrityError as exc:
-                raise ValueError(f"{normalized} zaten güvenli IP listesinde.") from exc
-        return {"ip": normalized, "note": clean_note, "added_at": added_at}
+                raise ValueError(f"{value} is already trusted") from exc
+        return {"ip": value, "note": str(note or "").strip(), "added_at": now}
 
     def remove_trusted_ip(self, ip: str) -> bool:
-        normalized = self.normalize_ip(ip)
+        value = self.normalize_ip(ip)
         with self._lock:
-            cur = self.conn.execute("DELETE FROM trusted_ips WHERE ip = ?", (normalized,))
+            cursor = self.conn.execute("DELETE FROM trusted_ips WHERE ip=?", (value,))
             self.conn.commit()
-            return cur.rowcount > 0
+            return cursor.rowcount > 0
 
     def is_trusted_ip(self, ip: str) -> bool:
-        try:
-            normalized = self.normalize_ip(ip)
-        except ValueError:
-            return False
+        try: value = self.normalize_ip(ip)
+        except ValueError: return False
         with self._lock:
-            row = self.conn.execute("SELECT 1 FROM trusted_ips WHERE ip = ?", (normalized,)).fetchone()
-            return row is not None
+            return self.conn.execute("SELECT 1 FROM trusted_ips WHERE ip=?", (value,)).fetchone() is not None
 
     def get_trusted_ips(self) -> list[dict]:
         with self._lock:
-            cur = self.conn.execute("SELECT * FROM trusted_ips ORDER BY added_at DESC")
-            return [dict(row) for row in cur.fetchall()]
+            return [dict(row) for row in self.conn.execute(
+                "SELECT * FROM trusted_ips ORDER BY added_at DESC").fetchall()]
 
-    def get_trusted_connection_count(self, hours: int = 1, since_ts: str | None = None) -> int:
-        """Analiz aralığında güvenli liste nedeniyle dışlanan bağlantı sayısı."""
-        comparison = "timestamp > ?" if since_ts else "timestamp >= ?"
-        cutoff = since_ts or self._cutoff(hours)
-        with self._lock:
-            row = self.conn.execute(
-                f"""SELECT COUNT(*) FROM connections
-                    WHERE {comparison}
-                      AND EXISTS (SELECT 1 FROM trusted_ips t WHERE t.ip = connections.dst_ip)""",
-                (cutoff,),
-            ).fetchone()
-            return row[0] if row else 0
-
-    # ─── Engelleme Kaydı ─────────────────────────────────────────
     def add_blocked_ip(self, ip: str, reason: str):
+        value = self.normalize_ip(ip)
         with self._lock:
-            self.conn.execute(
-                "INSERT OR REPLACE INTO blocked_ips (ip, reason, blocked_at) VALUES (?,?,?)",
-                (ip, reason, datetime.now().isoformat()),
-            )
+            self.conn.execute("INSERT OR REPLACE INTO blocked_ips(ip,reason,blocked_at) VALUES(?,?,?)",
+                              (value, reason, datetime.now().isoformat()))
+            self.conn.commit()
+
+    def remove_blocked_ip(self, ip: str):
+        value = self.normalize_ip(ip)
+        with self._lock:
+            self.conn.execute("DELETE FROM blocked_ips WHERE ip=?", (value,))
             self.conn.commit()
 
     def get_blocked_ips(self) -> list[dict]:
         with self._lock:
-            cur = self.conn.execute("SELECT * FROM blocked_ips ORDER BY blocked_at DESC")
-            return [dict(row) for row in cur.fetchall()]
+            return [dict(row) for row in self.conn.execute(
+                "SELECT * FROM blocked_ips ORDER BY blocked_at DESC").fetchall()]
 
-    # ─── Rapor Kaydı ─────────────────────────────────────────────
-    def save_report(self, provider: str, risk_score: float, status: str, content: str):
+    def _flow_summary(self, where: str, params: tuple, limit: int) -> list[dict]:
+        return [dict(row) for row in self.conn.execute(f"""SELECT remote_ip AS dst_ip,
+            remote_port AS dst_port,process,protocol,SUM(sent_bytes+received_bytes) AS total_bytes,
+            COUNT(*) AS conn_count,MIN(first_seen) AS first_seen,MAX(last_seen) AS last_seen,
+            SUM(sent_bytes) AS sent_bytes,SUM(received_bytes) AS received_bytes
+            FROM flow_buckets WHERE {where}
+              AND NOT EXISTS(SELECT 1 FROM trusted_ips WHERE ip=flow_buckets.remote_ip)
+            GROUP BY remote_ip,remote_port,process,protocol ORDER BY total_bytes DESC LIMIT ?""",
+            (*params, limit)).fetchall()]
+
+    def get_summary(self, hours: int = 1, limit: int = 1000000) -> list[dict]:
+        with self._lock: return self._flow_summary("last_seen>=?", (self._cutoff(hours),), limit)
+
+    def get_summary_since(self, since_ts: str, limit: int = 1000000) -> list[dict]:
+        with self._lock: return self._flow_summary("last_seen>?", (since_ts,), limit)
+
+    def get_last_analysis_time(self) -> str | None:
         with self._lock:
-            self.conn.execute(
-                "INSERT INTO reports (created_at, provider, risk_score, status, content) VALUES (?,?,?,?,?)",
-                (datetime.now().isoformat(), provider, risk_score, status, content),
-            )
-            self.conn.commit()
+            row = self.conn.execute("""SELECT analyzed_at FROM analysis_runs WHERE risk_score>=0
+                ORDER BY analyzed_at DESC LIMIT 1""").fetchone()
+            return row[0] if row else None
 
-    def get_latest_report(self) -> dict | None:
+    def get_new_connection_count(self, since_ts: str) -> int:
         with self._lock:
-            cur = self.conn.execute(
-                "SELECT * FROM reports ORDER BY created_at DESC LIMIT 1"
-            )
-            row = cur.fetchone()
-            return dict(row) if row else None
+            return self.conn.execute("SELECT COUNT(*) FROM flow_buckets WHERE last_seen>?",
+                                     (since_ts,)).fetchone()[0]
 
-    # ─── Otomatik Temizlik ─────────────────────────────────────────
-    def cleanup_old_records(self) -> dict:
-        """Eski kayıtları siler. Returns: {"connections": N, "reports": N}"""
-        if DB_RETENTION_HOURS <= 0:
-            return {"connections": 0, "reports": 0}
-        
-        # Raporlar için 7 gün (168 saat) saklama sınırı ekleyelim 
-        # Bağlantılar için konfigürasyon (şu an 2 saat)
-        REPORT_RETENTION_HOURS = 168
-
+    def get_trusted_connection_count(self, hours: int = 1, since_ts: str | None = None) -> int:
+        cutoff = since_ts or self._cutoff(hours)
         with self._lock:
-            cur = self.conn.execute(
-                "DELETE FROM connections WHERE timestamp < ?",
-                (self._cutoff(DB_RETENTION_HOURS),)
-            )
-            deleted_conns = cur.rowcount
-            
-            cur = self.conn.execute(
-                "DELETE FROM reports WHERE created_at < ?",
-                (self._cutoff(REPORT_RETENTION_HOURS),)
-            )
-            deleted_reports = cur.rowcount
-            
-            self.conn.commit()
-            
-            if deleted_conns > 0 or deleted_reports > 0:
-                log.info("Temizlik: %d bağlantı, %d rapor silindi. VACUUM uygulanıyor...", deleted_conns, deleted_reports)
-                self.conn.execute("VACUUM")
+            return self.conn.execute("""SELECT COUNT(*) FROM flow_buckets WHERE last_seen>?
+                AND EXISTS(SELECT 1 FROM trusted_ips WHERE ip=flow_buckets.remote_ip)""",
+                (cutoff,)).fetchone()[0]
 
-            
-            return {"connections": deleted_conns, "reports": deleted_reports}
+    def _traffic_totals(self, cutoff: str) -> dict:
+        rollup = self.conn.execute("""SELECT COALESCE(SUM(sent_bytes),0),
+            COALESCE(SUM(received_bytes),0),COALESCE(SUM(flow_count),0)
+            FROM hourly_rollups WHERE hour_start>=?""", (cutoff,)).fetchone()
+        active = self.conn.execute("""SELECT COALESCE(SUM(sent_bytes),0),
+            COALESCE(SUM(received_bytes),0),COUNT(*) FROM flow_buckets WHERE last_seen>=?""",
+            (cutoff,)).fetchone()
+        sent, received, flows = rollup[0]+active[0], rollup[1]+active[1], rollup[2]+active[2]
+        return {"upload": sent, "download": received, "total": sent+received,
+                "conn_count": flows, "flow_count": flows}
 
-    def get_db_size_mb(self) -> float:
-        """Veritabanı dosya boyutunu MB olarak döndürür."""
-        try:
-            size = Path(DB_PATH).stat().st_size
-            return size / (1024 * 1024)
-        except Exception:
-            return 0.0
-
-    def close(self):
-        """Flush pending rows and close the SQLite connection."""
+    def get_traffic_stats(self) -> list[dict]:
         with self._lock:
-            self._flush_locked()
-            self.conn.close()
+            return [{"label":"Son 1 Saat","short":"Saat",**self._traffic_totals(self._cutoff(1))},
+                    {"label":"Bugün","short":"Bugün",**self._traffic_totals(self._cutoff(24))},
+                    {"label":"Bu Hafta","short":"Hafta",**self._traffic_totals(self._cutoff(168))},
+                    {"label":"Son 30 Gün","short":"30 Gün",**self._traffic_totals(self._cutoff(720))}]
 
-    def get_record_counts(self) -> dict:
-        """Tablodaki kayıt sayılarını döndürür."""
+    def get_stats(self) -> dict:
         with self._lock:
-            conn_count = self.conn.execute(
-                "SELECT COUNT(*) FROM connections"
-            ).fetchone()[0]
-            report_count = self.conn.execute(
-                "SELECT COUNT(*) FROM reports"
-            ).fetchone()[0]
-            blocked_count = self.conn.execute(
-                "SELECT COUNT(*) FROM blocked_ips"
-            ).fetchone()[0]
-            return {
-                "connections": conn_count,
-                "reports": report_count,
-                "blocked_ips": blocked_count,
-            }
+            flows = self._traffic_totals(self._cutoff(24))["flow_count"]
+            return {"today_connections": flows, "today_flows": flows,
+                "total_threats": self.conn.execute("SELECT COUNT(*) FROM security_findings").fetchone()[0],
+                "blocked_ips": self.conn.execute("SELECT COUNT(*) FROM blocked_ips").fetchone()[0],
+                "total_reports": self.conn.execute("SELECT COUNT(*) FROM analysis_runs").fetchone()[0]}
 
     def get_traffic_speed(self, minutes: int = 5) -> dict:
-        """Son N dakikadaki ortalama trafik hızını KB/s olarak döndürür."""
         with self._lock:
-            cutoff = (datetime.now() - timedelta(minutes=minutes)).isoformat()
-            row = self.conn.execute("""
-                SELECT 
-                    COALESCE(SUM(bytes), 0) as total_bytes
-                FROM connections
-                WHERE timestamp >= ?
-            """, (cutoff,)).fetchone()
-            
-            total_bytes = row["total_bytes"] or 0
-            total_seconds = minutes * 60
-            speed_kbs = (total_bytes / 1024) / total_seconds if total_seconds > 0 else 0
-            
-            return {
-                "upload_kbs": speed_kbs * 0.4,   # Tahmini
-                "download_kbs": speed_kbs * 0.6, # Tahmini
-                "total_kbs": speed_kbs,
-                "total_bytes": total_bytes,
-            }
+            row = self.conn.execute("""SELECT COALESCE(SUM(sent_bytes),0),
+                COALESCE(SUM(received_bytes),0) FROM flow_buckets WHERE last_seen>=?""",
+                ((datetime.now()-timedelta(minutes=minutes)).isoformat(),)).fetchone()
+        seconds = max(1, minutes*60)
+        return {"upload_kbs":row[0]/1024/seconds,"download_kbs":row[1]/1024/seconds,
+                "total_kbs":(row[0]+row[1])/1024/seconds,"total_bytes":row[0]+row[1]}
 
     def get_top_processes(self, hours: int = 1, limit: int = 5) -> list[dict]:
-        """En çok trafik yapan süreçleri döndürür."""
         with self._lock:
-            cutoff = (datetime.now() - timedelta(hours=hours)).isoformat()
-            rows = self.conn.execute("""
-                SELECT 
-                    process,
-                    SUM(bytes) as total_bytes,
-                    COUNT(*) as conn_count
-                FROM connections
-                WHERE timestamp >= ? AND process IS NOT NULL
-                GROUP BY process
-                ORDER BY total_bytes DESC
-                LIMIT ?
-            """, (cutoff, limit)).fetchall()
-            
-            return [dict(row) for row in rows]
+            return [dict(row) for row in self.conn.execute("""SELECT process,
+                SUM(sent_bytes+received_bytes) AS total_bytes,COUNT(*) AS conn_count
+                FROM flow_buckets WHERE last_seen>=? GROUP BY process
+                ORDER BY total_bytes DESC LIMIT ?""", (self._cutoff(hours), limit)).fetchall()]
 
     def get_active_connections_count(self, minutes: int = 60) -> int:
-        """Son N dakikadaki aktif bağlantı sayısını döndürür."""
         with self._lock:
-            cutoff = (datetime.now() - timedelta(minutes=minutes)).isoformat()
-            row = self.conn.execute("""
-                SELECT COUNT(DISTINCT dst_ip) as count
-                FROM connections
-                WHERE timestamp >= ?
-            """, (cutoff,)).fetchone()
-            return row["count"] or 0
+            return self.conn.execute("SELECT COUNT(*) FROM flow_buckets WHERE last_seen>=?",
+                ((datetime.now()-timedelta(minutes=minutes)).isoformat(),)).fetchone()[0]
 
     def get_protocol_distribution(self, hours: int = 24) -> dict:
-        """Protokol dağılımını yüzde olarak döndürür."""
         with self._lock:
-            cutoff = (datetime.now() - timedelta(hours=hours)).isoformat()
-            rows = self.conn.execute("""
-                SELECT 
-                    protocol,
-                    COUNT(*) as count,
-                    SUM(bytes) as total_bytes
-                FROM connections
-                WHERE timestamp >= ? AND protocol IS NOT NULL
-                GROUP BY protocol
-            """, (cutoff,)).fetchall()
-            
-            total = sum(row["count"] for row in rows)
-            result = {}
-            for row in rows:
-                proto = row["protocol"] or "OTHER"
-                result[proto] = {
-                    "count": row["count"],
-                    "bytes": row["total_bytes"],
-                    "percentage": round(row["count"] / total * 100, 1) if total > 0 else 0
-                }
-            return result
-
-    def get_traffic_comparison(self) -> dict:
-        """Bugün vs Dün, Bu Hafta vs Geçen Hafta karşılaştırması."""
-        with self._lock:
-            today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
-            yesterday_start = today_start - timedelta(days=1)
-            week_start = today_start - timedelta(days=today_start.weekday())
-            last_week_start = week_start - timedelta(days=7)
-            
-            # Bugün
-            today_data = self.conn.execute("""
-                SELECT COALESCE(SUM(bytes), 0) as total_bytes, COUNT(*) as conn_count
-                FROM connections WHERE timestamp >= ?
-            """, (today_start.isoformat(),)).fetchone()
-            
-            # Dün
-            yesterday_data = self.conn.execute("""
-                SELECT COALESCE(SUM(bytes), 0) as total_bytes, COUNT(*) as conn_count
-                FROM connections WHERE timestamp >= ? AND timestamp < ?
-            """, (yesterday_start.isoformat(), today_start.isoformat())).fetchone()
-            
-            # Bu hafta
-            week_data = self.conn.execute("""
-                SELECT COALESCE(SUM(bytes), 0) as total_bytes, COUNT(*) as conn_count
-                FROM connections WHERE timestamp >= ?
-            """, (week_start.isoformat(),)).fetchone()
-            
-            # Geçen hafta
-            last_week_data = self.conn.execute("""
-                SELECT COALESCE(SUM(bytes), 0) as total_bytes, COUNT(*) as conn_count
-                FROM connections WHERE timestamp >= ? AND timestamp < ?
-            """, (last_week_start.isoformat(), week_start.isoformat())).fetchone()
-            
-            def calc_change(current, previous):
-                if previous == 0:
-                    return 0 if current == 0 else 100
-                return round((current - previous) / previous * 100, 1)
-            
-            return {
-                "today": {
-                    "bytes": today_data["total_bytes"],
-                    "connections": today_data["conn_count"],
-                },
-                "yesterday": {
-                    "bytes": yesterday_data["total_bytes"],
-                    "connections": yesterday_data["conn_count"],
-                },
-                "today_change": calc_change(today_data["total_bytes"], yesterday_data["total_bytes"]),
-                "week": {
-                    "bytes": week_data["total_bytes"],
-                    "connections": week_data["conn_count"],
-                },
-                "last_week": {
-                    "bytes": last_week_data["total_bytes"],
-                    "connections": last_week_data["conn_count"],
-                },
-                "week_change": calc_change(week_data["total_bytes"], last_week_data["total_bytes"]),
-            }
+            rows = self.conn.execute("""SELECT protocol,COUNT(*) AS count,
+                SUM(sent_bytes+received_bytes) AS total_bytes FROM flow_buckets
+                WHERE last_seen>=? GROUP BY protocol""", (self._cutoff(hours),)).fetchall()
+        total = sum(row["count"] for row in rows)
+        return {row["protocol"]:{"count":row["count"],"bytes":row["total_bytes"],
+                "percentage":round(row["count"]*100/total,1) if total else 0} for row in rows}
 
     def get_traffic_timeline(self, hours: int = 24, points: int = 12) -> list[dict]:
-        """Grafik için zaman çizgisi verisi. Son N saatlik veriyi N noktaya böler."""
+        now, results, interval = datetime.now(), [], max(1, hours*60//max(1, points))
         with self._lock:
-            now = datetime.now()
-            results = []
-            interval_minutes = (hours * 60) // points
-            
-            for i in range(points):
-                end_time = now - timedelta(minutes=i * interval_minutes)
-                start_time = end_time - timedelta(minutes=interval_minutes)
-                
-                row = self.conn.execute("""
-                    SELECT COALESCE(SUM(bytes), 0) as total_bytes, COUNT(*) as conn_count
-                    FROM connections
-                    WHERE timestamp >= ? AND timestamp < ?
-                """, (start_time.isoformat(), end_time.isoformat())).fetchone()
-                
-                results.append({
-                    "time": start_time.strftime("%H:%M"),
-                    "bytes": row["total_bytes"],
-                    "connections": row["conn_count"],
-                })
-            
-            # Tersine çevir (eskiden yeniye)
-            return list(reversed(results))
+            for index in range(points):
+                end, start = now-timedelta(minutes=index*interval), now-timedelta(minutes=(index+1)*interval)
+                row = self.conn.execute("""SELECT COALESCE(SUM(sent_bytes+received_bytes),0),COUNT(*)
+                    FROM flow_buckets WHERE last_seen>=? AND last_seen<?""",
+                    (start.isoformat(), end.isoformat())).fetchone()
+                results.append({"time":start.strftime("%H:%M"),"bytes":row[0],
+                                "connections":row[1],"flows":row[1]})
+        return list(reversed(results))
+
+    def get_all_reports(self, limit: int = 100, offset: int = 0) -> list[dict]:
+        with self._lock:
+            rows = self.conn.execute("""SELECT id,batch_id,analyzed_at AS created_at,
+                'gemini' AS provider,risk_score,status,flow_count FROM analysis_runs
+                ORDER BY analyzed_at DESC LIMIT ? OFFSET ?""", (limit, offset)).fetchall()
+            result=[]
+            for row in rows:
+                item=dict(row); findings=[]
+                for finding_row in self.conn.execute(
+                    "SELECT * FROM security_findings WHERE batch_id=? ORDER BY id", (item["batch_id"],)):
+                    finding=dict(finding_row)
+                    finding["flow_evidence"]=json.loads(finding["flow_evidence"] or "[]")
+                    finding["flow_refs"]=json.loads(finding["flow_refs"] or "[]")
+                    findings.append(finding)
+                item["content"]=json.dumps({"risk_score":item["risk_score"],"status":item["status"],
+                    "flow_count":item["flow_count"],"analysis_time":item["created_at"],
+                    "findings":findings},ensure_ascii=False)
+                result.append(item)
+            return result
+
+    def get_security_findings(self, limit: int = 100, offset: int = 0,
+                              status: str | None = None) -> list[dict]:
+        with self._lock:
+            if status:
+                rows=self.conn.execute("""SELECT * FROM security_findings WHERE status=?
+                    ORDER BY created_at DESC LIMIT ? OFFSET ?""",(status,limit,offset)).fetchall()
+            else:
+                rows=self.conn.execute("SELECT * FROM security_findings ORDER BY created_at DESC LIMIT ? OFFSET ?",
+                                       (limit,offset)).fetchall()
+            return [dict(row) for row in rows]
+
+    def resolve_security_finding(self, finding_id: int, resolved: bool = True) -> bool:
+        with self._lock:
+            cursor=self.conn.execute("UPDATE security_findings SET status=? WHERE id=?",
+                                     ("resolved" if resolved else "open",finding_id))
+            self.conn.commit(); return cursor.rowcount>0
+
+    def delete_security_finding(self, finding_id: int) -> bool:
+        with self._lock:
+            cursor=self.conn.execute("DELETE FROM security_findings WHERE id=?",(finding_id,))
+            self.conn.commit(); return cursor.rowcount>0
+
+    def get_record_counts(self) -> dict:
+        with self._lock:
+            return {"flows":self.conn.execute("SELECT COUNT(*) FROM flow_buckets").fetchone()[0],
+                "findings":self.conn.execute("SELECT COUNT(*) FROM security_findings").fetchone()[0],
+                "reports":self.conn.execute("SELECT COUNT(*) FROM analysis_runs").fetchone()[0],
+                "blocked_ips":self.conn.execute("SELECT COUNT(*) FROM blocked_ips").fetchone()[0]}
+
+    def get_db_size_mb(self) -> float:
+        size=sum(item.stat().st_size for item in
+            (self.path,Path(str(self.path)+"-wal"),Path(str(self.path)+"-shm")) if item.exists())
+        return size/(1024*1024)
+
+    def close(self):
+        with self._lock:
+            if self._closed: return
+            self.conn.commit(); self.conn.close(); self._closed=True

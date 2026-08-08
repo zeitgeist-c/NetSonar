@@ -1,223 +1,263 @@
-"""
-NetSonar — Paket Yakalama Motoru
-Scapy kullanarak ağ trafiğini arka planda dinler.
-Her paketten: IP, port, protokol, boyut ve süreç adı çıkarılır.
-UYARI: Yönetici (Administrator) yetkileri gerektirir.
-"""
+"""NetSonar packet capture and minute-flow aggregation."""
 
+import logging
+import os
+import ipaddress
 import threading
 import time
-import logging
 from datetime import datetime
 
 import psutil
-from scapy.all import sniff, IP, IPv6, TCP, UDP, get_if_list
+from scapy.all import IP, IPv6, TCP, UDP, get_if_list, sniff
 
+from config import SUSPICIOUS_PORTS, load_settings
 from database import Database
-from notifier import notify_suspicious_port, notify_high_traffic
-from config import SUSPICIOUS_PORTS, SUSPICIOUS_BYTES_THRESHOLD
+from models import CaptureHealth
+from notifier import notify_high_traffic, notify_suspicious_port
+from flow_utils import normalize_ip, orient_flow
+from flow_accumulator import FlowAccumulator
 
 log = logging.getLogger("NetSonar.Capture")
 
 
+def npcap_available() -> bool:
+    if os.name != "nt":
+        return True
+    windows = os.environ.get("SystemRoot", r"C:\Windows")
+    return any(os.path.isfile(os.path.join(windows, folder, "Npcap", "wpcap.dll"))
+               for folder in ("System32", "SysWOW64"))
+
+
+def get_local_addresses() -> set[str]:
+    """Return usable IPv4 and IPv6 addresses assigned to this machine."""
+    result: set[str] = set()
+    for addresses in psutil.net_if_addrs().values():
+        for address in addresses:
+            normalized = normalize_ip(address.address)
+            if normalized:
+                result.add(normalized)
+    return result
+
+
+def get_broadcast_addresses() -> set[str]:
+    result = {"255.255.255.255"}
+    for addresses in psutil.net_if_addrs().values():
+        for address in addresses:
+            if address.address and address.netmask and ":" not in address.address:
+                try:
+                    network = ipaddress.ip_interface(f"{address.address}/{address.netmask}").network
+                    result.add(str(network.broadcast_address))
+                except ValueError:
+                    pass
+    return result
+
+
 def get_network_interfaces() -> list[dict]:
-    """Kullanılabilir ağ arayüzlerini döndürür."""
+    """Return active capture interfaces and their first IPv4 address."""
     interfaces = []
+    addresses = psutil.net_if_addrs()
     try:
-        for iface in get_if_list():
-            try:
-                addrs = psutil.net_if_addrs()
-                if iface in addrs:
-                    for addr in addrs[iface]:
-                        if addr.family.name == 'AF_INET':
-                            interfaces.append({
-                                "name": iface,
-                                "ip": addr.address,
-                                "netmask": addr.netmask,
-                            })
-                            break
-            except Exception:
-                pass
+        for interface in get_if_list():
+            for address in addresses.get(interface, []):
+                if getattr(address.family, "name", "") == "AF_INET":
+                    interfaces.append({
+                        "name": interface,
+                        "ip": address.address,
+                        "netmask": address.netmask,
+                    })
+                    break
     except Exception:
-        pass
+        log.exception("Network interfaces could not be enumerated")
     return interfaces
 
-# Port → süreç adı önbelleği (her 2 sn güncellenir)
-_port_process_map: dict[int, str] = {}
-_map_lock = threading.Lock()
 
-# Aktif IP başına kümülatif byte sayacı (anlık yüksek trafik algılama)
+_port_process_map: dict[tuple[str, int], str] = {}
+_map_lock = threading.Lock()
 _ip_byte_counter: dict[str, int] = {}
-_ip_notified: dict[str, bool] = {}  # Zaten bildirim gönderildi mi?
+_ip_notified: dict[str, bool] = {}
 _counter_lock = threading.Lock()
-_COUNTER_RESET_SECONDS = 60       # Her dakika sıfırla
+_COUNTER_RESET_SECONDS = 60
 
 
 def _update_process_map():
-    """psutil ile yerel port → süreç adı eşlemesini yeniler."""
-    mapping: dict[int, str] = {}
+    """Refresh normalized protocol/local-port to process mappings."""
+    mapping: dict[tuple[str, int], str] = {}
     try:
-        for conn in psutil.net_connections(kind="inet"):
-            if conn.laddr and conn.pid:
+        for connection in psutil.net_connections(kind="inet"):
+            if connection.laddr and connection.pid:
                 try:
-                    name = psutil.Process(conn.pid).name()
-                    mapping[conn.laddr.port] = name
+                    protocol = "TCP" if connection.type == 1 else "UDP"
+                    mapping[(protocol, connection.laddr.port)] = psutil.Process(connection.pid).name()
                 except (psutil.NoSuchProcess, psutil.AccessDenied):
                     pass
     except Exception:
-        pass
+        log.debug("Process map refresh failed", exc_info=True)
     with _map_lock:
         _port_process_map.clear()
         _port_process_map.update(mapping)
 
 
-def _get_process(src_port: int, dst_port: int = 0) -> str:
+def _get_process(local_port: int, protocol: str) -> str:
     with _map_lock:
-        if src_port in _port_process_map:
-            return _port_process_map.get(src_port, "unknown")
-        if dst_port in _port_process_map:
-            return _port_process_map.get(dst_port, "unknown")
-        return "unknown"
+        return _port_process_map.get((protocol, local_port), "unknown")
 
 
-def _packet_handler(packet, db: Database):
-    """Her yakalanan paketi işler, veritabanına yazar ve anlık kontroller yapar."""
+def _packet_handler(packet, db: Database, local_ips: set[str] | None = None,
+                    broadcast_ips: set[str] | None = None):
     if not (packet.haslayer(IP) or packet.haslayer(IPv6)):
         return
-
-    proto = "OTHER"
-    src_port = dst_port = 0
     size = len(packet)
-
-    if packet.haslayer(IP):
-        ip = packet[IP]
-        src_ip = ip.src
-        dst_ip = ip.dst
-    else:
-        ip = packet[IPv6]
-        src_ip = ip.src
-        dst_ip = ip.dst
-
+    ip_layer = packet[IP] if packet.haslayer(IP) else packet[IPv6]
+    src_ip, dst_ip = ip_layer.src, ip_layer.dst
+    protocol, src_port, dst_port = "OTHER", 0, 0
     if packet.haslayer(TCP):
-        proto = "TCP"
-        src_port = packet[TCP].sport
-        dst_port = packet[TCP].dport
+        protocol, src_port, dst_port = "TCP", packet[TCP].sport, packet[TCP].dport
     elif packet.haslayer(UDP):
-        proto = "UDP"
-        src_port = packet[UDP].sport
-        dst_port = packet[UDP].dport
+        protocol, src_port, dst_port = "UDP", packet[UDP].sport, packet[UDP].dport
 
-    process = _get_process(src_port, dst_port)
-
-    # Veritabanına yaz
-    db.insert_connection({
-        "timestamp": datetime.now().isoformat(),
-        "src_ip":   src_ip,
-        "dst_ip":   dst_ip,
-        "dst_port": dst_port,
-        "protocol": proto,
-        "bytes":    size,
-        "process":  process,
+    endpoints = orient_flow(
+        src_ip, src_port, dst_ip, dst_port,
+        local_ips if local_ips is not None else get_local_addresses(), broadcast_ips,
+    )
+    if endpoints is None:
+        return
+    direction = endpoints.pop("direction")
+    process = _get_process(endpoints["local_port"], protocol)
+    now = datetime.now()
+    db.upsert_flow_bucket({
+        "bucket_start": now.replace(second=0, microsecond=0).isoformat(),
+        **endpoints,
+        "protocol": protocol,
+        "process": process,
+        "sent_bytes": size if direction == "outbound" else 0,
+        "received_bytes": size if direction == "inbound" else 0,
+        "sent_packets": 1 if direction == "outbound" else 0,
+        "received_packets": 1 if direction == "inbound" else 0,
+        "first_seen": now.isoformat(),
+        "last_seen": now.isoformat(),
     })
-    
-    # Özel uyarı kontrolü
+    remote_ip, remote_port = endpoints["remote_ip"], endpoints["remote_port"]
     try:
         from custom_alerts import check_connection_alerts
-        matches = check_connection_alerts(dst_ip, dst_port, process)
-        for rule in matches:
-            from notifier import notify
-            notify(
-                title=f"⚠️ Özel Uyarı: {rule.name}",
-                message=f"{process} -> {dst_ip}:{dst_port}",
-                severity="warning"
-            )
+        from notifier import notify_custom_alert
+        for rule in check_connection_alerts(remote_ip, remote_port, process):
+            notify_custom_alert(rule.name, remote_ip, f"{process} -> {remote_ip}:{remote_port}")
     except Exception:
-        pass
-
-    # ── Anlık Kontrol 1: Bilinen tehlikeli port ──────────────────
-    if dst_port in SUSPICIOUS_PORTS:
-        notify_suspicious_port(dst_ip, dst_port, process)
-
-    # ── Anlık Kontrol 2: Yüksek trafik eşiği ────────────────────
+        log.debug("Custom alert evaluation failed", exc_info=True)
+    if remote_port in SUSPICIOUS_PORTS:
+        notify_suspicious_port(remote_ip, remote_port, process)
     with _counter_lock:
-        _ip_byte_counter[dst_ip] = _ip_byte_counter.get(dst_ip, 0) + size
-        total = _ip_byte_counter[dst_ip]
-        
-        # Sadece henüz bildirim gönderilmemişse bildirim gönder
-        if total >= SUSPICIOUS_BYTES_THRESHOLD and not _ip_notified.get(dst_ip, False):
-            _ip_notified[dst_ip] = True
-            notify_high_traffic(dst_ip, total, process)
+        _ip_byte_counter[remote_ip] = _ip_byte_counter.get(remote_ip, 0) + size
+        total = _ip_byte_counter[remote_ip]
+        threshold = int(load_settings().get("HIGH_TRAFFIC_THRESHOLD_BYTES", 50 * 1024 * 1024))
+        if total >= threshold and not _ip_notified.get(remote_ip, False):
+            _ip_notified[remote_ip] = True
+            notify_high_traffic(remote_ip, total, process)
 
 
 class CaptureEngine:
-    """Ağ trafiğini arka plan thread'lerinde dinleyen motor."""
+    """Capture traffic with a separately observable worker per adapter."""
 
-    def __init__(self, db: Database, interface: str = None):
+    def __init__(self, db: Database, interface: str | None = None):
         self.db = db
         self._running = False
-        self._sniff_thread: threading.Thread | None = None
-        self._map_thread: threading.Thread   | None = None
+        self._sniff_threads: list[threading.Thread] = []
+        self._map_thread: threading.Thread | None = None
         self._counter_thread: threading.Thread | None = None
-        self._interface = interface  # None = tüm arayüzler
+        self._flush_thread: threading.Thread | None = None
+        self._interface = interface
+        self._local_ips: set[str] = set()
+        self._broadcast_ips: set[str] = set()
+        self._adapter_health: dict[str, str] = {}
+        self._health_lock = threading.Lock()
+        self._accumulator = FlowAccumulator(db)
 
-    def set_interface(self, interface: str):
-        """Arayüz değiştir (aktifken değiştirme, önce stop() çağır)."""
+    def set_interface(self, interface: str | None):
         if self._running:
-            raise RuntimeError("Arayuz degistirmeden once yakalamayi durdurun.")
+            raise RuntimeError("Stop capture before changing the interface.")
         self._interface = interface
 
     def start(self):
         if self._running:
             return
         self._running = True
-
-        # Süreç haritası güncelleyici
-        self._map_thread = threading.Thread(target=self._map_updater, daemon=True, name="ag-map")
+        if not npcap_available():
+            with self._health_lock:
+                self._adapter_health = {"Npcap": "error: wpcap.dll not found"}
+            log.error("Npcap wpcap.dll was not found; capture is unavailable")
+            return
+        self._local_ips = get_local_addresses()
+        self._broadcast_ips = get_broadcast_addresses()
+        self._map_thread = threading.Thread(target=self._map_updater, daemon=True, name="ns-map")
+        self._counter_thread = threading.Thread(target=self._counter_resetter, daemon=True, name="ns-counter")
+        self._flush_thread = threading.Thread(target=self._flush_updater, daemon=True, name="ns-flow-flush")
         self._map_thread.start()
-
-        # Byte sayaç sıfırlayıcı
-        self._counter_thread = threading.Thread(
-            target=self._counter_resetter, daemon=True, name="ag-counter"
-        )
         self._counter_thread.start()
-
-        # Paket yakalama
-        self._sniff_thread = threading.Thread(target=self._sniff_loop, daemon=True, name="ag-sniff")
-        self._sniff_thread.start()
-
-        iface_name = self._interface if self._interface else "Tümü"
-        log.info("Dinleme başladı (%s)", iface_name)
+        self._flush_thread.start()
+        try:
+            adapters = [self._interface] if self._interface else list(get_if_list())
+        except Exception as exc:
+            adapters = []
+            log.error("Capture adapters could not be enumerated: %s", exc)
+        with self._health_lock:
+            self._adapter_health = {adapter: "starting" for adapter in adapters}
+        self._sniff_threads = []
+        for index, adapter in enumerate(adapters):
+            thread = threading.Thread(target=self._sniff_loop, args=(adapter,), daemon=True,
+                                      name=f"ns-sniff-{index}")
+            self._sniff_threads.append(thread)
+            thread.start()
+        log.info("Capture started on %d adapter(s)", len(adapters))
 
     def stop(self):
         if not self._running:
             self.db.flush()
             return
         self._running = False
-        for thread in (self._sniff_thread, self._map_thread, self._counter_thread):
+        for thread in (*self._sniff_threads, self._map_thread, self._counter_thread, self._flush_thread):
             if thread and thread.is_alive():
                 thread.join(timeout=2)
+        self._accumulator.flush()
         self.db.flush()
-        log.info("Dinleme durduruldu, tampon yazıldı.")
+        with self._health_lock:
+            self._adapter_health = {name: "stopped" for name in self._adapter_health}
+        log.info("Capture stopped")
 
-    def _sniff_loop(self):
-        kwargs = {
-            "prn": lambda pkt: _packet_handler(pkt, self.db),
-            "store": False,
-            "timeout": 1,
-        }
-        if self._interface:
-            kwargs["iface"] = self._interface
+    def health_snapshot(self) -> CaptureHealth:
+        with self._health_lock:
+            adapters = dict(self._adapter_health)
+        if not self._running:
+            state = "stopped"
+        elif adapters and all(value == "active" for value in adapters.values()):
+            state = "active"
+        elif any(value == "active" for value in adapters.values()):
+            state = "partial"
+        else:
+            state = "error"
+        return CaptureHealth(state=state, adapters=adapters)
+
+    def _sniff_loop(self, adapter: str):
+        kwargs = {"prn": lambda packet: _packet_handler(
+                      packet, self._accumulator, self._local_ips, self._broadcast_ips),
+                  "store": False, "timeout": 1, "iface": adapter}
         while self._running:
             try:
                 sniff(**kwargs)
+                with self._health_lock:
+                    self._adapter_health[adapter] = "active"
             except Exception as exc:
-                log.error("Sniff hatası: %s", exc)
+                with self._health_lock:
+                    self._adapter_health[adapter] = f"error: {exc}"
+                log.error("Capture failed on %s: %s", adapter, exc)
                 time.sleep(2)
 
     def _map_updater(self):
         while self._running:
             _update_process_map()
-            time.sleep(5)
+            for _ in range(5):
+                if not self._running:
+                    return
+                time.sleep(1)
 
     def _counter_resetter(self):
         while self._running:
@@ -228,3 +268,14 @@ class CaptureEngine:
             with _counter_lock:
                 _ip_byte_counter.clear()
                 _ip_notified.clear()
+
+    def _flush_updater(self):
+        while self._running:
+            for _ in range(10):
+                if not self._running:
+                    return
+                time.sleep(0.1)
+            try:
+                self._accumulator.flush()
+            except Exception:
+                log.exception("Flow accumulator flush failed")

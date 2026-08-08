@@ -13,7 +13,6 @@ datas = [
     (str(project_root / "config" / "ai_prompt.txt"), "config"),
 ]
 hiddenimports = [
-    "dns_cache",
     "custom_alerts",
     "notifier",
     "plyer.facades.notification",

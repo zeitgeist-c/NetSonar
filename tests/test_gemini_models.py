@@ -79,8 +79,27 @@ class GeminiSettingsTests(unittest.TestCase):
 
         self.assertEqual("gemini-3.5-flash-lite", settings["GEMINI_MODEL"])
 
+    def test_plaintext_api_key_is_migrated_to_dpapi(self):
+        self.write_settings({
+            "GEMINI_API_KEY": "secret-key", "GEMINI_API_KEYS": ["secret-key"],
+            "GEMINI_MODEL": config.DEFAULT_GEMINI_MODEL,
+            "GEMINI_MODEL_SELECTION_VERSION": config.GEMINI_MODEL_SELECTION_VERSION,
+        })
+        with patch.object(config, "protect_secret", return_value="dpapi:encrypted"):
+            loaded = config.load_settings()
+        self.assertEqual(["secret-key"], loaded["GEMINI_API_KEYS"])
+        with open(config.SETTINGS_FILE, "r", encoding="utf-8") as handle:
+            stored = json.load(handle)
+        self.assertTrue(stored["GEMINI_API_KEYS"][0].startswith("dpapi:"))
+        self.assertNotIn("secret-key", json.dumps(stored))
+
 
 class GeminiRequestTests(unittest.TestCase):
+    def setUp(self):
+        ai_analyzer._GEMINI_KEY_COOLDOWNS.clear()
+        ai_analyzer._GEMINI_SERVICE_BACKOFF_UNTIL = 0
+        ai_analyzer._GEMINI_SERVICE_FAILURES = 0
+
     def run_request(self, model):
         fake_config = SimpleNamespace(
             GEMINI_API_KEYS=[f"key-{model}"],
@@ -102,6 +121,8 @@ class GeminiRequestTests(unittest.TestCase):
         endpoint, request = self.run_request("gemini-3.5-flash-lite")
 
         self.assertIn("/models/gemini-3.5-flash-lite:generateContent", endpoint)
+        self.assertEqual("key-gemini-3.5-flash-lite", request["headers"]["x-goog-api-key"])
+        self.assertNotIn("params", request)
         self.assertNotIn("temperature", request["json"]["generationConfig"])
 
     def test_gemini_31_keeps_temperature(self):
@@ -123,6 +144,58 @@ class GeminiRequestTests(unittest.TestCase):
                 ai_analyzer, "_cfg", return_value=fake_config
             ):
                 self.assertEqual([], analyzer.validate_config())
+
+    def test_403_rotates_to_next_key(self):
+        class Response:
+            headers = {}
+            def __init__(self, status):
+                self.status_code, self.text = status, "denied"
+            def json(self):
+                return FakeResponse().json()
+        class Session:
+            def __init__(self): self.calls = []
+            def post(self, endpoint, **kwargs):
+                self.calls.append(kwargs)
+                return Response(403 if len(self.calls) == 1 else 200)
+        cfg = SimpleNamespace(GEMINI_API_KEYS=["bad", "good"], GEMINI_API_KEY="",
+                              GEMINI_MODEL="gemini-3.5-flash-lite", AI_PROMPT="Return JSON")
+        session = Session()
+        with patch.object(ai_analyzer, "_cfg", return_value=cfg), patch.object(
+            ai_analyzer, "_session", return_value=session
+        ):
+            self.assertEqual({"status": "ok"}, ai_analyzer._analyze_gemini("Analyze"))
+        self.assertEqual(["bad", "good"],
+            [call["headers"]["x-goog-api-key"] for call in session.calls])
+
+    def test_429_retry_after_marks_only_current_key(self):
+        class Response:
+            text = "limited"
+            def __init__(self, status, retry=None):
+                self.status_code = status
+                self.headers = {"Retry-After": retry} if retry else {}
+            def json(self): return FakeResponse().json()
+        responses = iter([Response(429, "12"), Response(200)])
+        session = SimpleNamespace(post=lambda *args, **kwargs: next(responses))
+        cfg = SimpleNamespace(GEMINI_API_KEYS=["limited", "ready"], GEMINI_API_KEY="",
+                              GEMINI_MODEL="gemini-3.5-flash-lite", AI_PROMPT="Return JSON")
+        with patch.object(ai_analyzer, "_cfg", return_value=cfg), patch.object(
+            ai_analyzer, "_session", return_value=session
+        ):
+            ai_analyzer._analyze_gemini("Analyze")
+        self.assertIn("limited", ai_analyzer._GEMINI_KEY_COOLDOWNS)
+        self.assertNotIn("ready", ai_analyzer._GEMINI_KEY_COOLDOWNS)
+
+    def test_503_sets_service_wide_exponential_backoff(self):
+        response = SimpleNamespace(status_code=503, text="busy", headers={})
+        session = SimpleNamespace(post=lambda *args, **kwargs: response)
+        cfg = SimpleNamespace(GEMINI_API_KEYS=["key"], GEMINI_API_KEY="",
+                              GEMINI_MODEL="gemini-3.5-flash-lite", AI_PROMPT="Return JSON")
+        with patch.object(ai_analyzer, "_cfg", return_value=cfg), patch.object(
+            ai_analyzer, "_session", return_value=session
+        ), self.assertRaises(ai_analyzer.GeminiQuotaError):
+            ai_analyzer._analyze_gemini("Analyze")
+        self.assertEqual(1, ai_analyzer._GEMINI_SERVICE_FAILURES)
+        self.assertGreater(ai_analyzer._GEMINI_SERVICE_BACKOFF_UNTIL, 0)
 
 
 if __name__ == "__main__":
