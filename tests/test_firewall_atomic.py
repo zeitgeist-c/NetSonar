@@ -48,6 +48,12 @@ class FirewallAtomicTests(unittest.TestCase):
             self.assertEqual("8.8.8.8", db.get_blocked_ips()[0]["ip"])
             db.close()
 
+    def test_cleanup_treats_an_empty_rule_group_as_success(self):
+        with patch.object(kill_switch, "_run", return_value=(True, "")) as runner:
+            self.assertTrue(kill_switch.remove_all_netsonar_rules())
+        script = runner.call_args.args[0][-1]
+        self.assertIn("if ($rules.Count -gt 0)", script)
+
 
 if __name__ == "__main__":
     unittest.main()
