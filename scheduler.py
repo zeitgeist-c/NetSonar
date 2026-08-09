@@ -61,6 +61,10 @@ class AnalysisScheduler:
                 func=lambda: _run_analysis(self.db, self.analyzer),
                 trigger=IntervalTrigger(minutes=interval), id="ai_analysis",
                 replace_existing=True, max_instances=1,
+                # Bilgisayar uyku/askida kaldiginda kacirilan periyodu, uygulama
+                # yeniden calisabilir olur olmaz bir kez tamamla. Birikmis tum
+                # periyotlari arka arkaya calistirma.
+                coalesce=True, misfire_grace_time=7 * 24 * 60 * 60,
             )
             log.info("Analysis scheduled every %d minute(s)", interval)
 

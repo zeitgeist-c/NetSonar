@@ -1,4 +1,4 @@
-# NetSonar v0.5
+# NetSonar v0.5.2
 
 NetSonar, Windows 10/11 üzerinde Npcap ile bu bilgisayarın taraf olduğu ağ trafiğini
 dakikalık, çift yönlü akışlar halinde özetleyen yerel bir ağ görünürlüğü uygulamasıdır.
@@ -14,8 +14,15 @@ dakikalık, çift yönlü akışlar halinde özetleyen yerel bir ağ görünürl
 - Analiz edilemeyen ayrıntılar en fazla 24 saat sonra anonim toplama dönüştürülür.
 - API anahtarları Windows DPAPI ile geçerli Windows kullanıcısına bağlı şifrelenir.
 
-NetSonar harici reputation, IOC veya Threat Intelligence servisi kullanmaz. Modelin
-uydurduğu IP veya batch dışında referans verdiği akışlar yerel doğrulamada reddedilir.
+VirusTotal veya Tavily anahtarı kaydedilirse yalnızca seçilmiş genel uzak IP adresleri
+güncel tehdit itibarı ve web bağlamı için bu servislere gönderilir. Özel, yerel, multicast
+ve güvenilir listedeki IP'ler dış servislere gönderilmez. Anahtar yoksa yerel+Gemini akışı
+eskisi gibi devam eder. Modelin uydurduğu IP, kaynak veya batch dışında referans verdiği
+akışlar yerel doğrulamada reddedilir.
+
+VirusTotal sonuçları yapılandırılmış itibar kanıtıdır. Tavily sonuçları yalnızca güncel,
+tıklanabilir web bağlamıdır ve tek başına otomatik engelleme kararı oluşturamaz. Public
+VirusTotal API yalnızca kişisel/ticari olmayan kullanım içindir.
 
 ## Güvenlik duvarı
 

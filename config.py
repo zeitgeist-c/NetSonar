@@ -5,11 +5,10 @@ API anahtarlarını ve uygulama ayarlarını buradan düzenle.
 
 import json
 import os
-import subprocess
 import sys
 from settings_service import protect_secret, unprotect_secret, validate_settings
 
-APP_VERSION = "v0.5.0"
+APP_VERSION = "v0.5.2"
 IS_FROZEN = bool(getattr(sys, "frozen", False))
 APP_DIR = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
 
@@ -34,20 +33,8 @@ def user_data_path(*parts: str) -> str:
 
 
 def get_app_version() -> str:
-    """Git tag üzerinden dinamik uygulama versiyonunu döndürür."""
-    if IS_FROZEN:
-        return APP_VERSION
-    try:
-        # Popen kullanarak arkaplan penceresi oluşturmadan komutu çalıştır (Windows GUI için)
-        creationflags = subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
-        version = subprocess.check_output(
-            ["git", "describe", "--tags", "--always", "--dirty"],
-            cwd=APP_DIR, stderr=subprocess.DEVNULL, creationflags=creationflags, text=True
-        ).strip()
-        # Hash-only descriptions receive a v prefix for consistent display.
-        return version if version.startswith("v") else f"v{version}"
-    except Exception:
-        return APP_VERSION
+    """Ürün sürümünü geliştirme Git etiketinden bağımsız döndürür."""
+    return APP_VERSION
 
 
 # ─── Settings Yükleme (önce dosya, sonra env) ──────────────────────
@@ -75,6 +62,8 @@ def _default_settings() -> dict:
         "GEMINI_API_KEYS": [],
         "GEMINI_MODEL": DEFAULT_GEMINI_MODEL,
         "GEMINI_MODEL_SELECTION_VERSION": GEMINI_MODEL_SELECTION_VERSION,
+        "VIRUSTOTAL_API_KEY": "",
+        "TAVILY_API_KEY": "",
         "AUTO_ANALYSIS_ENABLED": True,
         "ANALYSIS_INTERVAL_MINUTES": 60,
         "HIGH_TRAFFIC_THRESHOLD_BYTES": 50 * 1024 * 1024,
@@ -89,6 +78,8 @@ def _write_settings(data: dict):
     protected = [protect_secret(key) for key in keys]
     data["GEMINI_API_KEYS"] = protected
     data["GEMINI_API_KEY"] = protected[0] if protected else ""
+    for field in ("VIRUSTOTAL_API_KEY", "TAVILY_API_KEY"):
+        data[field] = protect_secret(str(data.get(field, "") or ""))
     os.makedirs(os.path.dirname(SETTINGS_FILE), exist_ok=True)
     with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
@@ -127,6 +118,9 @@ def load_settings():
         data.get("GEMINI_API_KEY", ""))
     if any(not key.startswith("dpapi:") for key in stored_keys):
         changed = True
+    if any(data.get(field) and not str(data.get(field)).startswith("dpapi:")
+           for field in ("VIRUSTOTAL_API_KEY", "TAVILY_API_KEY")):
+        changed = True
     data = validate_settings(data, _default_settings())
     try:
         keys = [unprotect_secret(key) for key in _split_api_keys(data.get("GEMINI_API_KEYS", []))]
@@ -137,6 +131,11 @@ def load_settings():
     except Exception:
         data["GEMINI_API_KEYS"] = []
         data["GEMINI_API_KEY"] = ""
+    for field in ("VIRUSTOTAL_API_KEY", "TAVILY_API_KEY"):
+        try:
+            data[field] = unprotect_secret(str(data.get(field, "") or ""))
+        except Exception:
+            data[field] = ""
     if changed:
         try:
             _write_settings(data)
@@ -190,6 +189,8 @@ GEMINI_API_KEY = GEMINI_API_KEYS[0] if GEMINI_API_KEYS else ""
 GEMINI_MODEL = _settings.get("GEMINI_MODEL", DEFAULT_GEMINI_MODEL)
 if GEMINI_MODEL not in SUPPORTED_GEMINI_MODELS:
     GEMINI_MODEL = DEFAULT_GEMINI_MODEL
+VIRUSTOTAL_API_KEY = str(_settings.get("VIRUSTOTAL_API_KEY", "") or "")
+TAVILY_API_KEY = str(_settings.get("TAVILY_API_KEY", "") or "")
 
 # ─── Zamanlayıcı ────────────────────────────────────────────────────
 # Her kaç dakikada bir AI analizi yapılsın?
@@ -212,6 +213,18 @@ DB_CLEANUP_INTERVAL_HOURS = 1              # Temizlik kaç saatte bir yapılsın
 # Not: Veri kaybını önlemek için yüksek tutuluyor. Sorgu zaten en önemli
 # verileri (şüpheli port, yüksek trafik) öncelikli olarak alıyor.
 MAX_CONNECTIONS_TO_ANALYZE = 200           # AI'a gönderilecek max bağlantı sayısı
+VIRUSTOTAL_MAX_LOOKUPS_PER_RUN = 4
+VIRUSTOTAL_DAILY_SOFT_LIMIT = 480
+VIRUSTOTAL_MAX_ANALYSIS_AGE_DAYS = 30
+TAVILY_MAX_SEARCHES_PER_RUN = 2
+TAVILY_MONTHLY_SOFT_LIMIT = 900
+THREAT_INTEL_CACHE_HOURS = 24
+THREAT_INTEL_UNKNOWN_CACHE_HOURS = 6
+THREAT_INTEL_ERROR_BACKOFF_MINUTES = 15
+SUSPICIOUS_PROCESSES = {
+    "mshta.exe", "wscript.exe", "cscript.exe", "cmd.exe", "powershell.exe",
+    "rundll32.exe", "regsvr32.exe", "certutil.exe",
+}
 
 # ─── Bildirim Filtresi ───────────────────────────────────────────────
 # True: sadece AI rapor bildirimleri gönderilir (önerilen)

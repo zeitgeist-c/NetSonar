@@ -93,6 +93,24 @@ class GeminiSettingsTests(unittest.TestCase):
         self.assertTrue(stored["GEMINI_API_KEYS"][0].startswith("dpapi:"))
         self.assertNotIn("secret-key", json.dumps(stored))
 
+    def test_external_provider_keys_are_migrated_to_dpapi(self):
+        self.write_settings({
+            "VIRUSTOTAL_API_KEY": "vt-secret", "TAVILY_API_KEY": "tvly-secret",
+            "GEMINI_MODEL": config.DEFAULT_GEMINI_MODEL,
+            "GEMINI_MODEL_SELECTION_VERSION": config.GEMINI_MODEL_SELECTION_VERSION,
+        })
+        with patch.object(config, "protect_secret", side_effect=lambda value:
+                          "dpapi:" + value if value else ""), patch.object(
+            config, "unprotect_secret", side_effect=lambda value:
+                value.removeprefix("dpapi:")):
+            loaded = config.load_settings()
+        self.assertEqual("vt-secret", loaded["VIRUSTOTAL_API_KEY"])
+        self.assertEqual("tvly-secret", loaded["TAVILY_API_KEY"])
+        with open(config.SETTINGS_FILE, "r", encoding="utf-8") as handle:
+            stored = json.load(handle)
+        self.assertTrue(stored["VIRUSTOTAL_API_KEY"].startswith("dpapi:"))
+        self.assertNotIn('"vt-secret"', json.dumps(stored))
+
 
 class GeminiRequestTests(unittest.TestCase):
     def setUp(self):
@@ -183,6 +201,26 @@ class GeminiRequestTests(unittest.TestCase):
         ):
             ai_analyzer._analyze_gemini("Analyze")
         self.assertIn("limited", ai_analyzer._GEMINI_KEY_COOLDOWNS)
+        self.assertNotIn("ready", ai_analyzer._GEMINI_KEY_COOLDOWNS)
+
+    def test_invalid_api_key_rotates_to_next_key(self):
+        class Response:
+            headers = {}
+            def __init__(self, status, body=""):
+                self.status_code, self.text = status, body
+            def json(self): return FakeResponse().json()
+        responses = iter([
+            Response(400, '{"error":{"status":"API_KEY_INVALID"}}'),
+            Response(200),
+        ])
+        session = SimpleNamespace(post=lambda *args, **kwargs: next(responses))
+        cfg = SimpleNamespace(GEMINI_API_KEYS=["invalid", "ready"], GEMINI_API_KEY="",
+                              GEMINI_MODEL="gemini-3.5-flash-lite", AI_PROMPT="Return JSON")
+        with patch.object(ai_analyzer, "_cfg", return_value=cfg), patch.object(
+            ai_analyzer, "_session", return_value=session
+        ):
+            self.assertEqual({"status": "ok"}, ai_analyzer._analyze_gemini("Analyze"))
+        self.assertIn("invalid", ai_analyzer._GEMINI_KEY_COOLDOWNS)
         self.assertNotIn("ready", ai_analyzer._GEMINI_KEY_COOLDOWNS)
 
     def test_503_sets_service_wide_exponential_backoff(self):

@@ -38,10 +38,11 @@ class AnalysisBatchTests(unittest.TestCase):
             AIAnalyzer, "provider", new_callable=PropertyMock, return_value="gemini"
         ):
             result = self.analyzer.analyze_pending()
-        self.assertEqual([200, 1], sizes)
+        self.assertEqual([200], sizes)
         self.assertEqual(0, self.db.conn.execute("SELECT COUNT(*) FROM flow_buckets").fetchone()[0])
         self.assertEqual(201, result["_meta"]["flow_count"])
-        self.assertEqual(2, self.db.conn.execute(
+        self.assertEqual(200, result["_meta"]["analyzed_flow_count"])
+        self.assertEqual(1, self.db.conn.execute(
             "SELECT COUNT(*) FROM analysis_chunks WHERE status='completed'"
         ).fetchone()[0])
 
@@ -59,6 +60,17 @@ class AnalysisBatchTests(unittest.TestCase):
             "SELECT status FROM analysis_batches"
         ).fetchone()[0])
         self.assertEqual(201, self.db.conn.execute("SELECT COUNT(*) FROM flow_buckets").fetchone()[0])
+
+    def test_unknown_or_mismatched_source_reference_is_rejected(self):
+        flows = {1: {"remote_ip": "8.8.8.8"}}
+        result = {"risk_score": 8, "status": "risky", "summary": "x", "findings": [{
+            "flow_refs": [1], "source_refs": ["vt:1.1.1.1"], "severity": "high",
+            "confidence": .9, "evidence": "x", "recommended_action": "review",
+            "block_now": True}]}
+        validated = self.analyzer._validate_chunk_result(result, {1},
+            {"vt:1.1.1.1": {"indicator": "1.1.1.1"}}, flows)
+        self.assertEqual(validated["findings"][0]["source_refs"], [])
+        self.assertFalse(validated["findings"][0]["block_now"])
 
 
 if __name__ == "__main__":

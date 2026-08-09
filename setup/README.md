@@ -5,7 +5,7 @@ bilgisayarına kurulabilmesi için gereken paketleme yapılandırmasını içeri
 
 ## Son kullanıcı dosyası
 
-    setup\NetSonar-Setup-v0.5.0.exe
+    setup\NetSonar-Setup-v0.5.2.exe
 
 Kurulum 64 bit Windows 10/11 içindir. Başlat menüsü kısayolu her zaman,
 masaüstü kısayolu ise kullanıcı seçerse oluşturulur.
@@ -45,7 +45,7 @@ doğrudan setup klasörüne yazılır.
 
 ## Kullanıcı verileri ve gizlilik
 
-Paketlenmiş uygulama ayarları, Gemini anahtarlarını, veritabanını, logları,
+Paketlenmiş uygulama ayarları, Gemini/VirusTotal/Tavily anahtarlarını, veritabanını, logları,
 özel uyarıları ve raporları %LOCALAPPDATA%\NetSonar altında tutar. Projedeki
 config\settings.json ve netsonar_data içeriği pakete alınmaz. Kaldırma işlemi
 kullanıcı verilerini korur; tam temizlik için bu klasör ayrıca silinebilir.

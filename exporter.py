@@ -65,7 +65,7 @@ def _export_csv(report: dict, filepath: str) -> str:
     
     with open(filepath, "w", encoding="utf-8", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow(["Analysis Time", "IP", "Port", "Process", "Reason", "Action", "Risk Score", "Status"])
+        writer.writerow(["Analysis Time", "IP", "Port", "Process", "Reason", "Action", "Risk Score", "Status", "Sources"])
         
         writer.writerow([
             report.get("analysis_time", report.get("created_at", "")),
@@ -76,10 +76,14 @@ def _export_csv(report: dict, filepath: str) -> str:
             "",
             report.get("risk_score", ""),
             report.get("status", ""),
+            "",
         ])
         writer.writerow([])
         
         for conn in conns:
+            source_urls = [f"{s.get('checked_at','')} {s.get('source_url') or s.get('url') or ''}" for s in
+                           (report.get("intel_sources", []) + report.get("web_sources", []))
+                           if s.get("indicator") == conn.get("ip")]
             writer.writerow([
                 report.get("analysis_time", report.get("created_at", "")), conn.get("ip", ""),
                 conn.get("port", ""),
@@ -88,6 +92,7 @@ def _export_csv(report: dict, filepath: str) -> str:
                 conn.get("action", ""),
                 report.get("risk_score", ""),
                 report.get("status", ""),
+                " | ".join(source_urls),
             ])
         
         writer.writerow([])
@@ -128,6 +133,12 @@ def _export_txt(report: dict, filepath: str) -> str:
         "AI YORUMU",
         "=" * 60,
         report.get("summary", ""),
+        "",
+        "=" * 60,
+        "GÜNCEL KAYNAKLAR",
+        "=" * 60,
+        *[f"{s.get('provider','')}: {s.get('indicator','')} @ {s.get('checked_at','')} - {s.get('source_url') or s.get('url','')}"
+          for s in (report.get("intel_sources", []) + report.get("web_sources", []))],
         "",
         "=" * 60,
     ])

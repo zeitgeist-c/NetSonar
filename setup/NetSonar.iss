@@ -1,5 +1,5 @@
 #define MyAppName "NetSonar"
-#define MyAppVersion "0.5.0"
+#define MyAppVersion "0.5.2"
 #define MyAppPublisher "NetSonar"
 #define MyAppExeName "NetSonar.exe"
 

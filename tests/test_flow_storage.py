@@ -92,6 +92,19 @@ class FlowStorageTests(unittest.TestCase):
         self.assertTrue(self.db.delete_security_finding(finding["id"]))
         self.assertEqual([], self.db.get_security_findings())
 
+    def test_full_report_and_sources_survive_history_reload(self):
+        self.db.upsert_flow_bucket(self.flow())
+        batch = self.db.claim_pending_batch()
+        report = {"risk_score": 8.0, "status": "risky", "summary": "current intel",
+                  "intel_sources": [{"source_ref":"vt:1.1.1.1","indicator":"1.1.1.1"}],
+                  "web_sources": [{"source_ref":"web:1.1.1.1:0","url":"https://example.com"}],
+                  "findings": []}
+        self.db.complete_batch(batch["id"], 8.0, "risky", [], report)
+        import json
+        restored = json.loads(self.db.get_all_reports()[0]["content"])
+        self.assertEqual("current intel", restored["summary"])
+        self.assertEqual("vt:1.1.1.1", restored["intel_sources"][0]["source_ref"])
+
 
 if __name__ == "__main__":
     unittest.main()
