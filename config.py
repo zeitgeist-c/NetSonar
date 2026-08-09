@@ -8,7 +8,7 @@ import os
 import sys
 from settings_service import protect_secret, unprotect_secret, validate_settings
 
-APP_VERSION = "v0.5.3"
+APP_VERSION = "v0.5.4"
 IS_FROZEN = bool(getattr(sys, "frozen", False))
 APP_DIR = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
 

@@ -5,8 +5,8 @@ bilgisayarına kurulabilmesi için gereken paketleme yapılandırmasını içeri
 
 ## Son kullanıcı dosyası
 
-    dist\NetSonar-v0.5.3.exe
-    dist\NetSonar-v0.5.3.bat
+    dist\NetSonar-v0.5.4.exe
+    dist\NetSonar-v0.5.4.bat
 
 Kurulum 64 bit Windows 10/11 içindir. Başlat menüsü kısayolu her zaman,
 masaüstü kısayolu ise kullanıcı seçerse oluşturulur.
@@ -37,8 +37,9 @@ geçici çıktıları packaging\build ile packaging\app-dist altında hazırlan�
 derleme sonunda otomatik temizlenir. Dağıtılacak sürümlü EXE ve onu başlatan eşleşen
 BAT dosyası proje kökündeki dist klasörüne yazılır.
 
-Sürüm numarası config.py içindeki APP_VERSION değerinden okunur. Böylece EXE, BAT ve
-kurulum metadatası sonraki sürüm artışlarında otomatik olarak birlikte güncellenir.
+Sürüm numarası config.py içindeki APP_VERSION değerinden okunur. EXE kurulum paketidir.
+BAT, kurulum paketini açmaz; yalnızca bu kaynak çalışma alanındaki kök NetSonar.bat
+üzerinden güncel main.py kodunu proje .venv ortamıyla çalıştırır.
 
 ## Yapılandırma dosyaları
 
