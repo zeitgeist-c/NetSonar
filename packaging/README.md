@@ -5,7 +5,8 @@ bilgisayarına kurulabilmesi için gereken paketleme yapılandırmasını içeri
 
 ## Son kullanıcı dosyası
 
-    setup\NetSonar-Setup-v0.5.2.exe
+    dist\NetSonar-v0.5.3.exe
+    dist\NetSonar-v0.5.3.bat
 
 Kurulum 64 bit Windows 10/11 içindir. Başlat menüsü kısayolu her zaman,
 masaüstü kısayolu ise kullanıcı seçerse oluşturulur.
@@ -25,21 +26,24 @@ NSIS winget ile kurulabilir:
 
 Proje ana dizininde:
 
-    powershell -ExecutionPolicy Bypass -File .\setup\build.ps1
+    powershell -ExecutionPolicy Bypass -File .\packaging\build.ps1
 
 Bağımlılıklar daha önce kurulduysa:
 
-    powershell -ExecutionPolicy Bypass -File .\setup\build.ps1 -SkipDependencyInstall
+    powershell -ExecutionPolicy Bypass -File .\packaging\build.ps1 -SkipDependencyInstall
 
-Betik izole ortamı setup\.build-venv altında oluşturur. PyInstaller ve yükleyici
-geçici çıktıları setup\build ile setup\dist altında kalır; dağıtılacak nihai dosya
-doğrudan setup klasörüne yazılır.
+Betik izole ortamı packaging\.build-venv altında oluşturur. PyInstaller ve yükleyici
+geçici çıktıları packaging\build ile packaging\app-dist altında hazırlanır ve başarılı
+derleme sonunda otomatik temizlenir. Dağıtılacak sürümlü EXE ve onu başlatan eşleşen
+BAT dosyası proje kökündeki dist klasörüne yazılır.
+
+Sürüm numarası config.py içindeki APP_VERSION değerinden okunur. Böylece EXE, BAT ve
+kurulum metadatası sonraki sürüm artışlarında otomatik olarak birlikte güncellenir.
 
 ## Yapılandırma dosyaları
 
 - NetSonar.spec: PyInstaller uygulama ve kaynak tanımları.
 - NetSonar.nsi: kullanılan NSIS kurulum, UAC, kısayol, Npcap ve kaldırma tanımları.
-- NetSonar.iss: aynı düzenin Inno Setup uyarlaması; başka projelerde alternatif olarak saklanır.
 - requirements-build.txt: test edilmiş sabit paketleme bağımlılıkları.
 - build.ps1: temiz ve tekrarlanabilir uçtan uca derleme betiği.
 
@@ -49,6 +53,8 @@ Paketlenmiş uygulama ayarları, Gemini/VirusTotal/Tavily anahtarlarını, verit
 özel uyarıları ve raporları %LOCALAPPDATA%\NetSonar altında tutar. Projedeki
 config\settings.json ve netsonar_data içeriği pakete alınmaz. Kaldırma işlemi
 kullanıcı verilerini korur; tam temizlik için bu klasör ayrıca silinebilir.
+Her üç sağlayıcı için de birden fazla anahtar desteklenir; ilk anahtar varsayılan,
+diğerleri hata veya kota durumunda otomatik yedektir ve tümü DPAPI ile korunur.
 
 ## Npcap önkoşulu
 

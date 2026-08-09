@@ -32,12 +32,14 @@ class Session:
         self.get_calls, self.post_calls = [], []
     def get(self, *args, **kwargs):
         self.get_calls.append((args, kwargs))
-        if isinstance(self.get_response, Exception): raise self.get_response
-        return self.get_response
+        response = self.get_response.pop(0) if isinstance(self.get_response, list) else self.get_response
+        if isinstance(response, Exception): raise response
+        return response
     def post(self, *args, **kwargs):
         self.post_calls.append((args, kwargs))
-        if isinstance(self.post_response, Exception): raise self.post_response
-        return self.post_response
+        response = self.post_response.pop(0) if isinstance(self.post_response, list) else self.post_response
+        if isinstance(response, Exception): raise response
+        return response
 
 
 class ThreatIntelTests(unittest.TestCase):
@@ -94,6 +96,31 @@ class ThreatIntelTests(unittest.TestCase):
                     get_response=Response(status), post_response=Response(status)))
                 self.assertIsNone(service.lookup_virustotal(f"8.8.8.{status % 10}", cfg()))
                 self.assertEqual([], service.search_tavily(f"9.9.9.{status % 10}", cfg()))
+
+    def test_virustotal_uses_default_key_then_falls_back(self):
+        session = Session(get_response=[Response(429), Response(data={"data":{"attributes":{
+            "last_analysis_stats":{"malicious":0,"suspicious":0,"harmless":1}}}})])
+        result = ThreatIntelService(self.db, session).lookup_virustotal(
+            "8.8.8.8", cfg(VIRUSTOTAL_API_KEYS=["default-vt", "backup-vt"]))
+        self.assertEqual("clean", result["verdict"])
+        self.assertEqual("default-vt", session.get_calls[0][1]["headers"]["x-apikey"])
+        self.assertEqual("backup-vt", session.get_calls[1][1]["headers"]["x-apikey"])
+        self.assertNotIn("virustotal", _BACKOFF_UNTIL)
+
+    def test_tavily_uses_default_key_then_falls_back(self):
+        session = Session(post_response=[requests.Timeout(), Response(data={"results":[]} )])
+        ThreatIntelService(self.db, session).search_tavily(
+            "9.9.9.9", cfg(TAVILY_API_KEYS=["default-tvly", "backup-tvly"]))
+        self.assertEqual("Bearer default-tvly", session.post_calls[0][1]["headers"]["Authorization"])
+        self.assertEqual("Bearer backup-tvly", session.post_calls[1][1]["headers"]["Authorization"])
+        self.assertNotIn("tavily", _BACKOFF_UNTIL)
+
+    def test_valid_not_found_does_not_rotate_keys(self):
+        session = Session(get_response=Response(404))
+        result = ThreatIntelService(self.db, session).lookup_virustotal(
+            "1.0.0.1", cfg(VIRUSTOTAL_API_KEYS=["default-vt", "backup-vt"]))
+        self.assertEqual("unknown", result["verdict"])
+        self.assertEqual(1, len(session.get_calls))
 
 
 if __name__ == "__main__": unittest.main()

@@ -14,8 +14,8 @@ _model_results.txt
 _analysis_result.txt
 *.sqlite3
 config/settings.json
-setup/build/
-setup/dist/
-setup/.build-venv/
-setup/*.exe
+packaging/build/
+packaging/app-dist/
+packaging/.build-venv/
+dist/*.exe
 .agents/

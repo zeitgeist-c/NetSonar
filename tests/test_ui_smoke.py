@@ -308,5 +308,22 @@ class PageConstructionSmokeTests(QtSmokeTestCase):
                         self._dispose(page)
 
 
+class ApiKeyManagerTests(QtSmokeTestCase):
+    def test_order_controls_default_and_backup_labels(self):
+        manager = app_gui.ApiKeyManager("Gemini")
+        try:
+            manager.set_keys(["first-secret", "second-secret", "first-secret"])
+            self.assertEqual(["first-secret", "second-secret"], manager.keys())
+            self.assertTrue(manager.list.item(0).text().startswith("Varsayılan API"))
+            self.assertTrue(manager.list.item(1).text().startswith("Yedek API 2"))
+            self.assertNotIn("first-secret", manager.list.item(0).text())
+            manager.list.setCurrentRow(1)
+            manager._move(-1)
+            self.assertEqual(["second-secret", "first-secret"], manager.keys())
+            self.assertTrue(manager.list.item(0).text().startswith("Varsayılan API"))
+        finally:
+            self._dispose(manager)
+
+
 if __name__ == "__main__":
     unittest.main()

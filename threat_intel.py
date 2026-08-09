@@ -26,6 +26,21 @@ def _clean_text(value, limit: int = 500) -> str:
     return re.sub(r"\s+", " ", text).strip()[:limit]
 
 
+def _provider_keys(cfg, plural: str, singular: str) -> list[str]:
+    value = getattr(cfg, plural, None)
+    raw = value if isinstance(value, (list, tuple)) else re.split(r"[,;\r\n]+", str(value or ""))
+    keys, seen = [], set()
+    for item in raw:
+        key = str(item or "").strip()
+        if key and key not in seen:
+            keys.append(key); seen.add(key)
+    if not keys:
+        key = str(getattr(cfg, singular, "") or "").strip()
+        if key:
+            keys.append(key)
+    return keys
+
+
 def rank_candidates(rows: list[dict], suspicious_ports: set[int],
                     suspicious_processes: set[str], byte_threshold: int) -> list[dict]:
     by_ip: dict[str, dict] = {}
@@ -82,22 +97,28 @@ class ThreatIntelService:
         cached = self.db.get_intel_cache("virustotal", ip)
         if cached:
             return cached
-        if not cfg.VIRUSTOTAL_API_KEY:
+        keys = _provider_keys(cfg, "VIRUSTOTAL_API_KEYS", "VIRUSTOTAL_API_KEY")
+        if not keys:
             return None
         minute = (datetime.now() - timedelta(minutes=1)).isoformat()
         day = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
         if not self._allowed("virustotal", minute, 4) or self.db.api_usage(
                 "virustotal", day) >= cfg.VIRUSTOTAL_DAILY_SOFT_LIMIT:
             return None
-        try:
+        transient_failure = False
+        for key_index, key in enumerate(keys):
+          try:
+            if not self._allowed("virustotal", minute, 4):
+                break
             response = self.session.get(
                 f"https://www.virustotal.com/api/v3/ip_addresses/{quote(ip, safe='')}",
-                headers={"x-apikey": cfg.VIRUSTOTAL_API_KEY}, timeout=15)
+                headers={"x-apikey": key}, timeout=15)
             self.db.record_api_usage("virustotal")
-            if response.status_code == 429:
-                _BACKOFF_UNTIL["virustotal"] = datetime.now() + timedelta(
-                    minutes=cfg.THREAT_INTEL_ERROR_BACKOFF_MINUTES)
-                return None
+            if response.status_code in {401, 403, 429} or response.status_code >= 500:
+                transient_failure = True
+                log.warning("VirusTotal key %d/%d HTTP %d for %s; trying next key",
+                            key_index + 1, len(keys), response.status_code, ip)
+                continue
             if response.status_code == 404:
                 result = {"source_ref": f"vt:{ip}", "provider": "virustotal",
                     "indicator": ip, "verdict": "unknown", "checked_at": datetime.now().isoformat(),
@@ -106,9 +127,6 @@ class ThreatIntelService:
                     self._expiry(cfg.THREAT_INTEL_UNKNOWN_CACHE_HOURS))
                 return result
             if response.status_code != 200:
-                if response.status_code >= 500:
-                    _BACKOFF_UNTIL["virustotal"] = datetime.now() + timedelta(
-                        minutes=cfg.THREAT_INTEL_ERROR_BACKOFF_MINUTES)
                 log.warning("VirusTotal HTTP %d for %s", response.status_code, ip)
                 return None
             attributes = response.json().get("data", {}).get("attributes", {})
@@ -128,9 +146,14 @@ class ThreatIntelService:
             ttl = cfg.THREAT_INTEL_CACHE_HOURS if verdict != "unknown" else cfg.THREAT_INTEL_UNKNOWN_CACHE_HOURS
             self.db.put_intel_cache("virustotal", ip, result, self._expiry(ttl))
             return result
-        except (requests.RequestException, ValueError, TypeError) as exc:
-            log.warning("VirusTotal lookup failed for %s: %s", ip, exc)
-            return None
+          except (requests.RequestException, ValueError, TypeError) as exc:
+            transient_failure = True
+            log.warning("VirusTotal key %d/%d failed for %s: %s",
+                        key_index + 1, len(keys), ip, exc)
+        if transient_failure:
+            _BACKOFF_UNTIL["virustotal"] = datetime.now() + timedelta(
+                minutes=cfg.THREAT_INTEL_ERROR_BACKOFF_MINUTES)
+        return None
 
     def search_tavily(self, ip: str, cfg) -> list[dict]:
         cached = self.db.get_intel_cache("tavily", ip)
@@ -139,23 +162,29 @@ class ThreatIntelService:
             for source in sources:
                 source["cached"] = True
             return sources
-        if not cfg.TAVILY_API_KEY:
+        keys = _provider_keys(cfg, "TAVILY_API_KEYS", "TAVILY_API_KEY")
+        if not keys:
             return []
         month = datetime.now().replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
         if not self._allowed("tavily", month, cfg.TAVILY_MONTHLY_SOFT_LIMIT):
             return []
-        try:
+        transient_failure = False
+        for key_index, key in enumerate(keys):
+          try:
+            if not self._allowed("tavily", month, cfg.TAVILY_MONTHLY_SOFT_LIMIT):
+                break
             response = self.session.post("https://api.tavily.com/search",
-                headers={"Authorization": f"Bearer {cfg.TAVILY_API_KEY}"}, json={
+                headers={"Authorization": f"Bearer {key}"}, json={
                     "query": f'"{ip}" malware OR botnet OR C2 OR IOC OR threat intelligence',
                     "search_depth": "basic", "topic": "general", "time_range": "year",
                     "max_results": 5, "include_answer": False, "include_raw_content": False,
                 }, timeout=20)
             self.db.record_api_usage("tavily")
-            if response.status_code == 429 or response.status_code >= 500:
-                _BACKOFF_UNTIL["tavily"] = datetime.now() + timedelta(
-                    minutes=cfg.THREAT_INTEL_ERROR_BACKOFF_MINUTES)
-                return []
+            if response.status_code in {401, 403, 429} or response.status_code >= 500:
+                transient_failure = True
+                log.warning("Tavily key %d/%d HTTP %d for %s; trying next key",
+                            key_index + 1, len(keys), response.status_code, ip)
+                continue
             if response.status_code != 200:
                 log.warning("Tavily HTTP %d for %s", response.status_code, ip)
                 return []
@@ -174,9 +203,14 @@ class ThreatIntelService:
             ttl = cfg.THREAT_INTEL_CACHE_HOURS if sources else cfg.THREAT_INTEL_UNKNOWN_CACHE_HOURS
             self.db.put_intel_cache("tavily", ip, data, self._expiry(ttl))
             return sources
-        except (requests.RequestException, ValueError, TypeError) as exc:
-            log.warning("Tavily search failed for %s: %s", ip, exc)
-            return []
+          except (requests.RequestException, ValueError, TypeError) as exc:
+            transient_failure = True
+            log.warning("Tavily key %d/%d failed for %s: %s",
+                        key_index + 1, len(keys), ip, exc)
+        if transient_failure:
+            _BACKOFF_UNTIL["tavily"] = datetime.now() + timedelta(
+                minutes=cfg.THREAT_INTEL_ERROR_BACKOFF_MINUTES)
+        return []
 
     def enrich_batch(self, batch_id: int, cfg, stage_callback=None) -> dict:
         candidates = rank_candidates(self.db.get_batch_candidate_rows(batch_id),
@@ -195,5 +229,7 @@ class ThreatIntelService:
         for candidate in web_candidates[:cfg.TAVILY_MAX_SEARCHES_PER_RUN]:
             web_sources.extend(self.search_tavily(candidate["ip"], cfg))
         return {"candidates": candidates, "virustotal": vt_results, "web_sources": web_sources,
-            "status": {"virustotal": "active" if cfg.VIRUSTOTAL_API_KEY else "disabled",
-                       "tavily": "active" if cfg.TAVILY_API_KEY else "disabled"}}
+            "status": {"virustotal": "active" if _provider_keys(
+                           cfg, "VIRUSTOTAL_API_KEYS", "VIRUSTOTAL_API_KEY") else "disabled",
+                       "tavily": "active" if _provider_keys(
+                           cfg, "TAVILY_API_KEYS", "TAVILY_API_KEY") else "disabled"}}

@@ -3,15 +3,22 @@ param([string]$PythonPath, [switch]$SkipDependencyInstall)
 
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
-$SetupDir = $PSScriptRoot
-$ProjectRoot = Split-Path -Parent $SetupDir
-$BuildVenv = Join-Path $SetupDir ".build-venv"
+$PackagingDir = $PSScriptRoot
+$ProjectRoot = Split-Path -Parent $PackagingDir
+$ConfigText = Get-Content -LiteralPath (Join-Path $ProjectRoot "config.py") -Raw
+$VersionMatch = [regex]::Match($ConfigText, '(?m)^APP_VERSION\s*=\s*"v(?<version>\d+\.\d+\.\d+)"')
+if (-not $VersionMatch.Success) { throw "config.py icinde APP_VERSION bulunamadi." }
+$Version = $VersionMatch.Groups["version"].Value
+$VersionedStem = "NetSonar-v$Version"
+$BuildVenv = Join-Path $PackagingDir ".build-venv"
 $BuildPython = Join-Path $BuildVenv "Scripts\python.exe"
-$BuildDir = Join-Path $SetupDir "build"
-$DistDir = Join-Path $SetupDir "dist"
+$BuildDir = Join-Path $PackagingDir "build"
+$AppDistDir = Join-Path $PackagingDir "app-dist"
+$ReleaseDir = Join-Path $ProjectRoot "dist"
 $InstallerDir = Join-Path $BuildDir "installer"
-$Installer = Join-Path $SetupDir "NetSonar-Setup-v0.5.2.exe"
-$StagedInstaller = Join-Path $InstallerDir "NetSonar-Setup-v0.5.2-staging.exe"
+$Installer = Join-Path $ReleaseDir "$VersionedStem.exe"
+$Launcher = Join-Path $ReleaseDir "$VersionedStem.bat"
+$StagedInstaller = Join-Path $InstallerDir "$VersionedStem-staging.exe"
 
 if (-not $PythonPath) {
     $ProjectPython = Join-Path $ProjectRoot ".venv\Scripts\python.exe"
@@ -25,24 +32,27 @@ if (-not (Test-Path -LiteralPath $BuildPython)) {
 if (-not $SkipDependencyInstall) {
     Write-Host "Sabitlenmis paketleme bagimliliklari kuruluyor..."
     & $BuildPython -m pip install --disable-pip-version-check --upgrade pip
-    & $BuildPython -m pip install --disable-pip-version-check -r (Join-Path $SetupDir "requirements-build.txt")
+    & $BuildPython -m pip install --disable-pip-version-check -r (Join-Path $PackagingDir "requirements-build.txt")
 }
-foreach ($path in @($BuildDir, $DistDir)) {
-    $resolvedSetup = [IO.Path]::GetFullPath($SetupDir)
+foreach ($path in @($BuildDir, $AppDistDir)) {
+    $resolvedPackaging = [IO.Path]::GetFullPath($PackagingDir)
     $resolvedPath = [IO.Path]::GetFullPath($path)
-    if (-not $resolvedPath.StartsWith($resolvedSetup, [StringComparison]::OrdinalIgnoreCase)) {
+    if (-not $resolvedPath.StartsWith($resolvedPackaging, [StringComparison]::OrdinalIgnoreCase)) {
         throw "Guvenli olmayan temizleme yolu: $resolvedPath"
     }
     if (Test-Path -LiteralPath $resolvedPath) { Remove-Item -LiteralPath $resolvedPath -Recurse -Force }
 }
-if (Test-Path -LiteralPath $Installer) { Remove-Item -LiteralPath $Installer -Force }
+New-Item -ItemType Directory -Force -Path $ReleaseDir | Out-Null
+Get-ChildItem -LiteralPath $ReleaseDir -File | Where-Object {
+    $_.Name -match '^NetSonar-v\d+\.\d+\.\d+\.(exe|bat)$'
+} | Remove-Item -Force
 
 Write-Host "NetSonar uygulamasi paketleniyor..."
-$PyInstallerArgs = @("-m", "PyInstaller", "--noconfirm", "--clean", "--workpath", $BuildDir, "--distpath", $DistDir, (Join-Path $SetupDir "NetSonar.spec"))
+$PyInstallerArgs = @("-m", "PyInstaller", "--noconfirm", "--clean", "--workpath", $BuildDir, "--distpath", $AppDistDir, (Join-Path $PackagingDir "NetSonar.spec"))
 & $BuildPython @PyInstallerArgs
 if ($LASTEXITCODE -ne 0) { throw "PyInstaller derlemesi basarisiz oldu." }
 
-$ForbiddenFiles = Get-ChildItem -LiteralPath $DistDir -Recurse -File | Where-Object {
+$ForbiddenFiles = Get-ChildItem -LiteralPath $AppDistDir -Recurse -File | Where-Object {
     $_.Extension -in @(".py", ".db", ".log") -or $_.Name -eq "settings.json"
 }
 if ($ForbiddenFiles) {
@@ -60,7 +70,15 @@ if (-not $MakeNsis) { $MakeNsis = $NsisCandidates | Where-Object { $_ -and (Test
 if (-not $MakeNsis) { throw "NSIS bulunamadi. README.md icindeki onkosulu kurup yeniden deneyin." }
 
 Write-Host "Tek dosyali Windows kurulum paketi olusturuluyor..."
-& $MakeNsis /V2 (Join-Path $SetupDir "NetSonar.nsi")
+& $MakeNsis /V2 "/DAPP_VERSION=$Version" (Join-Path $PackagingDir "NetSonar.nsi")
 if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $StagedInstaller)) { throw "NSIS derlemesi basarisiz oldu." }
 Move-Item -LiteralPath $StagedInstaller -Destination $Installer -Force
+$LauncherText = "@echo off`r`nsetlocal`r`ncd /d `"%~dp0`"`r`nstart `"$VersionedStem`" `"%~dp0$VersionedStem.exe`" %*`r`n"
+[IO.File]::WriteAllText($Launcher, $LauncherText, [Text.UTF8Encoding]::new($false))
+foreach ($temporaryPath in @($BuildDir, $AppDistDir)) {
+    if (Test-Path -LiteralPath $temporaryPath) {
+        Remove-Item -LiteralPath $temporaryPath -Recurse -Force
+    }
+}
 Write-Host "Kurulum paketi hazir: $Installer"
+Write-Host "Surumlu baslatici hazir: $Launcher"

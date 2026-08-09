@@ -8,7 +8,7 @@ import os
 import sys
 from settings_service import protect_secret, unprotect_secret, validate_settings
 
-APP_VERSION = "v0.5.2"
+APP_VERSION = "v0.5.3"
 IS_FROZEN = bool(getattr(sys, "frozen", False))
 APP_DIR = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
 
@@ -63,7 +63,9 @@ def _default_settings() -> dict:
         "GEMINI_MODEL": DEFAULT_GEMINI_MODEL,
         "GEMINI_MODEL_SELECTION_VERSION": GEMINI_MODEL_SELECTION_VERSION,
         "VIRUSTOTAL_API_KEY": "",
+        "VIRUSTOTAL_API_KEYS": [],
         "TAVILY_API_KEY": "",
+        "TAVILY_API_KEYS": [],
         "AUTO_ANALYSIS_ENABLED": True,
         "ANALYSIS_INTERVAL_MINUTES": 60,
         "HIGH_TRAFFIC_THRESHOLD_BYTES": 50 * 1024 * 1024,
@@ -78,8 +80,13 @@ def _write_settings(data: dict):
     protected = [protect_secret(key) for key in keys]
     data["GEMINI_API_KEYS"] = protected
     data["GEMINI_API_KEY"] = protected[0] if protected else ""
-    for field in ("VIRUSTOTAL_API_KEY", "TAVILY_API_KEY"):
-        data[field] = protect_secret(str(data.get(field, "") or ""))
+    for singular, plural in (("VIRUSTOTAL_API_KEY", "VIRUSTOTAL_API_KEYS"),
+                             ("TAVILY_API_KEY", "TAVILY_API_KEYS")):
+        provider_keys = _split_api_keys(data.get(plural, [])) or _split_api_keys(
+            data.get(singular, ""))
+        protected_provider_keys = [protect_secret(key) for key in provider_keys]
+        data[plural] = protected_provider_keys
+        data[singular] = protected_provider_keys[0] if protected_provider_keys else ""
     os.makedirs(os.path.dirname(SETTINGS_FILE), exist_ok=True)
     with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
@@ -118,9 +125,12 @@ def load_settings():
         data.get("GEMINI_API_KEY", ""))
     if any(not key.startswith("dpapi:") for key in stored_keys):
         changed = True
-    if any(data.get(field) and not str(data.get(field)).startswith("dpapi:")
-           for field in ("VIRUSTOTAL_API_KEY", "TAVILY_API_KEY")):
-        changed = True
+    for singular, plural in (("VIRUSTOTAL_API_KEY", "VIRUSTOTAL_API_KEYS"),
+                             ("TAVILY_API_KEY", "TAVILY_API_KEYS")):
+        stored_provider_keys = _split_api_keys(data.get(plural, [])) or _split_api_keys(
+            data.get(singular, ""))
+        if any(not key.startswith("dpapi:") for key in stored_provider_keys):
+            changed = True
     data = validate_settings(data, _default_settings())
     try:
         keys = [unprotect_secret(key) for key in _split_api_keys(data.get("GEMINI_API_KEYS", []))]
@@ -131,11 +141,18 @@ def load_settings():
     except Exception:
         data["GEMINI_API_KEYS"] = []
         data["GEMINI_API_KEY"] = ""
-    for field in ("VIRUSTOTAL_API_KEY", "TAVILY_API_KEY"):
+    for singular, plural in (("VIRUSTOTAL_API_KEY", "VIRUSTOTAL_API_KEYS"),
+                             ("TAVILY_API_KEY", "TAVILY_API_KEYS")):
         try:
-            data[field] = unprotect_secret(str(data.get(field, "") or ""))
+            provider_keys = [unprotect_secret(key) for key in _split_api_keys(
+                data.get(plural, []))]
+            if not provider_keys and data.get(singular):
+                provider_keys = [unprotect_secret(str(data[singular]))]
+            data[plural] = provider_keys
+            data[singular] = provider_keys[0] if provider_keys else ""
         except Exception:
-            data[field] = ""
+            data[plural] = []
+            data[singular] = ""
     if changed:
         try:
             _write_settings(data)
@@ -189,8 +206,18 @@ GEMINI_API_KEY = GEMINI_API_KEYS[0] if GEMINI_API_KEYS else ""
 GEMINI_MODEL = _settings.get("GEMINI_MODEL", DEFAULT_GEMINI_MODEL)
 if GEMINI_MODEL not in SUPPORTED_GEMINI_MODELS:
     GEMINI_MODEL = DEFAULT_GEMINI_MODEL
-VIRUSTOTAL_API_KEY = str(_settings.get("VIRUSTOTAL_API_KEY", "") or "")
-TAVILY_API_KEY = str(_settings.get("TAVILY_API_KEY", "") or "")
+VIRUSTOTAL_API_KEYS = (
+    _split_api_keys(os.getenv("AG_TARA_VIRUSTOTAL_KEYS"))
+    or _split_api_keys(_settings.get("VIRUSTOTAL_API_KEYS", []))
+    or _split_api_keys(_settings.get("VIRUSTOTAL_API_KEY", ""))
+)
+VIRUSTOTAL_API_KEY = VIRUSTOTAL_API_KEYS[0] if VIRUSTOTAL_API_KEYS else ""
+TAVILY_API_KEYS = (
+    _split_api_keys(os.getenv("AG_TARA_TAVILY_KEYS"))
+    or _split_api_keys(_settings.get("TAVILY_API_KEYS", []))
+    or _split_api_keys(_settings.get("TAVILY_API_KEY", ""))
+)
+TAVILY_API_KEY = TAVILY_API_KEYS[0] if TAVILY_API_KEYS else ""
 
 # ─── Zamanlayıcı ────────────────────────────────────────────────────
 # Her kaç dakikada bir AI analizi yapılsın?
