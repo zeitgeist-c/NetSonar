@@ -6,9 +6,7 @@ project_root = Path(SPECPATH).parent
 
 datas = [
     (str(project_root / "netsonar-v3.ico"), "."),
-    (str(project_root / "netsonar.ico"), "."),
     (str(project_root / "assets" / "netsonar-mark-v3.png"), "assets"),
-    (str(project_root / "assets" / "netsonar.png"), "assets"),
     (str(project_root / "assets" / "icons"), "assets/icons"),
     (str(project_root / "config" / "ai_prompt.txt"), "config"),
 ]

@@ -65,12 +65,10 @@ C = PREMIUM_C
 
 APP_ICON_FILE = app_path("netsonar-v3.ico")
 APP_LOGO_FILE = app_path("assets", "netsonar-mark-v3.png")
-LEGACY_ICON_FILE = app_path("netsonar.ico")
-LEGACY_LOGO_FILE = app_path("assets", "netsonar.png")
 
 
 def _app_icon():
-    for candidate in (APP_ICON_FILE, APP_LOGO_FILE, LEGACY_ICON_FILE, LEGACY_LOGO_FILE):
+    for candidate in (APP_ICON_FILE, APP_LOGO_FILE):
         if os.path.exists(candidate):
             return QIcon(candidate)
     return QIcon()
@@ -80,7 +78,7 @@ def _app_logo_pixmap(size=30):
     src = next(
         (
             candidate
-            for candidate in (APP_LOGO_FILE, APP_ICON_FILE, LEGACY_LOGO_FILE, LEGACY_ICON_FILE)
+            for candidate in (APP_LOGO_FILE, APP_ICON_FILE)
             if os.path.exists(candidate)
         ),
         "",
@@ -101,237 +99,6 @@ def _app_logo_pixmap(size=30):
         return fallback
     return pix.scaled(size, size, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
 
-_LEGACY_STYLESHEET = f"""
-/* ── Temel ── */
-QMainWindow, QWidget {{
-    background: {C["bg"]};
-    color: {C["text"]};
-    font-family: 'Segoe UI', 'Sora', sans-serif;
-    font-size: 13px;
-}}
-
-/* ── Tab ── */
-QTabWidget::pane {{
-    border: 1px solid {C["border"]};
-    background: {C["bg1"]};
-    border-radius: 0px;
-}}
-QTabBar::tab {{
-    background: {C["bg1"]};
-    color: {C["text3"]};
-    padding: 10px 18px;
-    border: none;
-    border-bottom: 2px solid transparent;
-    font-weight: 600;
-    font-size: 13px;
-    letter-spacing: 0;
-}}
-QTabBar::tab:selected {{
-    color: {C["accent"]};
-    border-bottom: 2px solid {C["accent"]};
-    background: {C["bg2"]};
-}}
-QTabBar::tab:hover {{ color: {C["text2"]}; }}
-
-/* ── Tablo ── */
-QTableWidget {{
-    background: {C["bg2"]};
-    gridline-color: {C["border"]};
-    border: 1px solid {C["border"]};
-    border-radius: 8px;
-    color: {C["text"]};
-    selection-background-color: rgba(0,212,255,0.07);
-    selection-color: {C["text"]};
-    font-family: 'Cascadia Mono', 'Cascadia Code', 'Consolas', monospace;
-    font-size: 12px;
-}}
-QTableWidget::item {{ padding: 5px 10px; border: none; }}
-QHeaderView::section {{
-    background: {C["bg3"]};
-    color: {C["text3"]};
-    border: none;
-    border-bottom: 1px solid {C["border"]};
-    padding: 7px 10px;
-    font-weight: 700;
-    font-size: 11px;
-    letter-spacing: 0.03em;
-    text-transform: uppercase;
-    font-family: 'Cascadia Mono', 'Consolas', monospace;
-}}
-
-/* ── Butonlar ── */
-QPushButton {{
-    background: {C["accent2"]};
-    color: {C["text"]};
-    border: 1px solid rgba(0,212,255,0.25);
-    border-radius: 6px;
-    padding: 8px 18px;
-    font-weight: 600;
-    font-size: 12px;
-}}
-QPushButton:hover   {{ background: #00a8d4; border-color: {C["accent"]}; }}
-QPushButton:pressed {{
-    background: #006e8a;
-    border-color: {C["accent"]};
-    padding-top: 9px;
-    padding-bottom: 7px;
-}}
-QPushButton:disabled {{ background: {C["bg3"]}; color: {C["text3"]}; border-color: {C["border"]}; }}
-
-QPushButton#danger {{
-    background: rgba(255,59,92,0.12);
-    color: {C["danger"]};
-    border: 1px solid rgba(255,59,92,0.3);
-}}
-QPushButton#danger:hover   {{ background: rgba(255,59,92,0.22); border-color: {C["danger"]}; }}
-QPushButton#danger:pressed {{ background: rgba(255,59,92,0.35); }}
-
-QPushButton#success {{
-    background: rgba(0,230,118,0.1);
-    color: {C["success"]};
-    border: 1px solid rgba(0,230,118,0.25);
-}}
-QPushButton#success:hover   {{ background: rgba(0,230,118,0.2); }}
-QPushButton#success:pressed {{ background: rgba(0,230,118,0.3); }}
-
-QPushButton#ghost {{
-    background: {C["bg3"]};
-    color: {C["text2"]};
-    border: 1px solid {C["border2"]};
-}}
-QPushButton#ghost:hover   {{ border-color: {C["accent2"]}; color: {C["text"]}; }}
-QPushButton#ghost:pressed {{ background: {C["border"]}; color: {C["text"]}; }}
-
-/* ── Input ── */
-QLineEdit, QComboBox, QSpinBox {{
-    background: {C["bg3"]};
-    color: {C["text"]};
-    border: 1px solid {C["border2"]};
-    border-radius: 6px;
-    padding: 7px 11px;
-    font-size: 12px;
-    selection-background-color: {C["accent2"]};
-}}
-QLineEdit:focus, QComboBox:focus, QSpinBox:focus {{
-    border-color: {C["accent"]};
-    background: {C["bg2"]};
-}}
-QComboBox::drop-down {{ border: none; width: 28px; }}
-QComboBox QAbstractItemView {{
-    background: {C["bg3"]};
-    color: {C["text"]};
-    border: 1px solid {C["border2"]};
-    selection-background-color: rgba(0,212,255,0.1);
-}}
-
-/* ── GroupBox ── */
-QGroupBox {{
-    border: 1px solid {C["border"]};
-    border-radius: 8px;
-    margin-top: 14px;
-    padding: 12px;
-    color: {C["text2"]};
-    font-weight: 700;
-    font-size: 12px;
-    letter-spacing: 0.02em;
-    text-transform: uppercase;
-}}
-QGroupBox::title {{
-    subcontrol-origin: margin;
-    left: 14px; top: -9px;
-    padding: 0 8px;
-    background: {C["bg"]};
-    color: {C["text3"]};
-}}
-
-/* ── ScrollBar ── */
-QScrollBar:vertical {{
-    background: {C["bg1"]};
-    width: 6px;
-    border-radius: 3px;
-}}
-QScrollBar::handle:vertical {{
-    background: {C["border2"]};
-    border-radius: 3px;
-    min-height: 30px;
-}}
-QScrollBar::handle:vertical:hover {{ background: {C["text3"]}; }}
-QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
-QScrollBar:horizontal {{
-    background: {C["bg1"]};
-    height: 6px; border-radius: 3px;
-}}
-QScrollBar::handle:horizontal {{
-    background: {C["border2"]}; border-radius: 3px;
-}}
-QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{ width: 0; }}
-
-/* ── TextEdit ── */
-QTextEdit, QTextBrowser {{
-    background: {C["bg3"]};
-    color: {C["text"]};
-    border: 1px solid {C["border"]};
-    border-radius: 6px;
-    font-family: 'Cascadia Mono', 'Cascadia Code', monospace;
-    font-size: 12px;
-    padding: 6px;
-}}
-
-/* ── CheckBox ── */
-QCheckBox {{
-    color: {C["text2"]};
-    spacing: 8px;
-    font-size: 12px;
-}}
-QCheckBox::indicator {{
-    width: 16px; height: 16px;
-    border: 1px solid {C["border2"]};
-    border-radius: 4px;
-    background: {C["bg3"]};
-}}
-QCheckBox::indicator:checked {{
-    background: {C["accent2"]};
-    border-color: {C["accent"]};
-}}
-QCheckBox::indicator:hover {{ border-color: {C["accent2"]}; }}
-
-/* ── ProgressBar ── */
-QProgressBar {{
-    background: {C["bg3"]};
-    border: 1px solid {C["border"]};
-    border-radius: 3px;
-    height: 6px;
-    text-align: center;
-    color: transparent;
-}}
-QProgressBar::chunk {{
-    background: qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 {C["accent2"]},stop:1 {C["accent"]});
-    border-radius: 3px;
-}}
-
-/* ── QDialog ── */
-QDialog {{
-    background: {C["bg1"]};
-}}
-
-/* ── SplashBar ── */
-QSplitter::handle {{
-    background: {C["border"]};
-    width: 1px;
-}}
-
-QLabel#title {{
-    font-size: 18px;
-    font-weight: 700;
-    color: {C["text"]};
-    letter-spacing: -0.02em;
-}}
-QLabel#subtitle {{
-    color: {C["text3"]};
-    font-size: 11px;
-    font-family: 'Cascadia Mono', monospace;
-}}
-"""
 
 # Merkezi Premium SOC teması uygulama genelindeki tek QSS kaynağıdır.
 STYLESHEET = PREMIUM_STYLESHEET
@@ -348,9 +115,6 @@ class AnalysisWorker(QThread):
     def __init__(self, analyzer):
         super().__init__()
         self.analyzer = analyzer
-
-    def _stage_callback(self, stage_name, progress):
-        self.stage.emit(stage_name, progress)
 
     def run(self):
         def stage_cb(name, prog):

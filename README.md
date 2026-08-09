@@ -1,7 +1,7 @@
-# NetSonar v0.5.3
+# NetSonar v0.5.4
 
-Kararlı Windows dağıtım dosyaları: `dist\NetSonar-v0.5.3.exe` ve
-`dist\NetSonar-v0.5.3.bat`
+Kararlı Windows dağıtım dosyaları: `dist\NetSonar-v0.5.4.exe` ve
+`dist\NetSonar-v0.5.4.bat`
 Paketleme tarifleri ve yeniden derleme araçları: `packaging\`
 
 NetSonar, Windows 10/11 üzerinde Npcap ile bu bilgisayarın taraf olduğu ağ trafiğini

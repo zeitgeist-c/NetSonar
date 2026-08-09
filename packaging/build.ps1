@@ -73,7 +73,7 @@ Write-Host "Tek dosyali Windows kurulum paketi olusturuluyor..."
 & $MakeNsis /V2 "/DAPP_VERSION=$Version" (Join-Path $PackagingDir "NetSonar.nsi")
 if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $StagedInstaller)) { throw "NSIS derlemesi basarisiz oldu." }
 Move-Item -LiteralPath $StagedInstaller -Destination $Installer -Force
-$LauncherText = "@echo off`r`nsetlocal`r`ncd /d `"%~dp0`"`r`nstart `"$VersionedStem`" `"%~dp0$VersionedStem.exe`" %*`r`n"
+$LauncherText = "@echo off`r`nsetlocal`r`nset `"PROJECT_LAUNCHER=%~dp0..\NetSonar.bat`"`r`nif not exist `"%PROJECT_LAUNCHER%`" (`r`n    echo HATA: Proje baslaticisi bulunamadi: %PROJECT_LAUNCHER%`r`n    echo Bu BAT dosyasi kurulum EXE'sini degil, kaynak projeyi calistirir.`r`n    pause`r`n    exit /b 1`r`n)`r`ncall `"%PROJECT_LAUNCHER%`" %*`r`nexit /b %errorlevel%`r`n"
 [IO.File]::WriteAllText($Launcher, $LauncherText, [Text.UTF8Encoding]::new($false))
 foreach ($temporaryPath in @($BuildDir, $AppDistDir)) {
     if (Test-Path -LiteralPath $temporaryPath) {
@@ -81,4 +81,4 @@ foreach ($temporaryPath in @($BuildDir, $AppDistDir)) {
     }
 }
 Write-Host "Kurulum paketi hazir: $Installer"
-Write-Host "Surumlu baslatici hazir: $Launcher"
+Write-Host "Kaynak proje baslaticisi hazir: $Launcher"
