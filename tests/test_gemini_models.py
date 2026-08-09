@@ -95,7 +95,8 @@ class GeminiSettingsTests(unittest.TestCase):
 
     def test_external_provider_keys_are_migrated_to_dpapi(self):
         self.write_settings({
-            "VIRUSTOTAL_API_KEY": "vt-secret", "TAVILY_API_KEY": "tvly-secret",
+            "VIRUSTOTAL_API_KEY": "vt-secret", "VIRUSTOTAL_API_KEYS": ["vt-secret", "vt-backup"],
+            "TAVILY_API_KEY": "tvly-secret", "TAVILY_API_KEYS": ["tvly-secret", "tvly-backup"],
             "GEMINI_MODEL": config.DEFAULT_GEMINI_MODEL,
             "GEMINI_MODEL_SELECTION_VERSION": config.GEMINI_MODEL_SELECTION_VERSION,
         })
@@ -106,9 +107,13 @@ class GeminiSettingsTests(unittest.TestCase):
             loaded = config.load_settings()
         self.assertEqual("vt-secret", loaded["VIRUSTOTAL_API_KEY"])
         self.assertEqual("tvly-secret", loaded["TAVILY_API_KEY"])
+        self.assertEqual(["vt-secret", "vt-backup"], loaded["VIRUSTOTAL_API_KEYS"])
+        self.assertEqual(["tvly-secret", "tvly-backup"], loaded["TAVILY_API_KEYS"])
         with open(config.SETTINGS_FILE, "r", encoding="utf-8") as handle:
             stored = json.load(handle)
         self.assertTrue(stored["VIRUSTOTAL_API_KEY"].startswith("dpapi:"))
+        self.assertTrue(all(key.startswith("dpapi:") for key in stored["VIRUSTOTAL_API_KEYS"]))
+        self.assertTrue(all(key.startswith("dpapi:") for key in stored["TAVILY_API_KEYS"]))
         self.assertNotIn('"vt-secret"', json.dumps(stored))
 
 

@@ -28,7 +28,7 @@ from PyQt6.QtWidgets import (
     QLineEdit, QComboBox, QCheckBox, QFrame, QSizePolicy,
     QTextEdit, QTextBrowser, QSystemTrayIcon, QMenu, QMessageBox, QFormLayout,
     QScrollArea, QSplitter, QProgressBar, QDialog, QStackedWidget,
-    QGraphicsOpacityEffect, QSpinBox,
+    QGraphicsOpacityEffect, QSpinBox, QListWidget, QInputDialog,
 )
 from PyQt6.QtCore import (
     QEasingCurve, QPropertyAnimation, Qt, QTimer, QThread,
@@ -2415,6 +2415,93 @@ class TrustedTab(QWidget):
             QMessageBox.warning(self, "Kayıt Bulunamadı", f"{ip} güvenli listede bulunamadı.")
 
 
+class ApiKeyManager(QWidget):
+    """Ordered API key editor; the first item is always the default key."""
+
+    changed = pyqtSignal()
+
+    def __init__(self, provider_name, test_callback=None, parent=None):
+        super().__init__(parent)
+        self.provider_name = provider_name
+        self.test_callback = test_callback
+        self._keys = []
+        layout = QVBoxLayout(self); layout.setContentsMargins(0, 0, 0, 0); layout.setSpacing(10)
+        hint = QLabel("Anahtarlar yukarıdan aşağıya denenir. İlk anahtar varsayılandır.")
+        hint.setWordWrap(True); hint.setStyleSheet(f"color:{C['text3']}; font-size:11px;")
+        layout.addWidget(hint)
+        self.list = QListWidget(); self.list.setMinimumHeight(112)
+        layout.addWidget(self.list)
+        buttons = QHBoxLayout(); buttons.setSpacing(8)
+        for text, handler in (("API ekle", self._add), ("Düzenle", self._edit),
+                              ("Kaldır", self._remove), ("Yukarı taşı", lambda: self._move(-1)),
+                              ("Aşağı taşı", lambda: self._move(1)), ("Test et", self._test)):
+            button = AppButton(text, variant="secondary", size="sm")
+            button.clicked.connect(handler); buttons.addWidget(button)
+        buttons.addStretch(); layout.addLayout(buttons)
+
+    @staticmethod
+    def _masked(key):
+        return "•" * min(12, max(8, len(key) - 4)) + key[-4:]
+
+    def _refresh(self, selected=0):
+        self.list.clear()
+        for index, key in enumerate(self._keys):
+            role = "Varsayılan API" if index == 0 else f"Yedek API {index + 1}"
+            self.list.addItem(f"{role} — {self._masked(key)}")
+        if self._keys:
+            self.list.setCurrentRow(max(0, min(selected, len(self._keys) - 1)))
+        self.changed.emit()
+
+    def set_keys(self, keys):
+        unique = []
+        for value in keys or []:
+            key = str(value or "").strip()
+            if key and key not in unique:
+                unique.append(key)
+        self._keys = unique; self._refresh(0)
+
+    def keys(self):
+        return list(self._keys)
+
+    def _prompt(self, title, current=""):
+        value, accepted = QInputDialog.getText(
+            self, title, f"{self.provider_name} API anahtarı:",
+            QLineEdit.EchoMode.Password, current)
+        return value.strip() if accepted else ""
+
+    def _add(self):
+        key = self._prompt("API anahtarı ekle")
+        if key and key not in self._keys:
+            self._keys.append(key); self._refresh(len(self._keys) - 1)
+
+    def _edit(self):
+        row = self.list.currentRow()
+        if row < 0: return
+        key = self._prompt("API anahtarını düzenle", self._keys[row])
+        if key and (key not in self._keys or key == self._keys[row]):
+            self._keys[row] = key; self._refresh(row)
+
+    def _remove(self):
+        row = self.list.currentRow()
+        if row < 0: return
+        if QMessageBox.question(self, "API anahtarını kaldır",
+                "Seçili anahtar kaldırılsın mı?") == QMessageBox.StandardButton.Yes:
+            self._keys.pop(row); self._refresh(max(0, row - 1))
+
+    def _move(self, direction):
+        row = self.list.currentRow(); target = row + direction
+        if row < 0 or target < 0 or target >= len(self._keys): return
+        self._keys[row], self._keys[target] = self._keys[target], self._keys[row]
+        self._refresh(target)
+
+    def _test(self):
+        row = self.list.currentRow()
+        if row < 0:
+            QMessageBox.information(self, "API testi", "Önce bir API anahtarı seçin."); return
+        if self.test_callback:
+            self.test_callback(self._keys[row], row)
+
+
 class SettingsTab(QWidget):
     model_changed = pyqtSignal(str)
     settings_changed = pyqtSignal()
@@ -2467,34 +2554,24 @@ class SettingsTab(QWidget):
             self._model_combo.addItem(display_name, model_id)
         ai_fl.addRow("Model:", self._model_combo)
 
-        key_row=QWidget(); key_layout=QHBoxLayout(key_row); key_layout.setContentsMargins(0,0,0,0)
-        self._api_key=QLineEdit(); self._api_key.setPlaceholderText(
-            "Birden fazla anahtarı virgül (,) veya noktalı virgülle (;) ayırın")
-        self._api_key.setEchoMode(QLineEdit.EchoMode.Password); self._api_key.setMinimumHeight(40)
-        self._api_key.textChanged.connect(self._on_api_key_changed)
-        self._show_keys_btn = AppButton("Göster", icon="eye", variant="ghost", size="md", checkable=True)
-        self._show_keys_btn.clicked.connect(self._toggle_api_keys)
-        key_layout.addWidget(self._api_key,1); key_layout.addWidget(self._show_keys_btn)
-        ai_fl.addRow("Gemini API keyleri:",key_row)
+        self._gemini_keys = ApiKeyManager("Gemini", lambda key, row: self._test_api_key("gemini", key, row))
+        self._gemini_keys.changed.connect(self._update_key_status)
+        ai_fl.addRow("Gemini API keyleri:", self._gemini_keys)
 
         self._key_status = QLabel("Kayıtlı key yok")
         self._key_status.setWordWrap(True)
         self._key_status.setStyleSheet(f"color:{C['text3']}; font-size:12px;")
         ai_fl.addRow("Key durumu:", self._key_status)
 
-        self._virustotal_key = QLineEdit()
-        self._virustotal_key.setEchoMode(QLineEdit.EchoMode.Password)
-        self._virustotal_key.setPlaceholderText("VirusTotal Community API key")
-        self._virustotal_key.setMinimumHeight(38)
-        self._virustotal_key.textChanged.connect(self._update_intel_status)
-        ai_fl.addRow("VirusTotal key:", self._virustotal_key)
+        self._virustotal_keys = ApiKeyManager(
+            "VirusTotal", lambda key, row: self._test_api_key("virustotal", key, row))
+        self._virustotal_keys.changed.connect(self._update_intel_status)
+        ai_fl.addRow("VirusTotal keyleri:", self._virustotal_keys)
 
-        self._tavily_key = QLineEdit()
-        self._tavily_key.setEchoMode(QLineEdit.EchoMode.Password)
-        self._tavily_key.setPlaceholderText("Tavily API key (tvly-…)")
-        self._tavily_key.setMinimumHeight(38)
-        self._tavily_key.textChanged.connect(self._update_intel_status)
-        ai_fl.addRow("Tavily key:", self._tavily_key)
+        self._tavily_keys = ApiKeyManager(
+            "Tavily", lambda key, row: self._test_api_key("tavily", key, row))
+        self._tavily_keys.changed.connect(self._update_intel_status)
+        ai_fl.addRow("Tavily keyleri:", self._tavily_keys)
 
         self._intel_status = QLabel(
             "Key kaydedildiğinde yalnızca seçilmiş genel uzak IP'ler dış kaynaklarda sorgulanır. "
@@ -2642,10 +2719,11 @@ class SettingsTab(QWidget):
                 api_keys = [k.strip() for k in api_keys.replace(",", "\n").replace(";", "\n").splitlines() if k.strip()]
             if not api_keys and s.get("GEMINI_API_KEY", ""):
                 api_keys = [s.get("GEMINI_API_KEY", "")]
-            self._gemini_api_keys = "\n".join(api_keys)
-            self._api_key.setText(", ".join(api_keys))
-            self._virustotal_key.setText(str(s.get("VIRUSTOTAL_API_KEY", "") or ""))
-            self._tavily_key.setText(str(s.get("TAVILY_API_KEY", "") or ""))
+            self._gemini_keys.set_keys(api_keys)
+            vt_keys = s.get("VIRUSTOTAL_API_KEYS", []) or [s.get("VIRUSTOTAL_API_KEY", "")]
+            tavily_keys = s.get("TAVILY_API_KEYS", []) or [s.get("TAVILY_API_KEY", "")]
+            self._virustotal_keys.set_keys(vt_keys)
+            self._tavily_keys.set_keys(tavily_keys)
             self._update_key_status()
             self._update_intel_status()
             try:
@@ -2655,23 +2733,8 @@ class SettingsTab(QWidget):
 
     def refresh(self):
         self._load_settings()
-    def _on_api_key_changed(self):
-        self._gemini_api_keys = self._api_key.text()
-        self._update_key_status()
-
-    def _toggle_api_keys(self, visible):
-        self._api_key.setEchoMode(QLineEdit.EchoMode.Normal if visible else QLineEdit.EchoMode.Password)
-        self._show_keys_btn.setText("Gizle" if visible else "Göster")
-
     def _update_key_status(self):
-        keys = []
-        seen_keys = set()
-        text = self._api_key.text().replace(",", "\n").replace(";", "\n")
-        for raw_key in text.splitlines():
-            key = raw_key.strip()
-            if key and key not in seen_keys:
-                keys.append(key)
-                seen_keys.add(key)
+        keys = self._gemini_keys.keys()
         if not keys:
             self._key_status.setText("Kayıtlı Gemini API key yok")
             self._key_status.setStyleSheet(f"color:{C['warning']}; font-size:11px;")
@@ -2686,8 +2749,10 @@ class SettingsTab(QWidget):
         self._prompt.setText(DEFAULT_SYSTEM_PROMPT)
 
     def _update_intel_status(self):
-        vt = "aktif" if self._virustotal_key.text().strip() else "kapalı"
-        tavily = "aktif" if self._tavily_key.text().strip() else "kapalı"
+        vt_keys = self._virustotal_keys.keys()
+        tavily_keys = self._tavily_keys.keys()
+        vt = f"aktif, {len(vt_keys)} key" if vt_keys else "kapalı"
+        tavily = f"aktif, {len(tavily_keys)} key" if tavily_keys else "kapalı"
         usage = ""
         if self.db is not None and hasattr(self.db, "api_usage"):
             day = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
@@ -2697,7 +2762,42 @@ class SettingsTab(QWidget):
         self._intel_status.setText(
             f"VirusTotal {vt} (4 sorgu/analiz, 480/gün); Tavily {tavily} "
             f"(2 arama/analiz, 900 kredi/ay).{usage} "
+            "Her sağlayıcıda ilk key varsayılandır; yanıt alınamazsa sıradaki denenir. "
             "Yalnızca seçilmiş genel uzak IP'ler paylaşılır.")
+
+    def _test_api_key(self, provider, key, row):
+        """Test only the selected key; never rotate or persist during a probe."""
+        import requests
+        try:
+            if provider == "gemini":
+                response = requests.get(
+                    "https://generativelanguage.googleapis.com/v1beta/models",
+                    params={"key": key}, timeout=15)
+            elif provider == "virustotal":
+                response = requests.get(
+                    "https://www.virustotal.com/api/v3/ip_addresses/8.8.8.8",
+                    headers={"x-apikey": key}, timeout=15)
+            else:
+                answer = QMessageBox.question(
+                    self, "Tavily API testi",
+                    "Tavily testi bir arama kredisi kullanabilir. Devam edilsin mi?")
+                if answer != QMessageBox.StandardButton.Yes:
+                    return
+                response = requests.post("https://api.tavily.com/search",
+                    headers={"Authorization": f"Bearer {key}"}, json={
+                        "query": "Tavily API credential validation",
+                        "search_depth": "basic", "max_results": 1,
+                        "include_answer": False, "include_raw_content": False,
+                    }, timeout=20)
+            if response.status_code == 200:
+                QMessageBox.information(self, "API testi başarılı",
+                    f"{provider.title()} API {row + 1} çalışıyor.")
+            else:
+                QMessageBox.warning(self, "API testi başarısız",
+                    f"{provider.title()} HTTP {response.status_code} döndürdü.")
+        except requests.RequestException as exc:
+            QMessageBox.warning(self, "API testi başarısız",
+                f"{provider.title()} bağlantı hatası: {str(exc)[:160]}")
 
     def _save(self):
         try:
@@ -2705,14 +2805,7 @@ class SettingsTab(QWidget):
             import importlib
 
             prov = "gemini"
-            api_key_text = self._api_key.text()
-            api_keys = []
-            seen_keys = set()
-            for raw_key in api_key_text.replace(",", "\n").replace(";", "\n").splitlines():
-                key = raw_key.strip()
-                if key and key not in seen_keys:
-                    api_keys.append(key)
-                    seen_keys.add(key)
+            api_keys = self._gemini_keys.keys()
             model = self._model_combo.currentData()
 
             interval_map = {0: 15, 1: 30, 2: 60, 3: 120, 4: 360}
@@ -2737,8 +2830,12 @@ class SettingsTab(QWidget):
             s["GEMINI_API_KEYS"] = api_keys
             s["GEMINI_API_KEY"] = api_keys[0] if api_keys else ""
             s["GEMINI_MODEL"] = model
-            s["VIRUSTOTAL_API_KEY"] = self._virustotal_key.text().strip()
-            s["TAVILY_API_KEY"] = self._tavily_key.text().strip()
+            vt_keys = self._virustotal_keys.keys()
+            tavily_keys = self._tavily_keys.keys()
+            s["VIRUSTOTAL_API_KEYS"] = vt_keys
+            s["VIRUSTOTAL_API_KEY"] = vt_keys[0] if vt_keys else ""
+            s["TAVILY_API_KEYS"] = tavily_keys
+            s["TAVILY_API_KEY"] = tavily_keys[0] if tavily_keys else ""
 
             save_settings(s)
 

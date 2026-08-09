@@ -2,11 +2,13 @@ Unicode True
 !include "MUI2.nsh"
 
 !define APP_NAME "NetSonar"
-!define APP_VERSION "0.5.2"
+!ifndef APP_VERSION
+  !error "APP_VERSION build.ps1 tarafindan verilmelidir"
+!endif
 !define APP_EXE "NetSonar.exe"
 
 Name "${APP_NAME}"
-OutFile "build\installer\NetSonar-Setup-v${APP_VERSION}-staging.exe"
+OutFile "build\installer\NetSonar-v${APP_VERSION}-staging.exe"
 InstallDir "$PROGRAMFILES64\${APP_NAME}"
 InstallDirRegKey HKLM "Software\${APP_NAME}" "InstallDir"
 RequestExecutionLevel admin
@@ -14,7 +16,7 @@ SetCompressor /SOLID lzma
 Icon "..\netsonar-v3.ico"
 UninstallIcon "..\netsonar-v3.ico"
 BrandingText "NetSonar"
-VIProductVersion "0.5.2.0"
+VIProductVersion "0.5.3.0"
 VIAddVersionKey /LANG=1055 "ProductName" "${APP_NAME}"
 VIAddVersionKey /LANG=1055 "FileDescription" "NetSonar Kurulum"
 VIAddVersionKey /LANG=1055 "FileVersion" "${APP_VERSION}"
@@ -55,7 +57,7 @@ Section "!NetSonar (gerekli)" SEC_APP
   SectionIn RO
   SetShellVarContext all
   SetOutPath "$INSTDIR"
-  File /r "dist\NetSonar\*.*"
+  File /r "app-dist\NetSonar\*.*"
   CreateDirectory "$SMPROGRAMS\${APP_NAME}"
   CreateShortcut "$SMPROGRAMS\${APP_NAME}\${APP_NAME}.lnk" "$INSTDIR\${APP_EXE}" "" "$INSTDIR\${APP_EXE}" 0
   WriteUninstaller "$INSTDIR\Uninstall.exe"

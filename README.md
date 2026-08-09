@@ -1,4 +1,8 @@
-# NetSonar v0.5.2
+# NetSonar v0.5.3
+
+Kararlı Windows dağıtım dosyaları: `dist\NetSonar-v0.5.3.exe` ve
+`dist\NetSonar-v0.5.3.bat`
+Paketleme tarifleri ve yeniden derleme araçları: `packaging\`
 
 NetSonar, Windows 10/11 üzerinde Npcap ile bu bilgisayarın taraf olduğu ağ trafiğini
 dakikalık, çift yönlü akışlar halinde özetleyen yerel bir ağ görünürlüğü uygulamasıdır.
@@ -19,6 +23,11 @@ güncel tehdit itibarı ve web bağlamı için bu servislere gönderilir. Özel,
 ve güvenilir listedeki IP'ler dış servislere gönderilmez. Anahtar yoksa yerel+Gemini akışı
 eskisi gibi devam eder. Modelin uydurduğu IP, kaynak veya batch dışında referans verdiği
 akışlar yerel doğrulamada reddedilir.
+
+Gemini, VirusTotal ve Tavily için birden fazla API anahtarı kaydedilebilir. Sıralamadaki
+ilk anahtar varsayılandır; yetki, kota, geçici servis, zaman aşımı veya bozuk yanıt halinde
+aynı sağlayıcının sıradaki anahtarı otomatik denenir. Anahtarlar tekrarsızlaştırılır ve
+tamamı Windows DPAPI ile şifrelenir.
 
 VirusTotal sonuçları yapılandırılmış itibar kanıtıdır. Tavily sonuçları yalnızca güncel,
 tıklanabilir web bağlamıdır ve tek başına otomatik engelleme kararı oluşturamaz. Public
