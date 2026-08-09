@@ -21,7 +21,10 @@ def needs_v05_reset(path: str | Path = DB_PATH) -> bool:
             row = connection.execute(
                 "SELECT value FROM app_metadata WHERE key='schema_version'"
             ).fetchone()
-            return not row or row[0] != "5"
+            try:
+                return not row or int(row[0]) < 5
+            except (TypeError, ValueError):
+                return True
         finally:
             connection.close()
     except sqlite3.Error:

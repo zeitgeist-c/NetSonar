@@ -94,13 +94,29 @@ class Database:
                     flow_count INTEGER NOT NULL DEFAULT 0,
                     PRIMARY KEY(hour_start, protocol)
                 );
+                CREATE TABLE IF NOT EXISTS threat_intel_cache (
+                    provider TEXT NOT NULL, indicator TEXT NOT NULL,
+                    data_json TEXT NOT NULL, checked_at TEXT NOT NULL,
+                    expires_at TEXT NOT NULL, PRIMARY KEY(provider, indicator)
+                );
+                CREATE TABLE IF NOT EXISTS external_api_usage (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT, provider TEXT NOT NULL,
+                    used_at TEXT NOT NULL, units INTEGER NOT NULL DEFAULT 1
+                );
                 CREATE INDEX IF NOT EXISTS idx_flow_batch ON flow_buckets(batch_id, id);
                 CREATE INDEX IF NOT EXISTS idx_flow_time ON flow_buckets(last_seen);
                 CREATE INDEX IF NOT EXISTS idx_finding_status ON security_findings(status, created_at);
                 CREATE INDEX IF NOT EXISTS idx_run_time ON analysis_runs(analyzed_at);
+                CREATE INDEX IF NOT EXISTS idx_external_usage ON external_api_usage(provider,used_at);
             """)
+            run_columns = {row[1] for row in self.conn.execute("PRAGMA table_info(analysis_runs)")}
+            if "report_json" not in run_columns:
+                self.conn.execute("ALTER TABLE analysis_runs ADD COLUMN report_json TEXT NOT NULL DEFAULT '{}'")
+            finding_columns = {row[1] for row in self.conn.execute("PRAGMA table_info(security_findings)")}
+            if "source_evidence" not in finding_columns:
+                self.conn.execute("ALTER TABLE security_findings ADD COLUMN source_evidence TEXT NOT NULL DEFAULT '[]'")
             self.conn.execute(
-                "INSERT OR REPLACE INTO app_metadata(key,value) VALUES('schema_version','5')"
+                "INSERT OR REPLACE INTO app_metadata(key,value) VALUES('schema_version','6')"
             )
             self.conn.commit()
 
@@ -186,6 +202,69 @@ class Database:
                 (batch_id, chunk_index, status, response, error))
             self.conn.commit()
 
+    def get_priority_batch_flows(self, batch_id: int, limit: int,
+                                 priority_ports: set[int] | None = None,
+                                 priority_ips: set[str] | None = None) -> list[dict]:
+        """Select the most security-relevant sample from a potentially huge batch."""
+        ports = sorted(int(port) for port in (priority_ports or set()))
+        ips = sorted(str(ip) for ip in (priority_ips or set()))
+        port_placeholders = ",".join("?" for _ in ports) or "NULL"
+        ip_placeholders = ",".join("?" for _ in ips) or "NULL"
+        params = [batch_id, *ips, *ports, max(1, int(limit))]
+        query = f"""SELECT * FROM flow_buckets WHERE batch_id=?
+            AND NOT EXISTS(SELECT 1 FROM trusted_ips WHERE ip=flow_buckets.remote_ip)
+            ORDER BY CASE WHEN remote_ip IN ({ip_placeholders}) THEN 0 ELSE 1 END,
+                     CASE WHEN remote_port IN ({port_placeholders}) THEN 0 ELSE 1 END,
+                     (sent_bytes + received_bytes) DESC,
+                     (sent_packets + received_packets) DESC, id
+            LIMIT ?"""
+        with self._lock:
+            return [dict(row) for row in self.conn.execute(query, params).fetchall()]
+
+    def get_batch_candidate_rows(self, batch_id: int) -> list[dict]:
+        with self._lock:
+            rows = self.conn.execute("""SELECT remote_ip,remote_port,process,
+                SUM(sent_bytes) AS sent_bytes,SUM(received_bytes) AS received_bytes,
+                COUNT(*) AS flow_count,MIN(first_seen) AS first_seen,MAX(last_seen) AS last_seen
+                FROM flow_buckets WHERE batch_id=?
+                AND NOT EXISTS(SELECT 1 FROM trusted_ips WHERE ip=flow_buckets.remote_ip)
+                GROUP BY remote_ip,remote_port,process""", (batch_id,)).fetchall()
+            return [dict(row) for row in rows]
+
+    def get_intel_cache(self, provider: str, indicator: str) -> dict | None:
+        with self._lock:
+            row = self.conn.execute("""SELECT data_json FROM threat_intel_cache
+                WHERE provider=? AND indicator=? AND expires_at>?""",
+                (provider, indicator, datetime.now().isoformat())).fetchone()
+        if not row:
+            return None
+        try:
+            value = json.loads(row[0]); value["cached"] = True; return value
+        except (TypeError, json.JSONDecodeError):
+            return None
+
+    def put_intel_cache(self, provider: str, indicator: str, data: dict, expires_at: str):
+        with self._lock:
+            self.conn.execute("""INSERT INTO threat_intel_cache
+                (provider,indicator,data_json,checked_at,expires_at) VALUES(?,?,?,?,?)
+                ON CONFLICT(provider,indicator) DO UPDATE SET data_json=excluded.data_json,
+                checked_at=excluded.checked_at,expires_at=excluded.expires_at""",
+                (provider, indicator, json.dumps(data, ensure_ascii=False),
+                 data.get("checked_at", datetime.now().isoformat()), expires_at))
+            self.conn.commit()
+
+    def api_usage(self, provider: str, since: str) -> int:
+        with self._lock:
+            return int(self.conn.execute("""SELECT COALESCE(SUM(units),0)
+                FROM external_api_usage WHERE provider=? AND used_at>=?""",
+                (provider, since)).fetchone()[0])
+
+    def record_api_usage(self, provider: str, units: int = 1):
+        with self._lock:
+            self.conn.execute("INSERT INTO external_api_usage(provider,used_at,units) VALUES(?,?,?)",
+                              (provider, datetime.now().isoformat(), max(1, int(units))))
+            self.conn.commit()
+
     def _rollup_batch_locked(self, batch_id: int):
         self.conn.execute("""INSERT INTO hourly_rollups
             (hour_start,protocol,sent_bytes,received_bytes,flow_count)
@@ -198,7 +277,7 @@ class Database:
               flow_count=flow_count+excluded.flow_count""", (batch_id,))
 
     def complete_batch(self, batch_id: int, risk_score: float, status: str = "safe",
-                       findings: list[dict] | None = None):
+                       findings: list[dict] | None = None, report: dict | None = None):
         now = datetime.now().isoformat()
         with self._lock:
             self.conn.execute("BEGIN IMMEDIATE")
@@ -209,17 +288,20 @@ class Database:
                 if not batch:
                     raise ValueError("Batch is not running")
                 self.conn.execute("""INSERT INTO analysis_runs
-                    (batch_id,analyzed_at,status,risk_score,flow_count) VALUES(?,?,?,?,?)""",
-                    (batch_id, now, status, risk_score, batch[0]))
+                    (batch_id,analyzed_at,status,risk_score,flow_count,report_json)
+                    VALUES(?,?,?,?,?,?)""",
+                    (batch_id, now, status, risk_score, batch[0],
+                     json.dumps(report or {}, ensure_ascii=False)))
                 for finding in findings or []:
                     self.conn.execute("""INSERT INTO security_findings
                         (batch_id,created_at,severity,confidence,evidence,flow_refs,
-                         recommended_action,block_now,flow_evidence,status)
-                        VALUES(?,?,?,?,?,?,?,?,?,'open')""",
+                         recommended_action,block_now,flow_evidence,status,source_evidence)
+                        VALUES(?,?,?,?,?,?,?,?,?,'open',?)""",
                         (batch_id, now, finding["severity"], finding["confidence"],
                          finding["evidence"], json.dumps(finding["flow_refs"]),
                          finding.get("recommended_action", ""), int(finding.get("block_now", False)),
-                         json.dumps(finding.get("flow_evidence", []), ensure_ascii=False)))
+                         json.dumps(finding.get("flow_evidence", []), ensure_ascii=False),
+                         json.dumps(finding.get("source_evidence", []), ensure_ascii=False)))
                 self._rollup_batch_locked(batch_id)
                 self.conn.execute("DELETE FROM flow_buckets WHERE batch_id=?", (batch_id,))
                 self.conn.execute(
@@ -274,6 +356,10 @@ class Database:
                     "DELETE FROM hourly_rollups WHERE hour_start<?", (audit_cutoff,)).rowcount
                 old_runs = self.conn.execute(
                     "DELETE FROM analysis_runs WHERE analyzed_at<?", (audit_cutoff,)).rowcount
+                self.conn.execute("DELETE FROM threat_intel_cache WHERE expires_at<?",
+                                  (datetime.now().isoformat(),))
+                self.conn.execute("DELETE FROM external_api_usage WHERE used_at<?",
+                                  (self._cutoff(24 * 35),))
                 self.conn.execute("""DELETE FROM analysis_batches
                     WHERE status IN('completed','expired') AND created_at<?""", (audit_cutoff,))
                 self.conn.commit()
@@ -448,7 +534,7 @@ class Database:
     def get_all_reports(self, limit: int = 100, offset: int = 0) -> list[dict]:
         with self._lock:
             rows = self.conn.execute("""SELECT id,batch_id,analyzed_at AS created_at,
-                'gemini' AS provider,risk_score,status,flow_count FROM analysis_runs
+                'gemini' AS provider,risk_score,status,flow_count,report_json FROM analysis_runs
                 ORDER BY analyzed_at DESC LIMIT ? OFFSET ?""", (limit, offset)).fetchall()
             result=[]
             for row in rows:
@@ -458,10 +544,18 @@ class Database:
                     finding=dict(finding_row)
                     finding["flow_evidence"]=json.loads(finding["flow_evidence"] or "[]")
                     finding["flow_refs"]=json.loads(finding["flow_refs"] or "[]")
+                    finding["source_evidence"]=json.loads(finding.get("source_evidence") or "[]")
                     findings.append(finding)
-                item["content"]=json.dumps({"risk_score":item["risk_score"],"status":item["status"],
-                    "flow_count":item["flow_count"],"analysis_time":item["created_at"],
-                    "findings":findings},ensure_ascii=False)
+                try:
+                    content = json.loads(item.get("report_json") or "{}")
+                except json.JSONDecodeError:
+                    content = {}
+                if not content:
+                    content={"risk_score":item["risk_score"],"status":item["status"],
+                        "flow_count":item["flow_count"],"analysis_time":item["created_at"],
+                        "findings":findings}
+                content.setdefault("findings", findings)
+                item["content"]=json.dumps(content,ensure_ascii=False)
                 result.append(item)
             return result
 
@@ -474,7 +568,14 @@ class Database:
             else:
                 rows=self.conn.execute("SELECT * FROM security_findings ORDER BY created_at DESC LIMIT ? OFFSET ?",
                                        (limit,offset)).fetchall()
-            return [dict(row) for row in rows]
+            result = []
+            for row in rows:
+                item = dict(row)
+                for field in ("flow_refs", "flow_evidence", "source_evidence"):
+                    try: item[field] = json.loads(item.get(field) or "[]")
+                    except json.JSONDecodeError: item[field] = []
+                result.append(item)
+            return result
 
     def resolve_security_finding(self, finding_id: int, resolved: bool = True) -> bool:
         with self._lock:

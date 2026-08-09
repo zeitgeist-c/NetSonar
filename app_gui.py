@@ -1093,7 +1093,7 @@ class AnalysisTab(QWidget):
         report_card = NeoCard("Analiz Sonucu", "risklerin sade ve uygulanabilir özeti")
         report_card.body_layout().setContentsMargins(0, 0, 0, 0)
         self._report_browser = QTextBrowser()
-        self._report_browser.setOpenExternalLinks(False)
+        self._report_browser.setOpenExternalLinks(True)
         self._report_browser.setMinimumHeight(280)
         self._report_browser.setStyleSheet(
             f"QTextBrowser {{ background:{C['bg2']}; border:1px solid {C['border']}; border-radius:8px; color:{C['text']}; font-size:13px; padding:4px; }}"
@@ -1265,12 +1265,31 @@ class AnalysisTab(QWidget):
             f"<b style='color:{C['warning']};'>{escape(str(c.get('ip','')))}:{escape(str(c.get('port','')))}</b>"
             f"<span style='color:{C['text3']};'> &nbsp; {escape(str(c.get('process','') or 'Bilinmeyen süreç'))}</span></div>" for c in conns
         ) or f"<p style='color:{C['success']};'>✓ Şüpheli akış tespit edilmedi.</p>"
+        source_rows = []
+        for source in r.get("intel_sources", []) or []:
+            source_rows.append(
+                f"<div style='margin-bottom:9px;'><b>{escape(str(source.get('indicator','')))}</b> "
+                f"<span style='color:{C['warning']};'>VirusTotal: {escape(str(source.get('verdict','unknown')))}</span> "
+                f"(malicious {int(source.get('malicious',0) or 0)}, suspicious {int(source.get('suspicious',0) or 0)}) "
+                f"<span style='color:{C['text3']};'>{escape(str(source.get('checked_at',''))[:19])}"
+                f"{' · cache' if source.get('cached') else ''}</span> "
+                f"<a href='{escape(str(source.get('source_url','')), quote=True)}'>kaynak</a></div>")
+        for source in r.get("web_sources", []) or []:
+            source_rows.append(
+                f"<div style='margin-bottom:11px;'><a href='{escape(str(source.get('url','')), quote=True)}'>"
+                f"{escape(str(source.get('title','Kaynak')))}</a> "
+                f"<span style='color:{C['text3']};'>({float(source.get('relevance',0) or 0):.2f})</span>"
+                f" <span style='color:{C['text3']};'>{escape(str(source.get('checked_at',''))[:19])}"
+                f"{' · cache' if source.get('cached') else ''}</span>"
+                f"<div style='color:{C['text2']};margin-top:3px;'>{escape(str(source.get('snippet','')))}</div></div>")
+        sources_html = "".join(source_rows) or f"<p style='color:{C['text3']};'>Güncel dış kaynak kullanılmadı.</p>"
         card=f"background:{C['bg3']};border:1px solid {C['border']};border-radius:8px;padding:14px 16px;margin-bottom:12px;"
         html = f'''<html><body style="background:{C['bg2']};color:{C['text']};font-family:'Segoe UI';font-size:13px;padding:12px;">
         <div style="{card}border-left:4px solid {color};"><b style="color:{C['accent']};">KISA SONUÇ</b><div style="margin-top:10px;">{paras(summary_lines)}</div></div>
         <div style="{card}"><b style="color:{C['warning']};">TESPİT EDİLEN RİSKLER</b><div style="margin-top:10px;">{bullets(reasons,'Belirgin bir risk nedeni bildirilmedi.',C['warning'])}</div></div>
         <div style="{card}"><b style="color:{C['accent']};">ÖNERİLEN İŞLEMLER</b><div style="margin-top:10px;">{bullets(actions,'Ek bir işlem önerilmedi.',C['accent'])}</div></div>
         <div style="{card}"><b>ŞÜPHELİ BAĞLANTILAR ({len(conns)})</b><div style="margin-top:10px;">{conn_html}</div></div>
+        <div style="{card}"><b style="color:{C['accent']};">GÜNCEL KAYNAKLAR</b><div style="margin-top:10px;">{sources_html}</div></div>
         </body></html>'''
         self._report_browser.setHtml(html)
 
@@ -1557,7 +1576,7 @@ class MainWindow(QMainWindow):
 
         elif idx == 5:
             if self._settings_tab is None:
-                self._settings_tab = SettingsTab()
+                self._settings_tab = SettingsTab(self.db)
                 self._settings_tab.model_changed.connect(self._on_model_changed)
                 self._settings_tab.settings_changed.connect(self.scheduler.reload_settings)
                 old=self._tabs.widget(5)
@@ -1638,10 +1657,15 @@ class MainWindow(QMainWindow):
                     f"color:{C['danger']}; font-size:11px; font-family:'Cascadia Mono',monospace; border:none;"
                 )
                 error_msg = result.get("summary", "Bilinmeyen hata")
+                api_hint = (
+                    "Lütfen Ayarlar'dan API anahtarınızı ve kotanızı kontrol edin."
+                    if "HTTP" in error_msg or "Gemini" in error_msg or "API" in error_msg
+                    else "Ayrıntılar için netsonar_data/logs/netsonar_err.log dosyasını kontrol edin."
+                )
                 QMessageBox.warning(
                     self, "Analiz Hatası",
                     f"Analiz sırasında hata oluştu:\n\n{error_msg}\n\n"
-                    "Lütfen Ayarlar'dan API anahtarınızı kontrol edin."
+                    f"{api_hint}"
                 )
             else:
                 self._status_label.setText("● Analiz tamamlandı")
@@ -2395,8 +2419,9 @@ class SettingsTab(QWidget):
     model_changed = pyqtSignal(str)
     settings_changed = pyqtSignal()
 
-    def __init__(self):
+    def __init__(self, db=None):
         super().__init__()
+        self.db = db
         self._gemini_api_keys = ""
         self._setup_ui()
         self._load_settings()
@@ -2443,7 +2468,8 @@ class SettingsTab(QWidget):
         ai_fl.addRow("Model:", self._model_combo)
 
         key_row=QWidget(); key_layout=QHBoxLayout(key_row); key_layout.setContentsMargins(0,0,0,0)
-        self._api_key=QLineEdit(); self._api_key.setPlaceholderText("Gemini API keys")
+        self._api_key=QLineEdit(); self._api_key.setPlaceholderText(
+            "Birden fazla anahtarı virgül (,) veya noktalı virgülle (;) ayırın")
         self._api_key.setEchoMode(QLineEdit.EchoMode.Password); self._api_key.setMinimumHeight(40)
         self._api_key.textChanged.connect(self._on_api_key_changed)
         self._show_keys_btn = AppButton("Göster", icon="eye", variant="ghost", size="md", checkable=True)
@@ -2455,6 +2481,27 @@ class SettingsTab(QWidget):
         self._key_status.setWordWrap(True)
         self._key_status.setStyleSheet(f"color:{C['text3']}; font-size:12px;")
         ai_fl.addRow("Key durumu:", self._key_status)
+
+        self._virustotal_key = QLineEdit()
+        self._virustotal_key.setEchoMode(QLineEdit.EchoMode.Password)
+        self._virustotal_key.setPlaceholderText("VirusTotal Community API key")
+        self._virustotal_key.setMinimumHeight(38)
+        self._virustotal_key.textChanged.connect(self._update_intel_status)
+        ai_fl.addRow("VirusTotal key:", self._virustotal_key)
+
+        self._tavily_key = QLineEdit()
+        self._tavily_key.setEchoMode(QLineEdit.EchoMode.Password)
+        self._tavily_key.setPlaceholderText("Tavily API key (tvly-…)")
+        self._tavily_key.setMinimumHeight(38)
+        self._tavily_key.textChanged.connect(self._update_intel_status)
+        ai_fl.addRow("Tavily key:", self._tavily_key)
+
+        self._intel_status = QLabel(
+            "Key kaydedildiğinde yalnızca seçilmiş genel uzak IP'ler dış kaynaklarda sorgulanır. "
+            "VirusTotal: 4 sorgu/analiz; Tavily: 2 arama/analiz.")
+        self._intel_status.setWordWrap(True)
+        self._intel_status.setStyleSheet(f"color:{C['text3']}; font-size:11px;")
+        ai_fl.addRow("Güncel araştırma:", self._intel_status)
 
         self._model_status = QLabel("Gemini 3.5 varsayılandır; istersen Gemini 3.1'e geçebilirsin.")
         self._model_status.setWordWrap(True)
@@ -2597,7 +2644,10 @@ class SettingsTab(QWidget):
                 api_keys = [s.get("GEMINI_API_KEY", "")]
             self._gemini_api_keys = "\n".join(api_keys)
             self._api_key.setText(", ".join(api_keys))
+            self._virustotal_key.setText(str(s.get("VIRUSTOTAL_API_KEY", "") or ""))
+            self._tavily_key.setText(str(s.get("TAVILY_API_KEY", "") or ""))
             self._update_key_status()
+            self._update_intel_status()
             try:
                 self._prompt.setText(get_ai_prompt())
             except:
@@ -2626,12 +2676,28 @@ class SettingsTab(QWidget):
             self._key_status.setText("Kayıtlı Gemini API key yok")
             self._key_status.setStyleSheet(f"color:{C['warning']}; font-size:11px;")
         else:
-            self._key_status.setText(f"{len(keys)} Gemini API key kayıtlı. 429/503 durumunda key 30 dakika bekletilir.")
+            self._key_status.setText(
+                f"{len(keys)} Gemini API key kayıtlı. İlk key varsayılandır; "
+                "400/401/403/429 durumunda sıradaki key denenir.")
             self._key_status.setStyleSheet(f"color:{C['success']}; font-size:11px;")
 
     def _reset_prompt(self):
         from config import DEFAULT_SYSTEM_PROMPT
         self._prompt.setText(DEFAULT_SYSTEM_PROMPT)
+
+    def _update_intel_status(self):
+        vt = "aktif" if self._virustotal_key.text().strip() else "kapalı"
+        tavily = "aktif" if self._tavily_key.text().strip() else "kapalı"
+        usage = ""
+        if self.db is not None and hasattr(self.db, "api_usage"):
+            day = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+            month = datetime.now().replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
+            usage = (f" Kullanım: VT {self.db.api_usage('virustotal', day)}/480 bugün, "
+                     f"Tavily {self.db.api_usage('tavily', month)}/900 bu ay.")
+        self._intel_status.setText(
+            f"VirusTotal {vt} (4 sorgu/analiz, 480/gün); Tavily {tavily} "
+            f"(2 arama/analiz, 900 kredi/ay).{usage} "
+            "Yalnızca seçilmiş genel uzak IP'ler paylaşılır.")
 
     def _save(self):
         try:
@@ -2671,6 +2737,8 @@ class SettingsTab(QWidget):
             s["GEMINI_API_KEYS"] = api_keys
             s["GEMINI_API_KEY"] = api_keys[0] if api_keys else ""
             s["GEMINI_MODEL"] = model
+            s["VIRUSTOTAL_API_KEY"] = self._virustotal_key.text().strip()
+            s["TAVILY_API_KEY"] = self._tavily_key.text().strip()
 
             save_settings(s)
 
