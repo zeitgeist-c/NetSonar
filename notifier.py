@@ -8,7 +8,6 @@ Diger olaylar (port uyarisi, yuksek trafik vb.) sadece log'a yazilir.
 import logging
 import threading
 import time
-from datetime import datetime
 
 log = logging.getLogger("NetSonar.Notifier")
 _cooldown_lock = threading.Lock()

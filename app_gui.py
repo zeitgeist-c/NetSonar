@@ -1859,7 +1859,8 @@ class DataTab(QWidget):
         try:
             from config import SUSPICIOUS_PORTS
             is_suspicious_port = int(port) in SUSPICIOUS_PORTS
-        except:
+        except Exception:
+            log.debug("Suspicious-port check failed; assuming not suspicious", exc_info=True)
             is_suspicious_port = False
 
         risk_items = []
@@ -1908,7 +1909,8 @@ class DataTab(QWidget):
 
         try:
             from config import SUSPICIOUS_PORTS
-        except:
+        except Exception:
+            log.debug("Suspicious-port import failed; filter disabled", exc_info=True)
             SUSPICIOUS_PORTS = set()
 
         filtered = []
@@ -2492,7 +2494,8 @@ class SettingsTab(QWidget):
             self._update_intel_status()
             try:
                 self._prompt.setText(get_ai_prompt())
-            except:
+            except Exception:
+                log.debug("AI prompt load failed; using default prompt", exc_info=True)
                 self._prompt.setText(DEFAULT_SYSTEM_PROMPT)
 
     def refresh(self):

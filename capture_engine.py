@@ -77,6 +77,25 @@ _ip_byte_counter: dict[str, int] = {}
 _ip_notified: dict[str, bool] = {}
 _counter_lock = threading.Lock()
 _COUNTER_RESET_SECONDS = 60
+# HIGH_TRAFFIC eşiği paket yolunda diskten okunmaz; kısa ömürlü önbellek
+# kullanılır. TTL dolmadan ayar değişirse en geç 60 sn içinde görülür.
+_THRESHOLD_CACHE_SECONDS = 60
+_DEFAULT_THRESHOLD_BYTES = 50 * 1024 * 1024
+_threshold_cache: dict[str, float] = {"value": _DEFAULT_THRESHOLD_BYTES, "at": 0.0}
+
+
+def _traffic_threshold_bytes() -> int:
+    now = time.monotonic()
+    if now - _threshold_cache["at"] < _THRESHOLD_CACHE_SECONDS:
+        return int(_threshold_cache["value"])
+    try:
+        value = int(load_settings().get("HIGH_TRAFFIC_THRESHOLD_BYTES", _DEFAULT_THRESHOLD_BYTES))
+    except Exception:
+        log.debug("Traffic threshold read failed; using cached value", exc_info=True)
+        return int(_threshold_cache["value"])
+    _threshold_cache["value"] = value
+    _threshold_cache["at"] = now
+    return value
 
 
 def _update_process_map():
@@ -149,7 +168,7 @@ def _packet_handler(packet, db: Database, local_ips: set[str] | None = None,
     with _counter_lock:
         _ip_byte_counter[remote_ip] = _ip_byte_counter.get(remote_ip, 0) + size
         total = _ip_byte_counter[remote_ip]
-        threshold = int(load_settings().get("HIGH_TRAFFIC_THRESHOLD_BYTES", 50 * 1024 * 1024))
+        threshold = _traffic_threshold_bytes()
         if total >= threshold and not _ip_notified.get(remote_ip, False):
             _ip_notified[remote_ip] = True
             notify_high_traffic(remote_ip, total, process)
