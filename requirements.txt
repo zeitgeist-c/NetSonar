@@ -9,7 +9,6 @@ psutil>=5.9.0
 
 # Scheduling
 APScheduler>=3.10.0
-pytz>=2024.1
 
 # HTTP / Gemini API
 requests>=2.31.0
