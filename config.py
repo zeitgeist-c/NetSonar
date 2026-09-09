@@ -4,9 +4,12 @@ API anahtarlarını ve uygulama ayarlarını buradan düzenle.
 """
 
 import json
+import logging
 import os
 import sys
 from settings_service import protect_secret, unprotect_secret, validate_settings
+
+log = logging.getLogger("NetSonar.Config")
 
 APP_VERSION = "v0.5.4"
 IS_FROZEN = bool(getattr(sys, "frozen", False))
@@ -118,6 +121,7 @@ def load_settings():
         if not isinstance(data, dict):
             raise ValueError("Ayar dosyasının kök değeri nesne olmalı")
     except Exception:
+        log.warning("Settings file unreadable; using defaults: %s", SETTINGS_FILE)
         return _default_settings()
 
     data, changed = _normalize_model_setting(data)
@@ -139,6 +143,7 @@ def load_settings():
         data["GEMINI_API_KEYS"] = keys
         data["GEMINI_API_KEY"] = keys[0] if keys else ""
     except Exception:
+        log.warning("Stored Gemini keys undecryptable; continuing without them")
         data["GEMINI_API_KEYS"] = []
         data["GEMINI_API_KEY"] = ""
     for singular, plural in (("VIRUSTOTAL_API_KEY", "VIRUSTOTAL_API_KEYS"),
@@ -151,6 +156,7 @@ def load_settings():
             data[plural] = provider_keys
             data[singular] = provider_keys[0] if provider_keys else ""
         except Exception:
+            log.warning("Stored %s keys undecryptable; continuing without them", plural)
             data[plural] = []
             data[singular] = ""
     if changed:

@@ -7,7 +7,6 @@ import json
 import threading
 import ipaddress
 from pathlib import Path
-from typing import Optional
 from config import user_data_path
 
 
