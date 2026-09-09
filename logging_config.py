@@ -8,8 +8,9 @@ import logging
 import logging.handlers
 import sys
 from pathlib import Path
+from config import user_data_path
 
-LOG_DIR = Path("netsonar_data/logs")
+LOG_DIR = Path(user_data_path("netsonar_data", "logs"))
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 LOG_FILE = LOG_DIR / "netsonar.log"

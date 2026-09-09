@@ -1,93 +1,69 @@
-# NetSonar - AI Destekli Ağ İzleme Aracı
+# NetSonar v0.5.5
 
-Windows tabanlı, PyQt6 arayüzlü ağ trafiği izleme ve anomali analizi aracı.
+Kararlı Windows dağıtım dosyaları: `dist\NetSonar-v0.5.5.exe` ve
+`dist\NetSonar-v0.5.5.bat`
+Paketleme tarifleri ve yeniden derleme araçları: `packaging\`
 
-## Özellikler
+NetSonar, Windows 10/11 üzerinde Npcap ile bu bilgisayarın taraf olduğu ağ trafiğini
+dakikalık, çift yönlü akışlar halinde özetleyen yerel bir ağ görünürlüğü uygulamasıdır.
 
-| Özellik | Detay |
-|---|---|
-| Canlı izleme | Scapy + Npcap ile ağ trafiğini paket düzeyinde yakalar. |
-| AI analizi | Gemini 3.1 Flash Lite ile özet trafik verisini analiz eder; çoklu Gemini API key desteklenir. |
-| Kill switch | Şüpheli IP adreslerini Windows Güvenlik Duvarı kurallarıyla engeller. |
-| Güvenli IP listesi | Kullanıcının güvenli olarak onayladığı IP adreslerini sonraki AI analizlerinden ve otomatik engellemeden çıkarır. |
-| Masaüstü bildirimi | Şüpheli port, yüksek trafik ve analiz sonuçlarında bildirim gösterir. |
-| Sistem tepsisi | Uygulama arka planda çalışmaya devam edebilir. |
-| Veri saklama | SQLite üzerinde bağlantı ve rapor geçmişi tutar, eski kayıtları temizler. |
+## Veri ve gizlilik
 
-## Kurulum
+- Paket içeriği, URL, parola veya dosya içeriği kaydedilmez.
+- Aynı yerel/uzak uç, port, protokol ve süreç için dakikada tek `FlowBucket` tutulur.
+- Gönderilen ve alınan byte/paket sayaçları ayrı hesaplanır.
+- Başarıyla analiz edilen ham akış ayrıntıları silinir.
+- Riskli sonuçlarda yalnız doğrulanmış küçük kanıt özeti kullanıcı silene kadar kalır.
+- IP ve süreç içermeyen saatlik trafik toplamları ile analiz audit kayıtları 30 gün tutulur.
+- Analiz edilemeyen ayrıntılar en fazla 24 saat sonra anonim toplama dönüştürülür.
+- API anahtarları Windows DPAPI ile geçerli Windows kullanıcısına bağlı şifrelenir.
 
-### Gereksinimler
+VirusTotal veya Tavily anahtarı kaydedilirse yalnızca seçilmiş genel uzak IP adresleri
+güncel tehdit itibarı ve web bağlamı için bu servislere gönderilir. Özel, yerel, multicast
+ve güvenilir listedeki IP'ler dış servislere gönderilmez. Anahtar yoksa yerel+Gemini akışı
+eskisi gibi devam eder. Modelin uydurduğu IP, kaynak veya batch dışında referans verdiği
+akışlar yerel doğrulamada reddedilir.
 
+Gemini, VirusTotal ve Tavily için birden fazla API anahtarı kaydedilebilir. Sıralamadaki
+ilk anahtar varsayılandır; yetki, kota, geçici servis, zaman aşımı veya bozuk yanıt halinde
+aynı sağlayıcının sıradaki anahtarı otomatik denenir. Anahtarlar tekrarsızlaştırılır ve
+tamamı Windows DPAPI ile şifrelenir.
+
+VirusTotal sonuçları yapılandırılmış itibar kanıtıdır. Tavily sonuçları yalnızca güncel,
+tıklanabilir web bağlamıdır ve tek başına otomatik engelleme kararı oluşturamaz. Public
+VirusTotal API yalnızca kişisel/ticari olmayan kullanım içindir.
+
+## Güvenlik duvarı
+
+Otomatik engelleme varsayılan olarak kapalıdır. Açıldığında bile yalnız gerçek batch
+akışına bağlı, kritik, en az `0.95` güvenli, `block_now=true`, global ve yerel kuralla
+doğrulanmış hedefler otomatik engellenebilir. Diğer bulgular manuel incelemeye kalır.
+
+Kurallar Windows Firewall içindeki `NetSonar` grubunda çift yönlü yönetilir. Bir yön
+başarısız olursa diğer yön geri alınır. Uygulama başka firewall kurallarına dokunmaz.
+
+## Gereksinimler
+
+- Windows 10 veya 11
 - Python 3.11+
-- Npcap
-- Windows üzerinde yönetici yetkisi
+- Npcap (`C:\Windows\System32\Npcap\wpcap.dll`)
+- Yönetici yetkisi
 
-### Bağımlılıkları kurma
-
-```bash
-pip install -r requirements.txt
+```powershell
+python -m venv .venv
+.\.venv\Scripts\pip.exe install -r requirements.txt
+.\.venv\Scripts\python.exe main.py
 ```
 
-### Başlatma
+Tek seferlik komutlar:
 
-Önerilen yol:
-
-```text
-NetSonar.bat dosyasını yönetici olarak çalıştırın.
+```powershell
+.\.venv\Scripts\python.exe main.py --analyze
+.\.venv\Scripts\python.exe main.py --block 8.8.8.8
+.\.venv\Scripts\python.exe main.py --unblock 8.8.8.8
+.\.venv\Scripts\python.exe main.py --list-blocked
 ```
 
-Manuel kullanım:
-
-```bash
-python main.py
-```
-
-## CLI Komutları
-
-```bash
-python main.py --analyze
-python main.py --block 185.220.101.5
-python main.py --unblock 1.2.3.4
-python main.py --list-blocked
-python main.py --no-gui
-```
-
-## Yapılandırma
-
-Ayarlar uygulama içindeki Ayarlar sekmesinden veya `config/settings.json` dosyasından yönetilir.
-
-Önemli ayarlar:
-
-- `AI_PROVIDER`: sabit `gemini`
-- `GEMINI_MODEL`: sabit `gemini-3.1-flash-lite`
-- `GEMINI_API_KEYS`: her satıra bir Gemini API key olacak şekilde çoklu key listesi
-- `GEMINI_API_KEY`: eski tek-key uyumluluğu için ilk key olarak okunur
-- `AUTO_ANALYSIS_ENABLED`
-- `ANALYSIS_INTERVAL_MINUTES`
-- `AUTO_BLOCK_ENABLED`
-
-Bir Gemini API key 429 veya 503 dönerse 30 dakika bekletilir ve aynı analiz isteği listedeki sıradaki uygun key ile denenir.
-
-## Veri ve Gizlilik
-
-AI servislerine ham paket içeriği gönderilmez. Analiz için yalnızca bağlantı özeti kullanılır: hedef IP, port, protokol, süreç adı, bağlantı sayısı ve byte toplamı.
-
-Güvenli IP'ler menüsünden eklenen adresler bağlantı geçmişinde görünmeye devam eder ancak Gemini'ye gönderilmez ve otomatik engellenmez. Kayıt, kullanıcı listeden çıkarana kadar kalıcıdır.
-
-## Proje Yapısı
-
-```text
-main.py             Uygulama giriş noktası
-app_gui.py          PyQt6 arayüzü
-capture_engine.py   Scapy tabanlı paket yakalama
-database.py         SQLite veri katmanı
-ai_analyzer.py      AI sağlayıcı entegrasyonları
-kill_switch.py      Windows Firewall engelleme işlemleri
-config.py           Ayarlar, dosya yolları ve varsayılanlar
-```
-
-## Notlar
-
-- Paket yakalama ve firewall işlemleri yönetici yetkisi gerektirir.
-- Npcap kurulu değilse canlı izleme çalışmayabilir.
-- Gemini API kullanım limitleri ve kota kuralları geçerlidir; çoklu key kullanımı kota hatalarında geçici key değişimi sağlar.
+İlk v0.5 açılışında uygulama, eski trafik/rapor/trusted/blocked geçmişini ve yalnız
+NetSonar firewall kurallarını sıfırlamak için onay ister. Ayarlar ve dışa aktarılmış
+rapor dosyaları korunur. Herhangi bir doğrulama hatasında eski veritabanı silinmez.

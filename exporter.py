@@ -8,6 +8,21 @@ import csv
 from pathlib import Path
 from datetime import datetime
 from database import Database
+from config import user_data_path
+
+
+def _suspicious_rows(report: dict) -> list[dict]:
+    rows = [row for row in report.get("suspicious_connections", []) if isinstance(row, dict)]
+    if rows:
+        return rows
+    for finding in report.get("findings", []) or []:
+        for evidence in finding.get("flow_evidence", []) or [{}]:
+            rows.append({"ip": evidence.get("remote_ip", ""),
+                         "port": evidence.get("remote_port", ""),
+                         "process": evidence.get("process", ""),
+                         "reason": finding.get("evidence", ""),
+                         "action": finding.get("recommended_action", "")})
+    return rows
 
 
 def export_report(report: dict, format: str = "json", filepath: str = None) -> str:
@@ -25,7 +40,7 @@ def export_report(report: dict, format: str = "json", filepath: str = None) -> s
     if filepath is None:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         ext = format.lower()
-        filepath = f"netsonar_data/reports/rapor_{timestamp}.{ext}"
+        filepath = user_data_path("netsonar_data", "reports", f"rapor_{timestamp}.{ext}")
     
     Path(filepath).parent.mkdir(parents=True, exist_ok=True)
     
@@ -46,13 +61,14 @@ def _export_json(report: dict, filepath: str) -> str:
 
 
 def _export_csv(report: dict, filepath: str) -> str:
-    conns = report.get("suspicious_connections", [])
+    conns = _suspicious_rows(report)
     
     with open(filepath, "w", encoding="utf-8", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow(["IP", "Port", "Process", "Reason", "Action", "Risk Score", "Status"])
+        writer.writerow(["Analysis Time", "IP", "Port", "Process", "Reason", "Action", "Risk Score", "Status", "Sources"])
         
         writer.writerow([
+            report.get("analysis_time", report.get("created_at", "")),
             "Genel",
             "",
             "",
@@ -60,18 +76,23 @@ def _export_csv(report: dict, filepath: str) -> str:
             "",
             report.get("risk_score", ""),
             report.get("status", ""),
+            "",
         ])
         writer.writerow([])
         
         for conn in conns:
+            source_urls = [f"{s.get('checked_at','')} {s.get('source_url') or s.get('url') or ''}" for s in
+                           (report.get("intel_sources", []) + report.get("web_sources", []))
+                           if s.get("indicator") == conn.get("ip")]
             writer.writerow([
-                conn.get("ip", ""),
+                report.get("analysis_time", report.get("created_at", "")), conn.get("ip", ""),
                 conn.get("port", ""),
                 conn.get("process", ""),
                 conn.get("reason", ""),
                 conn.get("action", ""),
                 report.get("risk_score", ""),
                 report.get("status", ""),
+                " | ".join(source_urls),
             ])
         
         writer.writerow([])
@@ -88,14 +109,14 @@ def _export_txt(report: dict, filepath: str) -> str:
         "=" * 60,
         f"Risk Skoru: {report.get('risk_score', '')}/10",
         f"Durum: {report.get('status', '')}",
-        f"Tarih: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+        f"Tarih: {report.get('analysis_time', report.get('created_at', ''))}",
         "",
         "=" * 60,
         "ŞÜPHELI BAĞLANTILAR",
         "=" * 60,
     ]
     
-    conns = report.get("suspicious_connections", [])
+    conns = _suspicious_rows(report)
     if conns:
         for i, conn in enumerate(conns, 1):
             lines.append(f"\n{i}. IP: {conn.get('ip', '')}")
@@ -114,6 +135,12 @@ def _export_txt(report: dict, filepath: str) -> str:
         report.get("summary", ""),
         "",
         "=" * 60,
+        "GÜNCEL KAYNAKLAR",
+        "=" * 60,
+        *[f"{s.get('provider','')}: {s.get('indicator','')} @ {s.get('checked_at','')} - {s.get('source_url') or s.get('url','')}"
+          for s in (report.get("intel_sources", []) + report.get("web_sources", []))],
+        "",
+        "=" * 60,
     ])
     
     with open(filepath, "w", encoding="utf-8") as f:
@@ -130,11 +157,23 @@ def export_all_reports(db: Database, format: str = "json", output_dir: str = Non
         Oluşturulan dosyaların listesi
     """
     if output_dir is None:
-        output_dir = f"netsonar_data/reports/_all_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        output_dir = user_data_path(
+            "netsonar_data",
+            "reports",
+            f"_all_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+        )
     
     Path(output_dir).mkdir(parents=True, exist_ok=True)
     
-    reports = db.get_all_reports()
+    reports = []
+    offset = 0
+    while True:
+        page = db.get_all_reports(limit=100, offset=offset)
+        if not page:
+            break
+        reports.extend(row for row in page if float(row.get("risk_score", 0)) > 0
+                       or str(row.get("status", "")).lower() == "risky")
+        offset += len(page)
     files = []
     
     for i, row in enumerate(reports, 1):
@@ -145,6 +184,7 @@ def export_all_reports(db: Database, format: str = "json", output_dir: str = Non
             report = {"raw": content}
         
         report["created_at"] = row.get("created_at", "")
+        report["analysis_time"] = row.get("created_at", "")
         report["provider"] = row.get("provider", "")
         
         filepath = f"{output_dir}/rapor_{i:03d}.{format}"

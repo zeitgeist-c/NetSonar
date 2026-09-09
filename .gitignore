@@ -13,3 +13,9 @@ _api_diag.py
 _model_results.txt
 _analysis_result.txt
 *.sqlite3
+config/settings.json
+packaging/build/
+packaging/app-dist/
+packaging/.build-venv/
+dist/*.exe
+.agents/

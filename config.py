@@ -4,68 +4,178 @@ API anahtarlarını ve uygulama ayarlarını buradan düzenle.
 """
 
 import json
+import logging
 import os
-import subprocess
+import sys
+from settings_service import protect_secret, unprotect_secret, validate_settings
 
-APP_DIR = os.path.dirname(os.path.abspath(__file__))
+log = logging.getLogger("NetSonar.Config")
+
+APP_VERSION = "v0.5.5"
+IS_FROZEN = bool(getattr(sys, "frozen", False))
+APP_DIR = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+
+if IS_FROZEN:
+    USER_DATA_DIR = os.path.join(
+        os.environ.get("LOCALAPPDATA", os.path.expanduser("~")),
+        "NetSonar",
+    )
+else:
+    # Gelistirme ortamindaki mevcut veri yerlesimini koru.
+    USER_DATA_DIR = APP_DIR
 
 
 def app_path(*parts: str) -> str:
+    """Paketle gelen salt-okunur kaynaklar icin yol dondur."""
     return os.path.join(APP_DIR, *parts)
 
+
+def user_data_path(*parts: str) -> str:
+    """Ayar, veritabani, log ve raporlar icin yazilabilir yol dondur."""
+    return os.path.join(USER_DATA_DIR, *parts)
+
+
 def get_app_version() -> str:
-    """Git tag üzerinden dinamik uygulama versiyonunu döndürür."""
-    try:
-        # Popen kullanarak arkaplan penceresi oluşturmadan komutu çalıştır (Windows GUI için)
-        creationflags = subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
-        version = subprocess.check_output(
-            ["git", "describe", "--tags", "--always", "--dirty"],
-            cwd=APP_DIR, stderr=subprocess.DEVNULL, creationflags=creationflags, text=True
-        ).strip()
-        # Eğer sadece hash dönüyorsa (ör: 16cdc88), başına v eklemiyoruz çünkü "v0.3-1-g..." formatı daha makul
-        return version if version.startswith("v") else f"v{version}"
-    except Exception:
-        return "v0.3"  # Fallback
+    """Ürün sürümünü geliştirme Git etiketinden bağımsız döndürür."""
+    return APP_VERSION
 
 
 # ─── Settings Yükleme (önce dosya, sonra env) ──────────────────────
-SETTINGS_FILE = app_path("config", "settings.json")
-GEMINI_MODEL_ID = "gemini-3.1-flash-lite"
+SETTINGS_FILE = user_data_path("config", "settings.json")
+GEMINI_MODEL_OPTIONS = {
+    "gemini-3.5-flash-lite": "Gemini 3.5 Flash-Lite",
+    "gemini-3.1-flash-lite": "Gemini 3.1 Flash-Lite",
+}
+SUPPORTED_GEMINI_MODELS = tuple(GEMINI_MODEL_OPTIONS)
+DEFAULT_GEMINI_MODEL = "gemini-3.5-flash-lite"
+GEMINI_MODEL_SELECTION_VERSION = 1
+# Eski dış kullanımlarla uyumluluk için varsayılan model takma adı.
+GEMINI_MODEL_ID = DEFAULT_GEMINI_MODEL
 
-def load_settings():
-    """Kullanıcı ayarlarını dosyadan yükle."""
-    if os.path.exists(SETTINGS_FILE):
-        try:
-            with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            pass
+
+def _default_settings() -> dict:
     return {
         "MINIMIZE_TO_TRAY": True,
         "AUTO_BLOCK_ENABLED": False,
+        "AUTO_BLOCK_MIN_RISK_SCORE": 7.0,
         "autostart": False,
         "interface": None,
         "AI_PROVIDER": "gemini",
         "GEMINI_API_KEY": "",
         "GEMINI_API_KEYS": [],
-        "GEMINI_MODEL": GEMINI_MODEL_ID,
+        "GEMINI_MODEL": DEFAULT_GEMINI_MODEL,
+        "GEMINI_MODEL_SELECTION_VERSION": GEMINI_MODEL_SELECTION_VERSION,
+        "VIRUSTOTAL_API_KEY": "",
+        "VIRUSTOTAL_API_KEYS": [],
+        "TAVILY_API_KEY": "",
+        "TAVILY_API_KEYS": [],
         "AUTO_ANALYSIS_ENABLED": True,
         "ANALYSIS_INTERVAL_MINUTES": 60,
+        "HIGH_TRAFFIC_THRESHOLD_BYTES": 50 * 1024 * 1024,
     }
 
-def save_settings(data: dict):
-    """Kullanıcı ayarlarını dosyaya kaydet."""
+
+def _write_settings(data: dict):
+    data = dict(data)
+    keys = _split_api_keys(data.get("GEMINI_API_KEYS", []))
+    if not keys:
+        keys = _split_api_keys(data.get("GEMINI_API_KEY", ""))
+    protected = [protect_secret(key) for key in keys]
+    data["GEMINI_API_KEYS"] = protected
+    data["GEMINI_API_KEY"] = protected[0] if protected else ""
+    for singular, plural in (("VIRUSTOTAL_API_KEY", "VIRUSTOTAL_API_KEYS"),
+                             ("TAVILY_API_KEY", "TAVILY_API_KEYS")):
+        provider_keys = _split_api_keys(data.get(plural, [])) or _split_api_keys(
+            data.get(singular, ""))
+        protected_provider_keys = [protect_secret(key) for key in provider_keys]
+        data[plural] = protected_provider_keys
+        data[singular] = protected_provider_keys[0] if protected_provider_keys else ""
     os.makedirs(os.path.dirname(SETTINGS_FILE), exist_ok=True)
     with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
 
-# ─── Yardımcı fonksiyon ──────────────────────────────────────────────
-def _get_setting(key, env_var=None):
-    """Environment variable'dan önce, sonra settings.json'dan al."""
-    if env_var and os.getenv(env_var):
-        return os.getenv(env_var)
-    settings = load_settings()
-    return settings.get(key, "")
+
+def _normalize_model_setting(data: dict) -> tuple[dict, bool]:
+    """Model ayarını doğrula ve eski sabit 3.1 kaydını bir kez 3.5'e taşı."""
+    normalized = dict(data)
+    changed = False
+
+    if normalized.get("GEMINI_MODEL_SELECTION_VERSION") != GEMINI_MODEL_SELECTION_VERSION:
+        normalized["GEMINI_MODEL"] = DEFAULT_GEMINI_MODEL
+        normalized["GEMINI_MODEL_SELECTION_VERSION"] = GEMINI_MODEL_SELECTION_VERSION
+        changed = True
+    elif normalized.get("GEMINI_MODEL") not in SUPPORTED_GEMINI_MODELS:
+        normalized["GEMINI_MODEL"] = DEFAULT_GEMINI_MODEL
+        changed = True
+
+    return normalized, changed
+
+def load_settings():
+    """Kullanıcı ayarlarını dosyadan yükle."""
+    if not os.path.exists(SETTINGS_FILE):
+        return _default_settings()
+
+    try:
+        with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if not isinstance(data, dict):
+            raise ValueError("Ayar dosyasının kök değeri nesne olmalı")
+    except Exception:
+        log.warning("Settings file unreadable; using defaults: %s", SETTINGS_FILE)
+        return _default_settings()
+
+    data, changed = _normalize_model_setting(data)
+    stored_keys = _split_api_keys(data.get("GEMINI_API_KEYS", [])) or _split_api_keys(
+        data.get("GEMINI_API_KEY", ""))
+    if any(not key.startswith("dpapi:") for key in stored_keys):
+        changed = True
+    for singular, plural in (("VIRUSTOTAL_API_KEY", "VIRUSTOTAL_API_KEYS"),
+                             ("TAVILY_API_KEY", "TAVILY_API_KEYS")):
+        stored_provider_keys = _split_api_keys(data.get(plural, [])) or _split_api_keys(
+            data.get(singular, ""))
+        if any(not key.startswith("dpapi:") for key in stored_provider_keys):
+            changed = True
+    data = validate_settings(data, _default_settings())
+    try:
+        keys = [unprotect_secret(key) for key in _split_api_keys(data.get("GEMINI_API_KEYS", []))]
+        if not keys and data.get("GEMINI_API_KEY"):
+            keys = [unprotect_secret(data["GEMINI_API_KEY"])]
+        data["GEMINI_API_KEYS"] = keys
+        data["GEMINI_API_KEY"] = keys[0] if keys else ""
+    except Exception:
+        log.warning("Stored Gemini keys undecryptable; continuing without them")
+        data["GEMINI_API_KEYS"] = []
+        data["GEMINI_API_KEY"] = ""
+    for singular, plural in (("VIRUSTOTAL_API_KEY", "VIRUSTOTAL_API_KEYS"),
+                             ("TAVILY_API_KEY", "TAVILY_API_KEYS")):
+        try:
+            provider_keys = [unprotect_secret(key) for key in _split_api_keys(
+                data.get(plural, []))]
+            if not provider_keys and data.get(singular):
+                provider_keys = [unprotect_secret(str(data[singular]))]
+            data[plural] = provider_keys
+            data[singular] = provider_keys[0] if provider_keys else ""
+        except Exception:
+            log.warning("Stored %s keys undecryptable; continuing without them", plural)
+            data[plural] = []
+            data[singular] = ""
+    if changed:
+        try:
+            _write_settings(data)
+        except OSError:
+            # Salt-okunur bir ayar dosyası API key gibi diğer değerleri geçersiz kılmamalı.
+            pass
+    return data
+
+
+def save_settings(data: dict):
+    """Kullanıcı ayarlarını dosyaya kaydet."""
+    normalized = validate_settings(dict(data), _default_settings())
+    if normalized.get("GEMINI_MODEL") not in SUPPORTED_GEMINI_MODELS:
+        normalized["GEMINI_MODEL"] = DEFAULT_GEMINI_MODEL
+    normalized["GEMINI_MODEL_SELECTION_VERSION"] = GEMINI_MODEL_SELECTION_VERSION
+    _write_settings(normalized)
+
 
 def _split_api_keys(value) -> list[str]:
     """API key listesini settings/env kaynaklarindan normalize et."""
@@ -99,20 +209,36 @@ GEMINI_API_KEYS = (
     or _split_api_keys(_settings.get("GEMINI_API_KEY", ""))
 )
 GEMINI_API_KEY = GEMINI_API_KEYS[0] if GEMINI_API_KEYS else ""
-GEMINI_MODEL   = GEMINI_MODEL_ID
+GEMINI_MODEL = _settings.get("GEMINI_MODEL", DEFAULT_GEMINI_MODEL)
+if GEMINI_MODEL not in SUPPORTED_GEMINI_MODELS:
+    GEMINI_MODEL = DEFAULT_GEMINI_MODEL
+VIRUSTOTAL_API_KEYS = (
+    _split_api_keys(os.getenv("AG_TARA_VIRUSTOTAL_KEYS"))
+    or _split_api_keys(_settings.get("VIRUSTOTAL_API_KEYS", []))
+    or _split_api_keys(_settings.get("VIRUSTOTAL_API_KEY", ""))
+)
+VIRUSTOTAL_API_KEY = VIRUSTOTAL_API_KEYS[0] if VIRUSTOTAL_API_KEYS else ""
+TAVILY_API_KEYS = (
+    _split_api_keys(os.getenv("AG_TARA_TAVILY_KEYS"))
+    or _split_api_keys(_settings.get("TAVILY_API_KEYS", []))
+    or _split_api_keys(_settings.get("TAVILY_API_KEY", ""))
+)
+TAVILY_API_KEY = TAVILY_API_KEYS[0] if TAVILY_API_KEYS else ""
 
 # ─── Zamanlayıcı ────────────────────────────────────────────────────
 # Her kaç dakikada bir AI analizi yapılsın?
-ANALYSIS_INTERVAL_MINUTES = 60
+ANALYSIS_INTERVAL_MINUTES = int(_settings.get("ANALYSIS_INTERVAL_MINUTES", 60))
 
 # Şüpheli bağlantı tespiti için minimum byte eşiği
-SUSPICIOUS_BYTES_THRESHOLD = 50_000                # 50 KB üzeri harici bağlantı
+SUSPICIOUS_BYTES_THRESHOLD = int(
+    _settings.get("HIGH_TRAFFIC_THRESHOLD_BYTES", 50 * 1024 * 1024)
+)
 
 # ─── Bilinen Tehlikeli Portlar ───────────────────────────────────────
 SUSPICIOUS_PORTS = {4444, 1337, 31337, 5555, 6666, 6667, 8888, 9999}
 
 # ─── Veritabanı ─────────────────────────────────────────────────────
-DB_PATH = app_path("netsonar_data", "connections.db")
+DB_PATH = user_data_path("netsonar_data", "connections.db")
 DB_RETENTION_HOURS = 2                     # Kaç saatlik ham veri saklansın? 0 = sınırsız
 DB_CLEANUP_INTERVAL_HOURS = 1              # Temizlik kaç saatte bir yapılsın?
 
@@ -120,6 +246,18 @@ DB_CLEANUP_INTERVAL_HOURS = 1              # Temizlik kaç saatte bir yapılsın
 # Not: Veri kaybını önlemek için yüksek tutuluyor. Sorgu zaten en önemli
 # verileri (şüpheli port, yüksek trafik) öncelikli olarak alıyor.
 MAX_CONNECTIONS_TO_ANALYZE = 200           # AI'a gönderilecek max bağlantı sayısı
+VIRUSTOTAL_MAX_LOOKUPS_PER_RUN = 4
+VIRUSTOTAL_DAILY_SOFT_LIMIT = 480
+VIRUSTOTAL_MAX_ANALYSIS_AGE_DAYS = 30
+TAVILY_MAX_SEARCHES_PER_RUN = 2
+TAVILY_MONTHLY_SOFT_LIMIT = 900
+THREAT_INTEL_CACHE_HOURS = 24
+THREAT_INTEL_UNKNOWN_CACHE_HOURS = 6
+THREAT_INTEL_ERROR_BACKOFF_MINUTES = 15
+SUSPICIOUS_PROCESSES = {
+    "mshta.exe", "wscript.exe", "cscript.exe", "cmd.exe", "powershell.exe",
+    "rundll32.exe", "regsvr32.exe", "certutil.exe",
+}
 
 # ─── Bildirim Filtresi ───────────────────────────────────────────────
 # True: sadece AI rapor bildirimleri gönderilir (önerilen)
@@ -129,11 +267,11 @@ NOTIFY_REPORTS_ONLY = True
 # ─── Otomatik Engelleme ─────────────────────────────────────────────
 # True: AI "Hemen engelle" dediğinde kullanıcı onayı istemeden firewall'a ekle
 # False: Kullanıcıya sor (GUI'de buton göster)
-AUTO_BLOCK_ENABLED = False
+AUTO_BLOCK_ENABLED = bool(_settings.get("AUTO_BLOCK_ENABLED", False))
 
 # Otomatik engelleme için minimum risk skoru (0-10)
 # Sadece bu skurun üzerindeki öneriler otomatik engellenir
-AUTO_BLOCK_MIN_RISK_SCORE = 7.0
+AUTO_BLOCK_MIN_RISK_SCORE = float(_settings.get("AUTO_BLOCK_MIN_RISK_SCORE", 7.0))
 
 # ─── Sistem ─────────────────────────────────────────────────────────────
 # True: Kapatınca sistem tepsisine küçült
@@ -141,7 +279,6 @@ AUTO_BLOCK_MIN_RISK_SCORE = 7.0
 MINIMIZE_TO_TRAY = True
 
 # ─── AI Prompt ─────────────────────────────────────────────────────────
-import os
 
 DEFAULT_SYSTEM_PROMPT = """Sen NetSonar’nın uzman siber güvenlik yapay zekâ analistisin.
 
@@ -432,13 +569,16 @@ JSON GEÇERLİLİK KURALLARI
 - Bilinmeyen ülke için "unknown" kullan.
 - Tehdit yoksa risk_score değerini düşük tut, suspicious_connections alanını [] yap ve threats_found değerini 0 yaz."""
 
-PROMPT_FILE = app_path("config", "ai_prompt.txt")
+PROMPT_FILE = user_data_path("config", "ai_prompt.txt")
+DEFAULT_PROMPT_FILE = app_path("config", "ai_prompt.txt")
 
 def get_ai_prompt():
     """AI prompt'u dosyadan yükle, yoksa varsayılanı kullan."""
-    if os.path.exists(PROMPT_FILE):
+    for prompt_file in (PROMPT_FILE, DEFAULT_PROMPT_FILE):
+        if not os.path.exists(prompt_file):
+            continue
         try:
-            with open(PROMPT_FILE, "r", encoding="utf-8") as f:
+            with open(prompt_file, "r", encoding="utf-8") as f:
                 return f.read()
         except Exception:
             pass
