@@ -1,4 +1,4 @@
-"""Shared IP address helpers for NetSonar."""
+"""NetSonar için ortak IP adresi yardımcı fonksiyonları."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ RULE_SAFE_PREFIX = "b64_"
 
 
 def parse_ip(ip: str):
-    """Return an ipaddress object, or None for invalid input."""
+    """Bir ipaddress nesnesi döndürür, geçersiz girişte None döner."""
     if not ip:
         return None
     try:
@@ -42,10 +42,10 @@ def is_local_ip(ip: str) -> bool:
 
 
 def sql_public_dst_filter(column: str = "dst_ip") -> str:
-    """SQLite expression that keeps only public destination IPs.
+    """Yalnızca halka açık hedef IP'leri bırakan SQLite ifadesi.
 
-    SQLite has no native IP type, so this mirrors the Python helper with
-    prefix checks for the private/link-local ranges NetSonar stores.
+    SQLite'un yerel IP türü olmadığından, bu yardımcı Python fonksiyonunu
+    özel/link-local aralıklar için ön ek kontrolleriyle taklit eder.
     """
     return f"""
         {column} IS NOT NULL
