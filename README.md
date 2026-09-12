@@ -1,53 +1,19 @@
-# NetSonar v0.5.5
+# NetSonar — AI-assisted network visibility for Windows
 
-Kararlı Windows dağıtım dosyaları: `dist\NetSonar-v0.5.5.exe` ve
-`dist\NetSonar-v0.5.5.bat`
-Paketleme tarifleri ve yeniden derleme araçları: `packaging\`
+> Türkçe için: [README.tr.md](./README.tr.md)
 
-NetSonar, Windows 10/11 üzerinde Npcap ile bu bilgisayarın taraf olduğu ağ trafiğini
-dakikalık, çift yönlü akışlar halinde özetleyen yerel bir ağ görünürlüğü uygulamasıdır.
+Local network traffic analysis and SOC helper: per-minute bidirectional flow summaries via Npcap, Gemini risk analysis with VirusTotal + web context, and audited Windows Firewall blocking. Raw detail is discarded by design — no content, URL, or password logging.
 
-## Veri ve gizlilik
+![NetSonar screenshots](./docs/screenshots/)
 
-- Paket içeriği, URL, parola veya dosya içeriği kaydedilmez.
-- Aynı yerel/uzak uç, port, protokol ve süreç için dakikada tek `FlowBucket` tutulur.
-- Gönderilen ve alınan byte/paket sayaçları ayrı hesaplanır.
-- Başarıyla analiz edilen ham akış ayrıntıları silinir.
-- Riskli sonuçlarda yalnız doğrulanmış küçük kanıt özeti kullanıcı silene kadar kalır.
-- IP ve süreç içermeyen saatlik trafik toplamları ile analiz audit kayıtları 30 gün tutulur.
-- Analiz edilemeyen ayrıntılar en fazla 24 saat sonra anonim toplama dönüştürülür.
-- API anahtarları Windows DPAPI ile geçerli Windows kullanıcısına bağlı şifrelenir.
+> Screenshots are being added from a clean install (no sample data). The folder above will hold them.
 
-VirusTotal veya Tavily anahtarı kaydedilirse yalnızca seçilmiş genel uzak IP adresleri
-güncel tehdit itibarı ve web bağlamı için bu servislere gönderilir. Özel, yerel, multicast
-ve güvenilir listedeki IP'ler dış servislere gönderilmez. Anahtar yoksa yerel+Gemini akışı
-eskisi gibi devam eder. Modelin uydurduğu IP, kaynak veya batch dışında referans verdiği
-akışlar yerel doğrulamada reddedilir.
+## Requirements
 
-Gemini, VirusTotal ve Tavily için birden fazla API anahtarı kaydedilebilir. Sıralamadaki
-ilk anahtar varsayılandır; yetki, kota, geçici servis, zaman aşımı veya bozuk yanıt halinde
-aynı sağlayıcının sıradaki anahtarı otomatik denenir. Anahtarlar tekrarsızlaştırılır ve
-tamamı Windows DPAPI ile şifrelenir.
-
-VirusTotal sonuçları yapılandırılmış itibar kanıtıdır. Tavily sonuçları yalnızca güncel,
-tıklanabilir web bağlamıdır ve tek başına otomatik engelleme kararı oluşturamaz. Public
-VirusTotal API yalnızca kişisel/ticari olmayan kullanım içindir.
-
-## Güvenlik duvarı
-
-Otomatik engelleme varsayılan olarak kapalıdır. Açıldığında bile yalnız gerçek batch
-akışına bağlı, kritik, en az `0.95` güvenli, `block_now=true`, global ve yerel kuralla
-doğrulanmış hedefler otomatik engellenebilir. Diğer bulgular manuel incelemeye kalır.
-
-Kurallar Windows Firewall içindeki `NetSonar` grubunda çift yönlü yönetilir. Bir yön
-başarısız olursa diğer yön geri alınır. Uygulama başka firewall kurallarına dokunmaz.
-
-## Gereksinimler
-
-- Windows 10 veya 11
-- Python 3.11+
+- Windows 10/11, Python 3.11+, administrator rights
 - Npcap (`C:\Windows\System32\Npcap\wpcap.dll`)
-- Yönetici yetkisi
+
+## Quick start
 
 ```powershell
 python -m venv .venv
@@ -55,7 +21,7 @@ python -m venv .venv
 .\.venv\Scripts\python.exe main.py
 ```
 
-Tek seferlik komutlar:
+One-shot CLI:
 
 ```powershell
 .\.venv\Scripts\python.exe main.py --analyze
@@ -64,6 +30,41 @@ Tek seferlik komutlar:
 .\.venv\Scripts\python.exe main.py --list-blocked
 ```
 
-İlk v0.5 açılışında uygulama, eski trafik/rapor/trusted/blocked geçmişini ve yalnız
-NetSonar firewall kurallarını sıfırlamak için onay ister. Ayarlar ve dışa aktarılmış
-rapor dosyaları korunur. Herhangi bir doğrulama hatasında eski veritabanı silinmez.
+Other flags: `--no-gui`, `--accept-v05-reset` (confirms the v0.5 storage reset). Ready build: `dist\NetSonar-v0.5.5.exe` + `.bat`.
+
+## Features
+
+- **Live capture** — Npcap/scapy capture with per-minute bidirectional `FlowBucket` summaries.
+- **Process mapping** — per-process, endpoint, port, and protocol counters (bytes/packets, sent/recv split).
+- **AI analysis** — batched structured Gemini analysis; fake IP/source/flow-id rejected by local verification.
+- **Threat intel** — VirusTotal reputation + web context; only selected public remote IPs are sent, local/multicast/allowlisted never leave.
+- **Key failover** — multiple API keys with automatic failover, DPAPI-encrypted storage.
+- **Firewall blocking** — audited bidirectional Windows Firewall rules (`NetSonar` group); off by default, auto-block only on critical + ≥0.95 confidence + `block_now`.
+- **SOC panel** — PyQt6 live flow table, metric cards, report view, tray icon.
+- **Scheduler** — timed analysis + DB maintenance, desktop notifications.
+- **Reports** — JSON/CSV/TXT export.
+- **Privacy-first retention** — raw detail dropped, IP-less hourly totals + 30-day audit, unanalyzed detail anonymized in 24h.
+
+## Project structure
+
+```text
+main.py              CLI + GUI entry (UAC elevate, single instance)
+app_gui.py           SOC panel (ui_components.py, ui_theme.py)
+capture_engine.py    live capture (flow_accumulator.py, flow_utils.py)
+ai_analyzer.py       Gemini analysis (config/ai_prompt.txt)
+threat_intel.py      VirusTotal + web context
+database.py          storage (models.py, migration.py)
+scheduler.py         timed jobs (notifier.py, custom_alerts.py)
+kill_switch.py       firewall blocking
+config.py            settings (settings_service.py, DPAPI)
+exporter.py          JSON/CSV/TXT reports
+packaging/  assets/  tests/  dist/
+```
+
+## Contributing
+
+Small PRs, no captures or keys in test data. See [.github/PULL_REQUEST_TEMPLATE.md](./.github/PULL_REQUEST_TEMPLATE.md).
+
+## License
+
+See [LICENSE](./LICENSE) (pending — to be confirmed).
