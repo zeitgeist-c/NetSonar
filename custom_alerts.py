@@ -124,17 +124,6 @@ def load_alerts() -> list[AlertRule]:
         return []
 
 
-def save_alerts(rules: list[AlertRule]):
-    """Uyarı kurallarını kaydet."""
-    ALERTS_FILE.parent.mkdir(parents=True, exist_ok=True)
-    with open(ALERTS_FILE, "w", encoding="utf-8") as f:
-        json.dump([r.to_dict() for r in rules], f, ensure_ascii=False, indent=2)
-    global _cached_rules, _cached_mtime_ns
-    with _cache_lock:
-        _cached_rules = list(rules)
-        _cached_mtime_ns = ALERTS_FILE.stat().st_mtime_ns
-
-
 def check_connection_alerts(dst_ip: str, dst_port: int, process: str) -> list[AlertRule]:
     """Bağlantı için eşleşen uyarı kurallarını döndür."""
     rules = load_alerts()
