@@ -5,8 +5,8 @@ bilgisayarına kurulabilmesi için gereken paketleme yapılandırmasını içeri
 
 ## Son kullanıcı dosyası
 
-    dist\NetSonar-v0.5.5.exe
-    dist\NetSonar-v0.5.5.bat
+    dist\NetSonar-v0.5.6.exe
+    dist\NetSonar-v0.5.6.bat
 
 Kurulum 64 bit Windows 10/11 içindir. Başlat menüsü kısayolu her zaman,
 masaüstü kısayolu ise kullanıcı seçerse oluşturulur.
