@@ -451,18 +451,6 @@ class Database:
                 ORDER BY analyzed_at DESC LIMIT 1""").fetchone()
             return row[0] if row else None
 
-    def get_new_connection_count(self, since_ts: str) -> int:
-        with self._lock:
-            return self.conn.execute("SELECT COUNT(*) FROM flow_buckets WHERE last_seen>?",
-                                     (since_ts,)).fetchone()[0]
-
-    def get_trusted_connection_count(self, hours: int = 1, since_ts: str | None = None) -> int:
-        cutoff = since_ts or self._cutoff(hours)
-        with self._lock:
-            return self.conn.execute("""SELECT COUNT(*) FROM flow_buckets WHERE last_seen>?
-                AND EXISTS(SELECT 1 FROM trusted_ips WHERE ip=flow_buckets.remote_ip)""",
-                (cutoff,)).fetchone()[0]
-
     def _traffic_totals(self, cutoff: str) -> dict:
         rollup = self.conn.execute("""SELECT COALESCE(SUM(sent_bytes),0),
             COALESCE(SUM(received_bytes),0),COALESCE(SUM(flow_count),0)
@@ -587,13 +575,6 @@ class Database:
         with self._lock:
             cursor=self.conn.execute("DELETE FROM security_findings WHERE id=?",(finding_id,))
             self.conn.commit(); return cursor.rowcount>0
-
-    def get_record_counts(self) -> dict:
-        with self._lock:
-            return {"flows":self.conn.execute("SELECT COUNT(*) FROM flow_buckets").fetchone()[0],
-                "findings":self.conn.execute("SELECT COUNT(*) FROM security_findings").fetchone()[0],
-                "reports":self.conn.execute("SELECT COUNT(*) FROM analysis_runs").fetchone()[0],
-                "blocked_ips":self.conn.execute("SELECT COUNT(*) FROM blocked_ips").fetchone()[0]}
 
     def get_db_size_mb(self) -> float:
         size=sum(item.stat().st_size for item in

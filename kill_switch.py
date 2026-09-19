@@ -141,5 +141,3 @@ def remove_all_netsonar_rules() -> bool:
     return ok
 
 
-def _is_valid_ip(ip: str) -> bool:
-    return is_valid_ip(ip)
