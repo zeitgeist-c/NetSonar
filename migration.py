@@ -73,7 +73,3 @@ def perform_v05_reset(path: str | Path = DB_PATH,
             item.unlink()
 
 
-def initialize_new_database(path: str | Path = DB_PATH) -> None:
-    if not Path(path).exists():
-        database = Database(path)
-        database.close()

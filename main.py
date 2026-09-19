@@ -2,7 +2,6 @@
 
 import argparse
 import ctypes
-import logging
 import sys
 import time
 

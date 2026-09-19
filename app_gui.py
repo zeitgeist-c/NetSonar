@@ -2539,7 +2539,7 @@ class SettingsTab(QWidget):
             if provider == "gemini":
                 response = requests.get(
                     "https://generativelanguage.googleapis.com/v1beta/models",
-                    params={"key": key}, timeout=15)
+                    headers={"x-goog-api-key": key}, timeout=15)
             elif provider == "virustotal":
                 response = requests.get(
                     "https://www.virustotal.com/api/v3/ip_addresses/8.8.8.8",

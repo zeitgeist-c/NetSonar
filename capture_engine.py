@@ -52,25 +52,6 @@ def get_broadcast_addresses() -> set[str]:
     return result
 
 
-def get_network_interfaces() -> list[dict]:
-    """Return active capture interfaces and their first IPv4 address."""
-    interfaces = []
-    addresses = psutil.net_if_addrs()
-    try:
-        for interface in get_if_list():
-            for address in addresses.get(interface, []):
-                if getattr(address.family, "name", "") == "AF_INET":
-                    interfaces.append({
-                        "name": interface,
-                        "ip": address.address,
-                        "netmask": address.netmask,
-                    })
-                    break
-    except Exception:
-        log.exception("Network interfaces could not be enumerated")
-    return interfaces
-
-
 _port_process_map: dict[tuple[str, int], str] = {}
 _map_lock = threading.Lock()
 _ip_byte_counter: dict[str, int] = {}
@@ -190,11 +171,6 @@ class CaptureEngine:
         self._adapter_health: dict[str, str] = {}
         self._health_lock = threading.Lock()
         self._accumulator = FlowAccumulator(db)
-
-    def set_interface(self, interface: str | None):
-        if self._running:
-            raise RuntimeError("Stop capture before changing the interface.")
-        self._interface = interface
 
     def start(self):
         if self._running:
