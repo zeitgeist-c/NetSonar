@@ -7,7 +7,7 @@ import logging
 import subprocess
 
 from database import Database
-from ip_utils import ip_to_rule_token, is_valid_ip, normalized_ip, rule_token_to_ip
+from ip_utils import ip_to_rule_token, normalized_ip, rule_token_to_ip
 
 log = logging.getLogger("NetSonar.KillSwitch")
 RULE_PREFIX = "NetSonar_BLOCK_"

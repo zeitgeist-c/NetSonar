@@ -216,6 +216,7 @@ class StatsWorker(QThread):
             stats = self.db.get_stats()
             self.done.emit(stats)
         except Exception:
+            log.exception("StatsWorker: get_stats failed")
             self.done.emit({})
 
 
@@ -232,30 +233,37 @@ class DashboardWorker(QThread):
         try:
             result["traffic"] = self.db.get_traffic_stats()
         except Exception:
+            log.exception("DashboardWorker: get_traffic_stats failed")
             result["traffic"] = []
         try:
             result["top_ips"] = self.db.get_summary(hours=24, limit=7)
         except Exception:
+            log.exception("DashboardWorker: get_summary failed")
             result["top_ips"] = []
         try:
             result["speed"]   = self.db.get_traffic_speed(minutes=5)
         except Exception:
+            log.exception("DashboardWorker: get_traffic_speed failed")
             result["speed"] = {}
         try:
             result["procs"]   = self.db.get_top_processes(hours=1, limit=3)
         except Exception:
+            log.exception("DashboardWorker: get_top_processes failed")
             result["procs"] = []
         try:
             result["protos"]  = self.db.get_protocol_distribution(hours=24)
         except Exception:
+            log.exception("DashboardWorker: get_protocol_distribution failed")
             result["protos"] = {}
         try:
             result["active"]  = self.db.get_active_connections_count(minutes=60)
         except Exception:
+            log.exception("DashboardWorker: get_active_connections_count failed")
             result["active"] = 0
         try:
             result["timeline"] = self.db.get_traffic_timeline(hours=1, points=12)
         except Exception:
+            log.exception("DashboardWorker: get_traffic_timeline failed")
             result["timeline"] = []
         self.done.emit(result)
 
@@ -2480,14 +2488,13 @@ class SettingsTab(QWidget):
                 1, int(s.get("HIGH_TRAFFIC_THRESHOLD_BYTES", 50 * 1024 * 1024)) // (1024 * 1024)
             ))
 
-            api_keys = s.get("GEMINI_API_KEYS", []) or []
-            if isinstance(api_keys, str):
-                api_keys = [k.strip() for k in api_keys.replace(",", "\n").replace(";", "\n").splitlines() if k.strip()]
+            from config import split_api_keys
+            api_keys = split_api_keys(s.get("GEMINI_API_KEYS", []))
             if not api_keys and s.get("GEMINI_API_KEY", ""):
-                api_keys = [s.get("GEMINI_API_KEY", "")]
+                api_keys = split_api_keys(s.get("GEMINI_API_KEY", ""))
             self._gemini_keys.set_keys(api_keys)
-            vt_keys = s.get("VIRUSTOTAL_API_KEYS", []) or [s.get("VIRUSTOTAL_API_KEY", "")]
-            tavily_keys = s.get("TAVILY_API_KEYS", []) or [s.get("TAVILY_API_KEY", "")]
+            vt_keys = split_api_keys(s.get("VIRUSTOTAL_API_KEYS", [])) or split_api_keys(s.get("VIRUSTOTAL_API_KEY", ""))
+            tavily_keys = split_api_keys(s.get("TAVILY_API_KEYS", [])) or split_api_keys(s.get("TAVILY_API_KEY", ""))
             self._virustotal_keys.set_keys(vt_keys)
             self._tavily_keys.set_keys(tavily_keys)
             self._update_key_status()
