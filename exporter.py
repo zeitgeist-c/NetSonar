@@ -11,6 +11,14 @@ from database import Database
 from config import user_data_path
 
 
+def _csv_cell(value) -> str:
+    """CSV formül enjeksiyonuna karşı kaçış (=, +, -, @, tab, CR ile başlayan hücreler)."""
+    text = "" if value is None else str(value)
+    if text[:1] in ("=", "+", "-", "@", "\t", "\r"):
+        return "'" + text
+    return text
+
+
 def _suspicious_rows(report: dict) -> list[dict]:
     rows = [row for row in report.get("suspicious_connections", []) if isinstance(row, dict)]
     if rows:
@@ -68,14 +76,14 @@ def _export_csv(report: dict, filepath: str) -> str:
         writer.writerow(["Analysis Time", "IP", "Port", "Process", "Reason", "Action", "Risk Score", "Status", "Sources"])
         
         writer.writerow([
-            report.get("analysis_time", report.get("created_at", "")),
+            _csv_cell(report.get("analysis_time", report.get("created_at", ""))),
             "Genel",
             "",
             "",
             "",
             "",
-            report.get("risk_score", ""),
-            report.get("status", ""),
+            _csv_cell(report.get("risk_score", "")),
+            _csv_cell(report.get("status", "")),
             "",
         ])
         writer.writerow([])
@@ -85,19 +93,20 @@ def _export_csv(report: dict, filepath: str) -> str:
                            (report.get("intel_sources", []) + report.get("web_sources", []))
                            if s.get("indicator") == conn.get("ip")]
             writer.writerow([
-                report.get("analysis_time", report.get("created_at", "")), conn.get("ip", ""),
-                conn.get("port", ""),
-                conn.get("process", ""),
-                conn.get("reason", ""),
-                conn.get("action", ""),
-                report.get("risk_score", ""),
-                report.get("status", ""),
-                " | ".join(source_urls),
+                _csv_cell(report.get("analysis_time", report.get("created_at", ""))),
+                _csv_cell(conn.get("ip", "")),
+                _csv_cell(conn.get("port", "")),
+                _csv_cell(conn.get("process", "")),
+                _csv_cell(conn.get("reason", "")),
+                _csv_cell(conn.get("action", "")),
+                _csv_cell(report.get("risk_score", "")),
+                _csv_cell(report.get("status", "")),
+                _csv_cell(" | ".join(source_urls)),
             ])
         
         writer.writerow([])
         writer.writerow(["Özet"])
-        writer.writerow([report.get("summary", "")])
+        writer.writerow([_csv_cell(report.get("summary", ""))])
     
     return filepath
 

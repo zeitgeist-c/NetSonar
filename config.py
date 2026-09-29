@@ -11,7 +11,7 @@ from settings_service import protect_secret, unprotect_secret, validate_settings
 
 log = logging.getLogger("NetSonar.Config")
 
-APP_VERSION = "v0.5.6"
+APP_VERSION = "v0.5.7"
 IS_FROZEN = bool(getattr(sys, "frozen", False))
 APP_DIR = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
 
@@ -91,8 +91,12 @@ def _write_settings(data: dict):
         data[plural] = protected_provider_keys
         data[singular] = protected_provider_keys[0] if protected_provider_keys else ""
     os.makedirs(os.path.dirname(SETTINGS_FILE), exist_ok=True)
-    with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
+    tmp_path = SETTINGS_FILE + ".tmp"
+    with open(tmp_path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp_path, SETTINGS_FILE)
 
 
 def _normalize_model_setting(data: dict) -> tuple[dict, bool]:
@@ -194,6 +198,11 @@ def _split_api_keys(value) -> list[str]:
             keys.append(key)
             seen.add(key)
     return keys
+
+
+def split_api_keys(value) -> list[str]:
+    """API key listesini settings/env kaynaklarindan normalize et (public alias)."""
+    return _split_api_keys(value)
 
 # ─── AI Sağlayıcı Seçimi ────────────────────────────────────────────
 AI_PROVIDER = "gemini"

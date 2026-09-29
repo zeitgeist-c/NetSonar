@@ -30,7 +30,7 @@ One-shot CLI:
 .\.venv\Scripts\python.exe main.py --list-blocked
 ```
 
-Other flags: `--no-gui`, `--accept-v05-reset` (confirms the v0.5 storage reset). Ready build: `dist\NetSonar-v0.5.6.exe` + `.bat`.
+Other flags: `--no-gui`, `--accept-v05-reset` (confirms the v0.5 storage reset). Ready build: `dist\NetSonar-v0.5.7.exe` + `.bat`.
 
 ## Features
 
