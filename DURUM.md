@@ -2,7 +2,7 @@
 
 **Güncelleme:** 2026-10-17
 **Versiyon:** v0.5.8 (tag: bu commit; dağıtım: zeitgeist-c/NetSonar-Releases v0.5.8)
-**Branch:** main (push bekliyor — aynı oturumda yapılacak)
+**Branch:** main (push edildi: main + v0.5.8; dagitim: NetSonar-Releases v0.5.8 yayinda)
 **Son commit:** önceki: 0b76fb7 (v0.5.7 dağıtım dosyaları)
 **Ağaç:** bu commit'le temizlendi; kullanıcının 21-skill turu sonrası WIP'i onayıyla dahil edildi (NetSonar.bat Npcap yolu düzeltmesi, requirements-build pin güncellemeleri, app_gui/capture_engine/custom_alerts/database/flow_accumulator/notifier/test_flow_accumulator küçük değişiklikleri).
 **Not:** Kirli dosyalar kullanıcıya ait olabilir; commit öncesi kullanıcıya sorulur. (2026-10-17: app_gui.py ve WIP dahil tüm ağaç üzerinde açık onay alındı.)
