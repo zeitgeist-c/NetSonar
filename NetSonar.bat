@@ -39,7 +39,7 @@ if not exist "%ENTRYPOINT%" (
 :: eski surec ve tek-ornek kilidi guncel kodun acilmasini engellemez.
 powershell -NoProfile -Command "$entry=[IO.Path]::GetFullPath('%ENTRYPOINT%'); Get-CimInstance Win32_Process | Where-Object { ($_.Name -eq 'python.exe' -or $_.Name -eq 'pythonw.exe') -and $_.CommandLine -and $_.CommandLine.Contains($entry) } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"
 
-if not exist "C:\Windows\System32\Npcap\wpcap.dll" (
+if not exist "%SystemRoot%\System32\Npcap\wpcap.dll" (
     echo UYARI: Npcap bulunamadi. Scapy calismayabilir.
     echo Lutfen https://npcap.com adresinden Npcap yukleyin.
     echo.

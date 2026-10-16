@@ -177,6 +177,7 @@ class CaptureEngine:
             return
         self._running = True
         if not npcap_available():
+            self._running = False
             with self._health_lock:
                 self._adapter_health = {"Npcap": "error: wpcap.dll not found"}
             log.error("Npcap wpcap.dll was not found; capture is unavailable")

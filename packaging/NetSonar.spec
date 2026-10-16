@@ -1,8 +1,20 @@
 # -*- mode: python ; coding: utf-8 -*-
+# Tek dosyali (onefile) portable surum. EXE adi surumu tasir
+# (NetSonar-vX.Y.Z.exe); yanindaki BAT ile calisir ve kendini-guncelleyici
+# yeni surumu aynin yanina koyup swap yapar. NSIS kurulumcusu birakildi:
+# kurulumcu Npcap'i zaten kurmuyordu, tek yaptigi dosyalari klasore koymakti.
 from pathlib import Path
+import re
 from PyInstaller.utils.hooks import collect_submodules
 
 project_root = Path(SPECPATH).parent
+
+_config_text = (project_root / "config.py").read_text(encoding="utf-8")
+_version_match = re.search(r'(?m)^APP_VERSION\s*=\s*"v(\d+\.\d+\.\d+)"', _config_text)
+if not _version_match:
+    raise SystemExit("config.py icinde APP_VERSION bulunamadi.")
+APP_VERSION = _version_match.group(1)
+EXE_NAME = f"NetSonar-v{APP_VERSION}"
 
 datas = [
     (str(project_root / "netsonar-v3.ico"), "."),
@@ -13,6 +25,7 @@ datas = [
 hiddenimports = [
     "custom_alerts",
     "notifier",
+    "update",
     "plyer.facades.notification",
     "plyer.platforms.win.notification",
 ]
@@ -34,9 +47,8 @@ a = Analysis(
 )
 pyz = PYZ(a.pure)
 exe = EXE(
-    pyz, a.scripts, [],
-    exclude_binaries=True,
-    name="NetSonar",
+    pyz, a.scripts, a.binaries, a.datas, [],
+    name=EXE_NAME,
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -49,11 +61,4 @@ exe = EXE(
     entitlements_file=None,
     icon=str(project_root / "netsonar-v3.ico"),
     uac_admin=True,
-)
-coll = COLLECT(
-    exe, a.binaries, a.datas,
-    strip=False,
-    upx=True,
-    upx_exclude=[],
-    name="NetSonar",
 )
