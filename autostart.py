@@ -81,3 +81,16 @@ def set_autostart(enabled: bool) -> bool:
     """Apply and verify the requested registry state."""
     changed = enable_autostart() if enabled else disable_autostart()
     return bool(changed and is_autostart_enabled() == bool(enabled))
+
+
+def retarget_launch(exe_path: str) -> bool:
+    """Point an existing startup entry at a new exe after a self-update.
+
+    A disabled entry stays disabled; an enabled one is rewritten so the
+    next boot launches the fresh versioned exe, not the superseded one.
+    """
+    if not is_autostart_enabled():
+        return True
+    global REG_VALUE
+    REG_VALUE = f'"{exe_path}"'
+    return set_autostart(True)

@@ -22,11 +22,15 @@ class VersionAndApiErrorTests(unittest.TestCase):
         self.assertIn("HTTP 403", message)
         self.assertIn("yetkisini", message)
 
-    def test_versioned_bat_launches_source_project_not_installer(self):
+    def test_versioned_bat_launches_matching_portable_exe(self):
         root = Path(__file__).resolve().parents[1]
         launcher = (root / "dist" / f"NetSonar-{APP_VERSION}.bat").read_text(encoding="utf-8")
-        self.assertIn(r"%~dp0..\NetSonar.bat", launcher)
-        self.assertNotIn(f"NetSonar-{APP_VERSION}.exe", launcher)
+        exe_name = f"NetSonar-{APP_VERSION}.exe"
+        self.assertIn(exe_name, launcher)
+        self.assertIn('"%~dp0' + exe_name + '"', launcher)
+        self.assertNotIn(r"%~dp0..\NetSonar.bat", launcher)
+        # Tek-ornek koruyucusu ayni surumlu exe adini hedefler.
+        self.assertIn(f"IMAGENAME eq {exe_name}", launcher)
         root_launcher = (root / "NetSonar.bat").read_text(encoding="utf-8")
         self.assertIn(r".venv\Scripts\pythonw.exe", root_launcher)
         self.assertIn(r"%~dp0main.py", root_launcher)

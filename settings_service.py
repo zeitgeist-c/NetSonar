@@ -95,4 +95,5 @@ def validate_settings(data: dict, defaults: dict) -> dict:
             0.0, min(10.0, float(result.get("AUTO_BLOCK_MIN_RISK_SCORE", 7.0))))
     except (TypeError, ValueError):
         result["AUTO_BLOCK_MIN_RISK_SCORE"] = 7.0
+    result["UPDATE_LAST_CHECK"] = str(result.get("UPDATE_LAST_CHECK", "") or "")
     return result
