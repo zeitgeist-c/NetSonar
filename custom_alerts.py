@@ -4,6 +4,7 @@ Belirli IP veya portlar için otomatik bildirim oluşturur.
 """
 
 import json
+import logging
 import threading
 import ipaddress
 from pathlib import Path
@@ -11,6 +12,8 @@ from config import user_data_path
 
 
 ALERTS_FILE = Path(user_data_path("netsonar_data", "custom_alerts.json"))
+
+log = logging.getLogger(__name__)
 
 
 class AlertRule:
@@ -121,6 +124,7 @@ def load_alerts() -> list[AlertRule]:
             _cached_rules, _cached_mtime_ns = rules, mtime
         return list(rules)
     except Exception:
+        log.warning("Uyarı kuralları yüklenemedi (custom_alerts.json)", exc_info=True)
         return []
 
 

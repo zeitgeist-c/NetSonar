@@ -15,10 +15,8 @@ $BuildPython = Join-Path $BuildVenv "Scripts\python.exe"
 $BuildDir = Join-Path $PackagingDir "build"
 $AppDistDir = Join-Path $PackagingDir "app-dist"
 $ReleaseDir = Join-Path $ProjectRoot "dist"
-$InstallerDir = Join-Path $BuildDir "installer"
-$Installer = Join-Path $ReleaseDir "$VersionedStem.exe"
+$PortableExe = Join-Path $ReleaseDir "$VersionedStem.exe"
 $Launcher = Join-Path $ReleaseDir "$VersionedStem.bat"
-$StagedInstaller = Join-Path $InstallerDir "$VersionedStem-staging.exe"
 
 if (-not $PythonPath) {
     $ProjectPython = Join-Path $ProjectRoot ".venv\Scripts\python.exe"
@@ -47,10 +45,13 @@ Get-ChildItem -LiteralPath $ReleaseDir -File | Where-Object {
     $_.Name -match '^NetSonar-v\d+\.\d+\.\d+\.(exe|bat)$'
 } | Remove-Item -Force
 
-Write-Host "NetSonar uygulamasi paketleniyor..."
+Write-Host "Tek dosyali (onefile) portable surum paketleniyor..."
 $PyInstallerArgs = @("-m", "PyInstaller", "--noconfirm", "--clean", "--workpath", $BuildDir, "--distpath", $AppDistDir, (Join-Path $PackagingDir "NetSonar.spec"))
 & $BuildPython @PyInstallerArgs
 if ($LASTEXITCODE -ne 0) { throw "PyInstaller derlemesi basarisiz oldu." }
+
+$BuiltExe = Join-Path $AppDistDir "$VersionedStem.exe"
+if (-not (Test-Path -LiteralPath $BuiltExe)) { throw "onefile EXE uretilmedi: $BuiltExe" }
 
 $ForbiddenFiles = Get-ChildItem -LiteralPath $AppDistDir -Recurse -File | Where-Object {
     $_.Extension -in @(".py", ".db", ".log") -or $_.Name -eq "settings.json"
@@ -60,25 +61,17 @@ if ($ForbiddenFiles) {
     throw ("Paketlenmemesi gereken dosyalar bulundu:" + [Environment]::NewLine + $Names)
 }
 
-New-Item -ItemType Directory -Force -Path $InstallerDir | Out-Null
-$NsisCandidates = @(
-    (Join-Path ([Environment]::GetFolderPath("ProgramFilesX86")) "NSIS\makensis.exe"),
-    (Join-Path ([Environment]::GetFolderPath("ProgramFiles")) "NSIS\makensis.exe")
-)
-$MakeNsis = Get-Command makensis.exe -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty Source
-if (-not $MakeNsis) { $MakeNsis = $NsisCandidates | Where-Object { $_ -and (Test-Path -LiteralPath $_) } | Select-Object -First 1 }
-if (-not $MakeNsis) { throw "NSIS bulunamadi. README.md icindeki onkosulu kurup yeniden deneyin." }
+Move-Item -LiteralPath $BuiltExe -Destination $PortableExe -Force
 
-Write-Host "Tek dosyali Windows kurulum paketi olusturuluyor..."
-& $MakeNsis /V2 "/DAPP_VERSION=$Version" (Join-Path $PackagingDir "NetSonar.nsi")
-if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $StagedInstaller)) { throw "NSIS derlemesi basarisiz oldu." }
-Move-Item -LiteralPath $StagedInstaller -Destination $Installer -Force
-$LauncherText = "@echo off`r`nsetlocal`r`nset `"PROJECT_LAUNCHER=%~dp0..\NetSonar.bat`"`r`nif not exist `"%PROJECT_LAUNCHER%`" (`r`n    echo HATA: Proje baslaticisi bulunamadi: %PROJECT_LAUNCHER%`r`n    echo Bu BAT dosyasi kurulum EXE'sini degil, kaynak projeyi calistirir.`r`n    pause`r`n    exit /b 1`r`n)`r`ncall `"%PROJECT_LAUNCHER%`" %*`r`nexit /b %errorlevel%`r`n"
-[IO.File]::WriteAllText($Launcher, $LauncherText, [Text.UTF8Encoding]::new($false))
+# Eslesen BAT baslatici: update.py'deki yaz_launcher ile ayni icerik, tek kaynaktan.
+# Yollar argv ile gonderilir; string'in icine gommek Windows ters bolu yuzunden bozulur.
+& $BuildPython -c "import sys; sys.path.insert(0, sys.argv[1]); import update; update.write_launcher(__import__('pathlib').Path(sys.argv[2]))" $ProjectRoot $PortableExe
+if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $Launcher)) { throw "Baslatici BAT uretilmedi." }
+
 foreach ($temporaryPath in @($BuildDir, $AppDistDir)) {
     if (Test-Path -LiteralPath $temporaryPath) {
         Remove-Item -LiteralPath $temporaryPath -Recurse -Force
     }
 }
-Write-Host "Kurulum paketi hazir: $Installer"
-Write-Host "Kaynak proje baslaticisi hazir: $Launcher"
+Write-Host "Portable surum hazir: $PortableExe"
+Write-Host "Baslatici hazir: $Launcher"

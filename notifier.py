@@ -45,8 +45,8 @@ def _send_toast(title: str, message: str, severity: str = "info"):
             app_name="NetSonar",
             timeout=10 if severity == "critical" else 6,
         )
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("plyer yedek bildirimi gönderilemedi: %s", exc)
 
 
 def _log(title: str, message: str, level: str = "INFO"):

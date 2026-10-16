@@ -6,8 +6,12 @@ from flow_accumulator import FlowAccumulator
 class FakeDB:
     def __init__(self):
         self.rows = []
-    def upsert_flow_bucket(self, row):
+    def upsert_flow_bucket(self, row, commit=True):
         self.rows.append(row)
+    def flush(self):
+        pass
+    def rollback(self):
+        pass
 
 
 class FlowAccumulatorTests(unittest.TestCase):

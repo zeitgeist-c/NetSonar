@@ -120,7 +120,7 @@ class Database:
             )
             self.conn.commit()
 
-    def upsert_flow_bucket(self, data: dict) -> int:
+    def upsert_flow_bucket(self, data: dict, commit: bool = True) -> int:
         fields = dict(data)
         now = fields.get("last_seen") or datetime.now().isoformat()
         fields.setdefault("first_seen", now)
@@ -145,12 +145,17 @@ class Database:
                 WHERE bucket_start=:bucket_start AND local_ip=:local_ip AND local_port=:local_port
                   AND remote_ip=:remote_ip AND remote_port=:remote_port
                   AND protocol=:protocol AND process=:process""", fields).fetchone()
-            self.conn.commit()
+            if commit:
+                self.conn.commit()
             return int(row[0])
 
     def flush(self):
         with self._lock:
             self.conn.commit()
+
+    def rollback(self):
+        with self._lock:
+            self.conn.rollback()
 
     def claim_pending_batch(self) -> dict | None:
         now = datetime.now().isoformat()
