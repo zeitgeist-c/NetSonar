@@ -30,7 +30,7 @@ Tek seferlik komutlar:
 .\.venv\Scripts\python.exe main.py --list-blocked
 ```
 
-Diğer bayraklar: `--no-gui`, `--accept-v05-reset` (v0.5 depolama sıfırlama onayı). Hazır derleme: `dist\NetSonar-v0.5.8.exe` + `.bat` (taşınabilir, kendini güncelleyen).
+Diğer bayraklar: `--no-gui`, `--accept-v05-reset` (v0.5 depolama sıfırlama onayı). Hazır derleme: `dist\NetSonar-v0.5.9.exe` + `.bat` (taşınabilir, kendini güncelleyen).
 
 ## Özellikler
 
