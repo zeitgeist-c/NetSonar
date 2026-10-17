@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from typing import Iterable
 
-from PyQt6.QtCore import QEasingCurve, QPropertyAnimation, QSize, Qt, pyqtSignal
-from PyQt6.QtGui import QIcon, QColor
+from PyQt6.QtCore import QEasingCurve, QPropertyAnimation, QRectF, QSize, Qt, pyqtSignal
+from PyQt6.QtGui import QColor, QIcon, QPainter
 from PyQt6.QtWidgets import (
     QButtonGroup,
     QFrame,
@@ -22,6 +23,8 @@ from PyQt6.QtWidgets import (
 
 from config import app_path
 from ui_theme import C, THEME
+
+log = logging.getLogger("NetSonar.UI")
 
 
 BUTTON_HEIGHTS = {"sm": 32, "md": 40, "lg": 48}
@@ -371,6 +374,267 @@ class NavigationRail(QFrame):
         self.currentRowChanged.emit(row)
 
 
+class SubNav(QFrame):
+    """Narrow secondary navigation used inside a page (settings sections)."""
+
+    currentRowChanged = pyqtSignal(int)
+
+    def __init__(
+        self,
+        items: Iterable[tuple[str, str, str]] | None = None,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self.setProperty("role", "subNavRail")
+        self.setFixedWidth(190)
+        self._current_row = -1
+        self._buttons: list[QToolButton] = []
+        self._group = QButtonGroup(self)
+        self._group.setExclusive(True)
+        self._group.idClicked.connect(self.setCurrentRow)
+        self._layout = QVBoxLayout(self)
+        self._layout.setContentsMargins(10, 12, 10, 12)
+        self._layout.setSpacing(4)
+        self._layout.addStretch(1)
+        if items:
+            for text, icon, tooltip in items:
+                self.add_item(text, icon, tooltip)
+
+    def add_item(self, text: str, icon: str | QIcon | None = None, tooltip: str = "") -> QToolButton:
+        button = QToolButton(self)
+        button.setProperty("subNav", "true")
+        button.setText(text)
+        button.setCheckable(True)
+        button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        button.setCursor(Qt.CursorShape.PointingHandCursor)
+        button.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        button.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        button.setIconSize(QSize(16, 16))
+        resolved_icon = load_icon(icon)
+        if not resolved_icon.isNull():
+            button.setIcon(resolved_icon)
+        button.setToolTip(tooltip)
+        index = len(self._buttons)
+        self._buttons.append(button)
+        self._group.addButton(button, index)
+        self._layout.insertWidget(self._layout.count() - 1, button)
+        return button
+
+    def count(self) -> int:
+        return len(self._buttons)
+
+    def button(self, row: int) -> QToolButton | None:
+        return self._buttons[row] if 0 <= row < len(self._buttons) else None
+
+    def currentRow(self) -> int:  # noqa: N802 - QListWidget compatibility
+        return self._current_row
+
+    def setCurrentRow(self, row: int) -> None:  # noqa: N802 - QListWidget compatibility
+        if not 0 <= row < len(self._buttons):
+            return
+        button = self._buttons[row]
+        button.setChecked(True)
+        if row == self._current_row:
+            return
+        self._current_row = row
+        self.currentRowChanged.emit(row)
+
+
+class EmptyState(QFrame):
+    """Guided empty state: what happened, what to do next."""
+
+    def __init__(
+        self,
+        title: str,
+        body: str = "",
+        action_text: str = "",
+        action_icon: str | QIcon | None = None,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self.setProperty("role", "emptyState")
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(24, 30, 24, 30)
+        layout.setSpacing(8)
+        layout.addStretch(1)
+
+        self.title_label = QLabel(title)
+        self.title_label.setProperty("role", "emptyTitle")
+        self.title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self.title_label)
+
+        self.body_label = QLabel(body)
+        self.body_label.setProperty("role", "emptyBody")
+        self.body_label.setWordWrap(True)
+        self.body_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.body_label.setVisible(bool(body))
+        layout.addWidget(self.body_label)
+
+        self.action_button: AppButton | None = None
+        if action_text:
+            self.action_button = AppButton(
+                action_text, icon=action_icon, variant="primary", size="md"
+            )
+            layout.addWidget(self.action_button, 0, Qt.AlignmentFlag.AlignHCenter)
+        layout.addStretch(1)
+
+    def set_message(self, title: str | None = None, body: str | None = None) -> None:
+        if title is not None:
+            self.title_label.setText(title)
+        if body is not None:
+            self.body_label.setText(body)
+            self.body_label.setVisible(bool(body))
+
+
+class DetailStrip(QFrame):
+    """Bottom strip carrying the selected row's fields plus its actions."""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setProperty("role", "detailStrip")
+        self._layout = QHBoxLayout(self)
+        self._layout.setContentsMargins(14, 10, 14, 10)
+        self._layout.setSpacing(20)
+        self._fields: dict[str, QLabel] = {}
+
+    def add_field(self, key: str, value: str = "—") -> QLabel:
+        box = QVBoxLayout()
+        box.setContentsMargins(0, 0, 0, 0)
+        box.setSpacing(1)
+        key_label = QLabel(key)
+        key_label.setProperty("role", "detailKey")
+        value_label = QLabel(str(value) if value not in (None, "") else "—")
+        value_label.setProperty("role", "detailValue")
+        value_label.setWordWrap(True)
+        box.addWidget(key_label)
+        box.addWidget(value_label)
+        self._layout.addLayout(box)
+        self._fields[key] = value_label
+        return value_label
+
+    def set_field(self, key: str, value) -> None:
+        label = self._fields.get(key)
+        if label is not None:
+            text = str(value) if value not in (None, "") else "—"
+            label.setText(text)
+
+    def add_stretch(self) -> None:
+        self._layout.addStretch(1)
+
+    def add_action(self, widget: QWidget) -> QWidget:
+        self._layout.addWidget(widget)
+        return widget
+
+
+class MiniBarChart(QFrame):
+    """Dependency-free bar chart for hourly traffic."""
+
+    def __init__(self, data=None, color: str | None = None, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._data = [float(v) for v in (data or [])]
+        self._color = color or C["accent"]
+        self.setMinimumHeight(96)
+        self.setStyleSheet("background:transparent; border:none;")
+
+    def set_data(self, data) -> None:
+        self._data = [float(v) for v in (data or [])]
+        self.update()
+
+    def paintEvent(self, event) -> None:  # noqa: N802 - Qt API
+        try:
+            if not self._data:
+                return
+            painter = QPainter(self)
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+            width, height = self.width(), self.height()
+            if width <= 2 or height <= 4:
+                return
+            baseline = height - 14
+            peak = max(self._data) or 1.0
+            count = len(self._data)
+            gap = 3
+            bar_width = max(2.0, (width - gap * (count - 1)) / count)
+            painter.setPen(Qt.PenStyle.NoPen)
+            for index, value in enumerate(self._data):
+                bar_height = max(2.0, (value / peak) * (baseline - 6))
+                rect = QRectF(index * (bar_width + gap), baseline - bar_height, bar_width, bar_height)
+                painter.setBrush(QColor(self._color))
+                painter.drawRoundedRect(rect, 2.0, 2.0)
+            painter.setBrush(QColor(C["border2"]))
+            painter.drawRect(QRectF(0, baseline, width, 1))
+        except Exception:  # pragma: no cover - painting must never kill the process
+            log.exception("MiniBarChart.paintEvent failed")
+
+
+class FeedRow(QFrame):
+    """One live-feed line: tone dot, message, right-aligned timestamp."""
+
+    _TONES = {
+        "danger": C["danger"],
+        "warning": C["warning"],
+        "success": C["success"],
+        "accent": C["accent"],
+    }
+
+    def __init__(self, text: str, time_text: str = "", tone: str = "accent", parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setProperty("role", "feedRow")
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(2, 7, 2, 7)
+        layout.setSpacing(9)
+
+        dot = QLabel()
+        dot.setFixedSize(8, 8)
+        dot.setStyleSheet(
+            f"background:{self._TONES.get(tone, C['accent'])}; border-radius:4px; border:none;"
+        )
+        layout.addWidget(dot)
+
+        message = QLabel(text)
+        message.setProperty("role", "feedText")
+        message.setWordWrap(False)
+        layout.addWidget(message, 1)
+
+        stamp = QLabel(time_text)
+        stamp.setProperty("role", "feedTime")
+        layout.addWidget(stamp)
+
+
+class RatioBar(QWidget):
+    """Label + proportion bar + value, used by 'top traffic' rows."""
+
+    def __init__(self, label: str, ratio: float, value_text: str, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        from PyQt6.QtWidgets import QProgressBar
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(10)
+
+        name = QLabel(label)
+        name.setMinimumWidth(132)
+        name.setStyleSheet(
+            f"color:{C['text']}; font-family:'Cascadia Mono','Consolas',monospace; font-size:12px; border:none;"
+        )
+        layout.addWidget(name)
+
+        bar = QProgressBar()
+        bar.setProperty("role", "ratio")
+        bar.setRange(0, 100)
+        bar.setValue(max(2, min(100, int(round(ratio * 100)))))
+        bar.setTextVisible(False)
+        bar.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        layout.addWidget(bar, 1)
+
+        amount = QLabel(value_text)
+        amount.setMinimumWidth(74)
+        amount.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        amount.setStyleSheet(
+            f"color:{C['accent']}; font-family:'Cascadia Mono','Consolas',monospace; font-size:12px; border:none;"
+        )
+        layout.addWidget(amount)
+
+
 # Naming aliases make incremental migration from app_gui.py explicit.
 NeoCard = SurfaceCard
 StatCard = MetricCard
@@ -380,12 +644,18 @@ __all__ = [
     "AppButton",
     "BUTTON_HEIGHTS",
     "BUTTON_VARIANTS",
+    "DetailStrip",
+    "EmptyState",
+    "FeedRow",
     "MetricCard",
+    "MiniBarChart",
     "NavigationRail",
     "NeoCard",
     "PageHeader",
+    "RatioBar",
     "StatCard",
     "StatusPill",
+    "SubNav",
     "SurfaceCard",
     "icon_path",
     "load_icon",

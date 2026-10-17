@@ -11,7 +11,7 @@ from settings_service import protect_secret, unprotect_secret, validate_settings
 
 log = logging.getLogger("NetSonar.Config")
 
-APP_VERSION = "v0.5.8"
+APP_VERSION = "v0.5.9"
 IS_FROZEN = bool(getattr(sys, "frozen", False))
 APP_DIR = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
 

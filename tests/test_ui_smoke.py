@@ -53,6 +53,12 @@ class FakeDatabase:
     def get_traffic_timeline(self, *args, **kwargs):
         return []
 
+    def get_recent_flows(self, *args, **kwargs):
+        return []
+
+    def api_usage(self, *args, **kwargs):
+        return 0
+
     def get_analysis_reports(self, *args, **kwargs):
         return []
 
@@ -253,9 +259,10 @@ class MainWindowSmokeTests(QtSmokeTestCase):
             window.show()
             self.app.processEvents()
             try:
-                cta = window._quick_btn
+                cta = window._dashboard_tab.analyze_button
                 self.assertIsInstance(cta, AppButton)
                 self.assertEqual("primary", cta.property("variant"))
+                self.assertIn(cta, window._analysis_buttons)
 
                 for width, height in ((1280, 760), (1600, 900)):
                     with self.subTest(size=(width, height)):
@@ -290,8 +297,8 @@ class PageConstructionSmokeTests(QtSmokeTestCase):
                     ("dashboard", lambda: app_gui.DashboardTab(self.db)),
                     ("analysis", lambda: app_gui.AnalysisTab(self.db, self.analyzer)),
                     ("connections", lambda: app_gui.DataTab(self.db)),
-                    ("blocked", lambda: app_gui.BlockedTab(self.db)),
-                    ("trusted", lambda: app_gui.TrustedTab(self.db)),
+                    ("rules", lambda: app_gui.RulesTab(self.db)),
+                    ("keys", lambda: app_gui.KeysTab(self.db)),
                     ("settings", app_gui.SettingsTab),
                 )
                 pages = []

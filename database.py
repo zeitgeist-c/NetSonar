@@ -498,6 +498,18 @@ class Database:
                 FROM flow_buckets WHERE last_seen>=? GROUP BY process
                 ORDER BY total_bytes DESC LIMIT ?""", (self._cutoff(hours), limit)).fetchall()]
 
+    def get_recent_flows(self, limit: int = 12, hours: int = 4) -> list[dict]:
+        """Most recently seen remote targets, newest first (dashboard live feed)."""
+        with self._lock:
+            return [dict(row) for row in self.conn.execute("""SELECT remote_ip AS dst_ip,
+                remote_port AS dst_port,process,protocol,
+                SUM(sent_bytes+received_bytes) AS total_bytes,
+                COUNT(*) AS conn_count,MAX(last_seen) AS last_seen
+                FROM flow_buckets WHERE last_seen>=?
+                GROUP BY remote_ip,remote_port,process,protocol
+                ORDER BY last_seen DESC LIMIT ?""",
+                (self._cutoff(hours), limit)).fetchall()]
+
     def get_active_connections_count(self, minutes: int = 60) -> int:
         with self._lock:
             return self.conn.execute("SELECT COUNT(*) FROM flow_buckets WHERE last_seen>=?",
