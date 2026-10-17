@@ -2,7 +2,7 @@
 
 **Güncelleme:** 2026-10-17
 **Versiyon:** v0.5.9 (tag: bu commit; dağıtım: zeitgeist-c/NetSonar-Releases v0.5.9)
-**Branch:** main
+**Branch:** main (push edildi: main + v0.5.9; dagitim: NetSonar-Releases v0.5.9 yayinda)
 **Son commit:** bu commit (v0.5.9 arayüz yenilemesi)
 **Ağaç:** kapsam içi dosyalar commit'lendi; `ui-kesif/` keşif çıktıları ve `.hermes/`, `AGENTS.md` untracked.
 **Not:** Kirli dosyalar kullanıcıya ait olabilir; commit öncesi kullanıcıya sorulur. (2026-10-17: "Yedek işlemini yapabilir misin?" talebiyle tam kapanış yetkisi verildi.)
