@@ -5,28 +5,58 @@ bilgisayarında çalışabilmesi için gereken paketleme yapılandırmasını i�
 
 ## Son kullanıcı dosyaları
 
-    dist\NetSonar-vX.Y.Z.exe
-    dist\NetSonar-vX.Y.Z.bat
+    dist\NetSonar-vX.Y.Z-Setup.exe
 
-Dağıtım tek dosyalık (onefile) portable sürümdür: EXE + yanındaki eşleşen BAT.
-Kurulum yapılmaz; iki dosya birlikte herhangi bir klasörde çalışır. Yönetici
-yetkisi EXE'nin UAC isteminde gelir (uac_admin). NSIS kurulumcusu kaldırıldı;
-kurulumcu Npcap'ı zaten gömüyordu ve tek yaptığı dosyaları Program Files'a
-koymaktı.
+Dağıtım tek kanaldır: NSIS kurulumcu. Kurulum sabit yere yapar:
+
+    C:\Program Files\NetSonar\NetSonar.exe
+
+Kurulum yönetici onayı ister. Masaüstü ve Başlat menüsü kısayolları yazılır,
+kaldırıcı (`Uninstall.exe`) oluşturulur, program "Programlar ve Özellikler"
+listesinde görünür.
+
+Paket bir klasördür (onedir), tek dosya değil: güncelleme program klasörünü
+yerinde değiştirir, açılış anında olur.
 
 ## Güncelleme kanalı
 
-Kaynak deposu gizlidir; EXE/BAT assetleri herkese açık
+Kaynak deposu gizlidir; kurulumcu asseti herkese açık
 `zeitgeist-c/NetSonar-Releases` deposundaki sürümlere yüklenir. Program
-kimliksiz GitHub API'si ile `releases/latest` sorar (update.py), SHA256
-doğrulamalı indirir, yeni exe'yi eskisinin yanına koyar ve swap betiğiyle
-kendini değiştirir. BAT da güncel exe'yi gösterecek şekilde yeniden yazılır;
-otomatik başlatma kaydı açıksa o da yeni exe'ye yönlendirilir.
+kimliksiz GitHub API'si ile `releases/latest` sorar (update.py):
+
+1. `NetSonar-vX.Y.Z-Setup.exe` asseti bulunur (yalnız bu kabul edilir).
+2. Kurulum dosyası kullanıcı önbelleğine iner
+   (`%LOCALAPPDATA%\NetSonar\cache\updates`), SHA256 doğrulanır.
+3. Kullanıcı "Kurulumu Başlat" dedikten sonra onay penceresi açılır.
+4. Program kapanır, kurulum dosyası sessizce (`/S`) çalışır ve program klasörünü
+   yerinde değiştirir.
+
+Program zaten yönetici olarak çalıştığı için güncellemede ayrıca yönetici
+onayı sorulmaz; onay penceresi "başlat" onayıdır.
+
+Otomatik başlatma kaydı yalnızca kullanıcı açtıysa yeni exe'ye yönlendirilir;
+kapalıysa kapalı kalır.
+
+## Kalıcı model deposu (store)
+
+    %LOCALAPPDATA%\NetSonar\store\models\
+    %LOCALAPPDATA%\NetSonar\store\lib\
+    %LOCALAPPDATA%\NetSonar\store\store.json
+
+Kurulum ve güncelleme bu klasöre **asla dokunmaz**. Bir kez indirilen yerel
+model veya ek Python kütüphanesi, program sürümü değişse de yerinde kalır;
+yeniden indirilmesi gerekmez. Depo `store.py` modülü tarafından yönetilir ve
+`sys.path`'in sonuna eklenir (paket içi kütüphane önceliklidir).
+
+Bugün NetSonar'da indirilen yerel model yok — AI tamamen Gemini API üzerinden
+çalışır. Depo, ileride yerel model/ek kütüphane geldiğinde hazır olsun diye
+şimdiden kuruludur.
 
 ## Derleme önkoşulları
 
 - 64 bit Windows 10 veya Windows 11
 - Python 3.11 veya daha yeni bir 64 bit sürüm
+- NSIS 3.x (`C:\Program Files (x86)\NSIS\makensis.exe`)
 - İlk derlemede internet bağlantısı
 
 ## Yeniden oluşturma
@@ -39,26 +69,34 @@ Bağımlılıklar daha önce kurulduysa:
 
     powershell -ExecutionPolicy Bypass -File .\packaging\build.ps1 -SkipDependencyInstall
 
+Yalnız uygulama klasörü (kurulumcu üretilmez):
+
+    powershell -ExecutionPolicy Bypass -File .\packaging\build.ps1 -SkipInstaller
+
 Betik izole ortamı packaging\.build-venv altında oluşturur. PyInstaller geçici
 çıktıları packaging\build ile packaging\app-dist altında hazırlanır ve başarılı
-derleme sonunda otomatik temizlenir. Dağıtılacak sürümlü EXE ve onu başlatan
-eşleşen BAT dosyası proje kökündeki dist klasörüne yazılır. BAT içeriği tek
-kaynaktan gelir: update.py içindeki write_launcher.
+derleme sonunda otomatik temizlenir. Kurulumcu proje kökündeki dist klasörüne
+yazılır ve SHA256 özeti ekrana basılır.
 
-Sürüm numarası config.py içindeki APP_VERSION değerinden okunur.
+Sürüm numarası config.py içindeki APP_VERSION değerinden okunur ve kurulumcuya
+`-DAPP_VERSION` ile geçirilir.
 
 ## Yapılandırma dosyaları
 
-- NetSonar.spec: PyInstaller onefile uygulama ve kaynak tanımları.
+- NetSonar.nsi: NSIS kurulumcu betiği (sabit yol, kısayol, kaldırıcı, sessiz mod).
+- NetSonar.spec: PyInstaller onedir uygulama ve kaynak tanımları.
 - requirements-build.txt: test edilmiş sabit paketleme bağımlılıkları.
 - build.ps1: temiz ve tekrarlanabilir uçtan uca derleme betiği.
 
 ## Kullanıcı verileri ve gizlilik
 
 Paketlenmiş uygulama ayarları, Gemini/VirusTotal/Tavily anahtarlarını,
-veritabanını, logları, özel uyarıları ve raporları %LOCALAPPDATA%\NetSonar
-altında tutar. Projedeki config\settings.json ve netsonar_data içeriği pakete
-alınmaz. Güncelleme yalnız exe'yi değiştirir; kullanıcı verisine dokunmaz.
+veritabanını, logları, özel uyarıları, raporları ve model deposunu
+%LOCALAPPDATA%\NetSonar altında tutar. Projedeki config\settings.json ve
+netsonar_data içeriği pakete alınmaz. Kurulum ve güncelleme yalnız program
+klasörüne yazar; kullanıcı verisine ve model deposuna dokunmaz. Kaldırma da
+kullanıcı verisini silmez.
+
 Her üç sağlayıcı için de birden fazla anahtar desteklenir; ilk anahtar
 varsayılan, diğerleri hata veya kota durumunda otomatik yedektir ve tümü
 DPAPI ile korunur.
@@ -66,15 +104,15 @@ DPAPI ile korunur.
 ## Npcap önkoşulu
 
 Ücretsiz Npcap başka bir uygulamayla yeniden dağıtılamaz; pakete gömülmez.
-Portable exe açılışta Npcap'ı denetler (capture_engine.npcap_available) ve
-yoksa resmî indirme sayfasını açmayı teklif eden bir uyarı gösterir.
+Uygulama açılışta Npcap'ı denetler (capture_engine.npcap_available) ve yoksa
+resmî indirme sayfasını açmayı teklif eden bir uyarı gösterir.
 
 - Npcap: https://npcap.com/#download
 - OEM yeniden dağıtım lisansı: https://npcap.com/oem/
 
 ## Sürüm kapatışı
 
-1. `packaging\build.ps1` ile dist dosyalarını üret.
+1. `packaging\build.ps1` ile kurulumcuyu üret.
 2. Aynı commit'e `vX.Y.Z` etiketi; push ve sürüm açık yetkiyle.
-3. EXE+BAT assetleri `zeitgeist-c/NetSonar-Releases` sürümüne yüklenir;
+3. Kurulumcu asseti `zeitgeist-c/NetSonar-Releases` sürümüne yüklenir;
    yerel ve uzak asset hash'leri karşılaştırılır.

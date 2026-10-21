@@ -13,6 +13,21 @@ setup_logging()
 log = get_logger("Main")
 
 
+def _activate_store():
+    """Ek kutuphanelerin import edilebilmesi icin store yolunu etkinlestir.
+
+    Depo program klasorunun disinda tutulur; kurulum ve guncelleme icerigine
+    dokunmaz, bu yuzden indirilmis model/kutuphaneler yeniden alinmaz.
+    """
+    try:
+        import store
+        added = store.activate()
+        if added:
+            log.info("Store library path activated: %s", added)
+    except Exception as exc:
+        log.warning("Store could not be activated: %s", exc)
+
+
 def _is_admin() -> bool:
     try:
         return bool(ctypes.windll.shell32.IsUserAnAdmin())
@@ -70,6 +85,7 @@ def main() -> int:
     one_shot = bool(args.analyze or args.block or args.unblock or args.list_blocked)
     gui_mode = not args.no_gui and not one_shot
     _require_admin()
+    _activate_store()
     lock = SingleInstanceLock()
     if not lock.acquire():
         print("NetSonar is already running.")

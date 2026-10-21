@@ -1,11 +1,28 @@
 # NetSonar — DURUM (ortak — Desktop + Telegram okur)
 
-**Güncelleme:** 2026-10-17
-**Versiyon:** v0.5.9 (tag: bu commit; dağıtım: zeitgeist-c/NetSonar-Releases v0.5.9)
-**Branch:** main (push edildi: main + v0.5.9; dagitim: NetSonar-Releases v0.5.9 yayinda)
-**Son commit:** bu commit (v0.5.9 arayüz yenilemesi)
+**Güncelleme:** 2026-10-21
+**Versiyon:** v0.6.0 (tag: bu commit; dağıtım: zeitgeist-c/NetSonar-Releases v0.6.0)
+**Branch:** main (push edildi: main + v0.6.0; dagitim: NetSonar-Releases v0.6.0 yayinda)
+**Son commit:** bu commit (v0.6.0 kurulumcu kanalı + kalıcı model deposu)
 **Ağaç:** kapsam içi dosyalar commit'lendi; `ui-kesif/` keşif çıktıları ve `.hermes/`, `AGENTS.md` untracked.
 **Not:** Kirli dosyalar kullanıcıya ait olabilir; commit öncesi kullanıcıya sorulur. (2026-10-17: "Yedek işlemini yapabilir misin?" talebiyle tam kapanış yetkisi verildi.)
+
+## v0.6.0 — Kurulumcu kanalı + kalıcı model deposu (2026-10-21)
+- **Dağıtım tek kanala indi:** portable tek EXE + BAT yerine NSIS kurulumcu (`NetSonar-vX.Y.Z-Setup.exe`).
+  - Kurulum sabit yere yapar: `C:\Program Files\NetSonar\NetSonar.exe`; exe adında sürüm yok → güncellemede yol değişmez.
+  - `packaging/NetSonar.nsi` (yeni): masaüstü + Başlat menüsü kısayolu, `Uninstall.exe`, "Programlar ve Özellikler" kaydı, Türkçe arayüz.
+  - NSIS 32-bit olduğu için `SetRegView 64` — anahtarlar WOW6432Node'a düşüyordu, "Programlar" listesinde görünmüyordu.
+  - Masaüstü kısayolu kullanıcıya özel (`SetShellVarContext current`); "all" bağlamı OneDrive yönlendirilmiş masaüstünde Public Desktop'e yazıyordu.
+- **Güncelleme yeniden yazıldı** (`update.py`): yeni exe'yi yanına kopyalayıp swap etme yerine kurulumcu indirilir → SHA256 doğrulanır → onay istenir → program kapanır → kurulumcu sessizce (`/S`) çalışır ve program klasörünü yerinde değiştirir. `spawn_swap` kaldırıldı (sabit yolda installer ile çakışırdı).
+  - İndirme hedefi Program Files değil, kullanıcı önbelleği: `%LOCALAPPDATA%\NetSonar\cache\updates`.
+  - Asset kuralı: yalnız `NetSonar-vX.Y.Z-Setup.exe` kabul edilir; eski portable exe asseti reddedilir.
+- **Kalıcı model deposu** (`store.py`, yeni): `%LOCALAPPDATA%\NetSonar\store` (models/ + lib/ + store.json manifest). Kurulum ve güncelleme bu klasöre asla dokunmaz → indirilmiş model/kütüphane sürüm değişse de yeniden indirilmez. `main.py` açılışta `store.activate()` ile lib yolunu `sys.path` sonuna ekler (paket içi kütüphane öncelikli).
+  - Not: bugün NetSonar'da indirilen yerel model yok; AI tamamen Gemini API. Depo ileride yerel model geldiğinde hazır olsun diye kuruldu.
+- **Paket onedir'a geçti** (`NetSonar.spec`): kurulum ağacı C:\Program Files'a kopyalanır, açılış anında olur. Kullanılmayan Qt modülleri (Quick, Multimedia, Pdf, Bluetooth, Qml...) `excludes` ile dışlandı → kurulumcu 48 MB onefile yerine **35.2 MB**.
+- `autostart.py`: komut artık sürüm adı taşımıyor; güncellemede yeniden yönlendirme gerekmiyor.
+- `app_gui.py`: güncelleme kartındaki buton "İndir ve Kur" → "Kurulumu Başlat"; indirme sonrası onay penceresi, sonra sessiz kurulum + yeniden başlatma.
+- Testler: 92 → **128 test + 29 alt test** (`test_update.py` yeniden yazıldı, `test_store.py` ve `test_installer_contract.py` yeni).
+- Gerçek doğrulama: kurulum `C:\Program Files\NetSonar`'a yapıldı, kısayollar ve kayıt defteri doğrulandı, store + 9 MB veritabanı kurulum sonrası yerinde kaldı, kaldırma temiz çalıştı.
 
 ## v0.5.9 — Arayüz yenilemesi: Grafit & Kobalt (2026-10-17)
 - Onaylanan kombinasyon uygulandı: `D + N4 + P1 + F2 + A1 + İskelet + S1`.

@@ -1,14 +1,24 @@
 """Self-update over the public NetSonar-Releases GitHub repository.
 
-The source repository stays private; releases (EXE + BAT only) live in a
-public repo so a portable single-file install can ask "what is the newest
-version?" without shipping a token inside the exe. The GitHub API answers
-unauthenticated for public repos, rate limited per IP — a once-a-day check
-uses one request and stays far under the limit.
+The source repository stays private; releases (the installer only) live in a
+public repo so an installed app can ask "what is the newest version?" without
+shipping a token inside the exe. The GitHub API answers unauthenticated for
+public repos, rate limited per IP — a once-a-day check uses one request and
+stays far under the limit.
 
-A release always supersedes every older one, so an install on 0.5.6 jumps
-straight to 0.5.9: it downloads `releases/latest`, never the steps between.
-The flow mirrors WordArc's proven updater (same author, same release shape).
+A release always supersedes every older one, so an install on 0.5.9 jumps
+straight to 0.6.0: it downloads `releases/latest`, never the steps between.
+
+Update shape (installer-based, v0.6.0+):
+    1. fetch the release, read the `NetSonar-vX.Y.Z-Setup.exe` asset
+    2. download it into the user data cache with SHA256 verification
+    3. the running app asks the user to confirm, then hands the job to the
+       installer, which replaces the program folder in place
+    4. user data and the model store (a separate folder) are never touched
+
+The old "download a new exe next to the old one and swap" flow is gone: the
+install path is fixed (C:\\Program Files\\NetSonar), so only the installer may
+write there — a copy-then-swap dance would fight it for the same files.
 """
 
 from __future__ import annotations
@@ -16,6 +26,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 import re
 import subprocess
 import urllib.error
@@ -27,6 +38,10 @@ RELEASE_REPO = "zeitgeist-c/NetSonar-Releases"
 API_LATEST = f"https://api.github.com/repos/{RELEASE_REPO}/releases/latest"
 USER_AGENT = "NetSonar/updater"
 log = logging.getLogger("NetSonar.Update")
+
+INSTALL_DIR = Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "NetSonar"
+APP_EXE_NAME = "NetSonar.exe"
+INSTALLER_TIMEOUT_SECONDS = 900
 
 
 class UpdateError(Exception):
@@ -55,16 +70,21 @@ def is_newer(candidate: str, current: str) -> bool:
     return parse_version(candidate) > parse_version(current)
 
 
-def parse_release(payload: dict) -> UpdateInfo:
-    """Pull the exe asset out of a /releases/latest payload.
+def installer_asset_name(version: str) -> str:
+    """Release asset name for a version: NetSonar-v0.6.0-Setup.exe."""
+    return f"NetSonar-v{version}-Setup.exe"
 
-    Asset names carry the 'v' prefix (NetSonar-v0.5.7.exe), matching the
-    tag and the delivery file naming rule.
+
+def parse_release(payload: dict) -> UpdateInfo:
+    """Pull the installer asset out of a /releases/latest payload.
+
+    Asset names carry the 'v' prefix (NetSonar-v0.6.0-Setup.exe), matching
+    the tag and the delivery file naming rule.
     """
     tag = str(payload.get("tag_name") or "")
     version = tag[1:] if tag.startswith("v") else tag
     parse_version(version)  # reject tags we cannot compare against
-    exe_name = f"NetSonar-v{version}.exe"
+    exe_name = installer_asset_name(version)
     for asset in payload.get("assets") or []:
         if asset.get("name") != exe_name:
             continue
@@ -151,17 +171,88 @@ def download(info: UpdateInfo, dest: Path, progress=None, cancel=None) -> Path:
     return dest
 
 
+def cache_dir() -> Path:
+    """Downloaded installers live in the user data cache, not in Program Files."""
+    from config import user_data_path
+    return Path(user_data_path("cache", "updates"))
+
+
 def install_path(current_exe: Path, version: str) -> Path:
-    """The new exe lives next to the old one under its release name."""
-    return current_exe.with_name(f"NetSonar-v{version}.exe")
+    """Where the installer is downloaded before it runs.
+
+    The cache lives in the user data folder: Program Files is writable only
+    by the installer, and the download must not need admin rights.
+    """
+    return cache_dir() / installer_asset_name(version)
+
+
+def is_installed() -> bool:
+    """True when this process runs from the fixed Program Files install."""
+    import sys
+    if not getattr(sys, "frozen", False):
+        return False
+    try:
+        here = Path(sys.executable).resolve().parent
+        return here == INSTALL_DIR.resolve()
+    except (OSError, ValueError):
+        return False
+
+
+def launch_installer(installer: Path, wait: bool = False) -> int:
+    """Run the downloaded installer silently over the current install.
+
+    The installer is an NSIS package: `/S` runs it without UI, and it
+    replaces the program folder in place. The app must exit before the
+    installer can replace its files, so the caller exits first and the
+    installer is started detached.
+    """
+    if not installer.exists():
+        raise UpdateError("Kurulum dosyası bulunamadı.")
+    flags = getattr(subprocess, "DETACHED_PROCESS", 0) if not wait else 0
+    process = subprocess.Popen([str(installer), "/S"], creationflags=flags)
+    log.info("installer started: %s pid=%s", installer, process.pid)
+    return process.pid
+
+
+def run_installer_and_wait(installer: Path,
+                            timeout: float = INSTALLER_TIMEOUT_SECONDS) -> int:
+    """Start the installer and block until it finishes; return its exit code."""
+    if not installer.exists():
+        raise UpdateError("Kurulum dosyası bulunamadı.")
+    try:
+        completed = subprocess.run([str(installer), "/S"], timeout=timeout)
+    except subprocess.TimeoutExpired as exc:
+        raise UpdateError("Kurulum zaman aşımına uğradı.") from exc
+    except OSError as exc:
+        raise UpdateError("Kurulum başlatılamadı.") from exc
+    log.info("installer finished: code=%s", completed.returncode)
+    return completed.returncode
+
+
+def cleanup_old_installers(keep: Path | None = None) -> int:
+    """Remove cached installers other than the one we are about to use."""
+    folder = cache_dir()
+    if not folder.exists():
+        return 0
+    removed = 0
+    for candidate in folder.glob("NetSonar-v*-Setup.exe"):
+        if keep is not None and candidate == keep:
+            continue
+        try:
+            candidate.unlink()
+            removed += 1
+        except OSError as exc:
+            log.warning("Eski kurulum dosyasi silinemedi: %s", exc)
+    return removed
 
 
 def write_launcher(exe_path: Path) -> Path:
     """Write the BAT that belongs next to a versioned portable exe.
 
-    Same shape as the shipped launcher: single-instance guard keyed to this
-    exe's name, then start. The updater calls it so the launcher never
-    points at the superseded version after a self-update.
+    Kept for the source-tree launcher contract: the installed product starts
+    from Program Files\\NetSonar\\NetSonar.exe, so the shipped BAT is only a
+    development convenience. Single-instance guard keyed to this exe's name,
+    then start.
     """
     name = exe_path.stem          # NetSonar-v0.5.8
     version = name.split("-v", 1)[1] if "-v" in name else ""
@@ -179,28 +270,13 @@ def write_launcher(exe_path: Path) -> Path:
 
 
 def spawn_swap(old_pid: int, new_exe: Path) -> None:
-    """Hand the running exe over to the fresh copy.
+    """Deprecated: the installed product updates through the installer.
 
-    Windows will not replace a running exe; the batch waits for this process
-    to exit, boots the new exe the way a restart would, then deletes itself.
-    A fresh launcher is written next to the new exe before the swap so the
-    user's double-click target matches the installed version.
+    The install path is fixed now, so a copy-then-swap dance would race the
+    installer for the same files. Kept only so old callers fail loudly with
+    a clear message instead of silently doing nothing.
     """
-    write_launcher(new_exe)
-    script = new_exe.with_name("netsonar-swap.bat")
-    script.write_text(
-        "@echo off\r\n"
-        ":wait\r\n"
-        f'tasklist /FI "PID eq {old_pid}" 2>NUL | find " {old_pid} " >NUL\r\n'
-        "if not errorlevel 1 (timeout /t 1 /nobreak >NUL & goto wait)\r\n"
-        f'start "" "{new_exe}"\r\n'
-        'del "%~f0"\r\n',
-        encoding="ascii")
-    flags = getattr(subprocess, "DETACHED_PROCESS", 0) | \
-        getattr(subprocess, "CREATE_NEW_CONSOLE", 0)
-    subprocess.Popen(["cmd", "/c", str(script)], creationflags=flags,
-                     close_fds=True)
-    log.info("swap armed: pid=%s new=%s", old_pid, new_exe)
+    raise UpdateError("Kurulum güncellemesi artık kurulum dosyası üzerinden yapılır.")
 
 
 def last_check_is_old(stamp: str, max_age_seconds: float = 24 * 3600) -> bool:

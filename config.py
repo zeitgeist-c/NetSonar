@@ -11,7 +11,7 @@ from settings_service import protect_secret, unprotect_secret, validate_settings
 
 log = logging.getLogger("NetSonar.Config")
 
-APP_VERSION = "v0.5.9"
+APP_VERSION = "v0.6.0"
 IS_FROZEN = bool(getattr(sys, "frozen", False))
 APP_DIR = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
 
@@ -33,6 +33,11 @@ def app_path(*parts: str) -> str:
 def user_data_path(*parts: str) -> str:
     """Ayar, veritabani, log ve raporlar icin yazilabilir yol dondur."""
     return os.path.join(USER_DATA_DIR, *parts)
+
+
+# Kalici model/ek kutuphane deposu. Kurulum ve guncelleme bu klasore dokunmaz;
+# program surumu degisince indirilen icerik oldugu gibi kalir.
+STORE_DIR = user_data_path("store")
 
 
 def get_app_version() -> str:

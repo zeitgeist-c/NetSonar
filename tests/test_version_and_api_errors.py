@@ -4,6 +4,7 @@ from pathlib import Path
 
 from ai_analyzer import _gemini_error_message
 from config import APP_VERSION, get_app_version
+import update
 
 
 class VersionAndApiErrorTests(unittest.TestCase):
@@ -24,16 +25,19 @@ class VersionAndApiErrorTests(unittest.TestCase):
 
     def test_versioned_bat_launches_matching_portable_exe(self):
         root = Path(__file__).resolve().parents[1]
-        launcher = (root / "dist" / f"NetSonar-{APP_VERSION}.bat").read_text(encoding="utf-8")
-        exe_name = f"NetSonar-{APP_VERSION}.exe"
-        self.assertIn(exe_name, launcher)
-        self.assertIn('"%~dp0' + exe_name + '"', launcher)
-        self.assertNotIn(r"%~dp0..\NetSonar.bat", launcher)
-        # Tek-ornek koruyucusu ayni surumlu exe adini hedefler.
-        self.assertIn(f"IMAGENAME eq {exe_name}", launcher)
+        # Kurulumcu kanalinda surumlu BAT uretilmez; kaynak kokundeki BAT
+        # gelistirme icin venv ile calisir.
         root_launcher = (root / "NetSonar.bat").read_text(encoding="utf-8")
         self.assertIn(r".venv\Scripts\pythonw.exe", root_launcher)
         self.assertIn(r"%~dp0main.py", root_launcher)
+
+    def test_installer_contract_is_versioned_and_setup(self):
+        """Teslim dosyasi adi: NetSonar-Sürüm-Setup.exe."""
+        version = APP_VERSION.lstrip("v")
+        expected = f"NetSonar-v{version}-Setup.exe"
+        self.assertEqual(update.installer_asset_name(version), expected)
+        self.assertTrue(expected.startswith("NetSonar-"))
+        self.assertTrue(expected.endswith("-Setup.exe"))
 
 
 if __name__ == "__main__":

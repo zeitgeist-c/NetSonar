@@ -30,7 +30,20 @@ Tek seferlik komutlar:
 .\.venv\Scripts\python.exe main.py --list-blocked
 ```
 
-Diğer bayraklar: `--no-gui`, `--accept-v05-reset` (v0.5 depolama sıfırlama onayı). Hazır derleme: `dist\NetSonar-v0.5.9.exe` + `.bat` (taşınabilir, kendini güncelleyen).
+Diğer bayraklar: `--no-gui`, `--accept-v05-reset` (v0.5 depolama sıfırlama onayı).
+
+## Kurulum
+
+    dist\NetSonar-vX.Y.Z-Setup.exe
+
+Tek kurulumcu, tek kanal. `C:\Program Files\NetSonar` altına kurar, yönetici
+onayı ister, masaüstü ve Başlat menüsü kısayolları yazar, "Programlar ve
+Özellikler" listesine kaldırıcı olarak eklenir.
+
+Güncelleme programın içinden çalışır: günde bir kez sürüm denetler, yeni
+kurulum dosyasını indirir (SHA256 doğrulamalı), kurulumdan önce onay ister ve
+program klasörünü yerinde değiştirir. Kullanıcı verisi ve kalıcı model deposu
+program klasörünün dışındadır; her güncellemede korunur.
 
 ## Özellikler
 
@@ -58,6 +71,8 @@ scheduler.py         periyodik işler (notifier.py, custom_alerts.py)
 kill_switch.py       duvar engelleme
 config.py            ayarlar (settings_service.py, DPAPI)
 exporter.py          JSON/CSV/TXT raporlar
+store.py             kalıcı model/ek kütüphane deposu
+update.py            kendi kendini güncelleme (kurulumcu kanalı)
 packaging/  assets/  tests/  dist/
 ```
 
