@@ -1837,8 +1837,15 @@ class MainWindow(QMainWindow):
         self._quit()
 
     def closeEvent(self, event):
+        """Kapatma davranışı: tercihe göre tepsiye küçült ya da gerçekten kapat.
+
+        Tepsi simgesi yoksa küçültme uygulanamaz (kullanıcı uygulamayı
+        kaybeder); bu durumda uygulama kapanır.
+        """
         from config import load_settings
-        if load_settings().get("MINIMIZE_TO_TRAY", True):
+        tray_available = bool(self.tray and self.tray.isVisible())
+        minimize = bool(load_settings().get("MINIMIZE_TO_TRAY", True)) and tray_available
+        if minimize:
             event.ignore()
             self.hide()
             self.tray.showMessage("NetSonar Arka Planda", "İzleme devam ediyor.", QSystemTrayIcon.MessageIcon.Information, 2000)
@@ -2928,9 +2935,25 @@ class SettingsTab(QWidget):
         page = self._section_page("Genel", "Windows başlangıcı ve pencere davranışı")
         body = page.body  # type: ignore[attr-defined]
 
-        self._autostart_cb = QCheckBox("Windows'ta otomatik başlat")
-        self._tray_cb = QCheckBox("Kapatılınca tepsiye küçült")
-        self._tray_cb.setChecked(True)
+        # Ortak modül: otomatik başlatma + tepsiye küçült seçenekleri.
+        from app_options import (AutostartController, TrayOption,
+                                  build_settings_widgets)
+        from config import load_settings, save_settings
+
+        def _get(key, default=None):
+            return load_settings().get(key, default)
+
+        def _set(key, value):
+            data = load_settings()
+            data[key] = value
+            save_settings(data)
+
+        self._autostart_controller = AutostartController(
+            app_name="NetSonar", get_setting=_get, set_setting=_set)
+        self._tray_option = TrayOption(get_setting=_get, set_setting=_set)
+
+        self._autostart_cb, self._tray_cb = build_settings_widgets(
+            self._autostart_controller, self._tray_option)
         for widget in (self._autostart_cb, self._tray_cb):
             card = NeoCard()
             card.body_layout().setContentsMargins(16, 12, 16, 12)
@@ -3100,8 +3123,14 @@ class SettingsTab(QWidget):
         self._interval_combo.setCurrentIndex(interval_map.get(s.get("ANALYSIS_INTERVAL_MINUTES", 60), 2))
 
         self._auto_block_cb.setChecked(s.get("AUTO_BLOCK_ENABLED", False))
-        from autostart import is_autostart_enabled
-        self._autostart_cb.setChecked(is_autostart_enabled())
+        # Otomatik başlatma durumu kayıt defterinden okunur (denetleyici
+        # kendi kaynağını yönetir); tepsi tercihi ayar dosyasındadır.
+        controller = getattr(self, "_autostart_controller", None)
+        if controller is not None:
+            self._autostart_cb.setChecked(controller.is_enabled())
+        else:
+            from autostart import is_autostart_enabled
+            self._autostart_cb.setChecked(is_autostart_enabled())
         self._tray_cb.setChecked(s.get("MINIMIZE_TO_TRAY", True))
 
         idx = self._min_risk_combo.findText(str(s.get("AUTO_BLOCK_MIN_RISK_SCORE", 7.0)))

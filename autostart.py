@@ -1,12 +1,20 @@
 """
 NetSonar — Windows Otomatik Başlatma
 Bilgisayar açılınca NetSonar'yı otomatik başlatır.
+
+İş mantığı ortak modülde: app_options.AutostartController.
+Bu dosya NetSonar'a özel komutu (exe yolu) tanımlar ve eski fonksiyon
+adlarını korur.
 """
 
+import logging
 import os
 import sys
-import logging
-import winreg
+
+from app_options import (  # noqa: F401  (yeniden dışa aktarım)
+    SETTING_AUTOSTART,
+    AutostartController,
+)
 
 log = logging.getLogger("NetSonar.Autostart")
 
@@ -29,67 +37,29 @@ def _default_command() -> str:
 REG_VALUE = _default_command()
 
 
+def _controller() -> AutostartController:
+    """NetSonar'a özel otomatik başlatma denetleyicisi."""
+    return AutostartController(app_name=APP_NAME, exe_path=_default_command())
+
+
 def is_autostart_enabled() -> bool:
     """Otomatik başlatma etkin mi?"""
-    try:
-        key = winreg.OpenKey(
-            winreg.HKEY_CURRENT_USER,
-            r"Software\Microsoft\Windows\CurrentVersion\Run",
-            0,
-            winreg.KEY_READ
-        )
-        try:
-            winreg.QueryValueEx(key, APP_NAME)
-            winreg.CloseKey(key)
-            return True
-        except FileNotFoundError:
-            winreg.CloseKey(key)
-            return False
-    except Exception:
-        return False
+    return _controller().is_enabled()
 
 
 def enable_autostart() -> bool:
     """Otomatik başlatmayı etkinleştir."""
-    try:
-        key = winreg.OpenKey(
-            winreg.HKEY_CURRENT_USER,
-            r"Software\Microsoft\Windows\CurrentVersion\Run",
-            0,
-            winreg.KEY_WRITE
-        )
-        winreg.SetValueEx(key, APP_NAME, 0, winreg.REG_SZ, REG_VALUE)
-        winreg.CloseKey(key)
-        return True
-    except Exception as exc:
-        log.error("Otomatik başlatma etkinleştirilirken hata: %s", exc)
-        return False
+    return _controller().set_enabled(True)
 
 
 def disable_autostart() -> bool:
     """Otomatik başlatmayı devre dışı bırak."""
-    try:
-        key = winreg.OpenKey(
-            winreg.HKEY_CURRENT_USER,
-            r"Software\Microsoft\Windows\CurrentVersion\Run",
-            0,
-            winreg.KEY_WRITE
-        )
-        try:
-            winreg.DeleteValue(key, APP_NAME)
-        except FileNotFoundError:
-            pass
-        winreg.CloseKey(key)
-        return True
-    except Exception as exc:
-        log.error("Otomatik başlatma devre dışı bırakılırken hata: %s", exc)
-        return False
+    return _controller().set_enabled(False)
 
 
 def set_autostart(enabled: bool) -> bool:
     """Apply and verify the requested registry state."""
-    changed = enable_autostart() if enabled else disable_autostart()
-    return bool(changed and is_autostart_enabled() == bool(enabled))
+    return _controller().set_enabled(enabled)
 
 
 def retarget_launch(exe_path: str) -> bool:
@@ -98,8 +68,7 @@ def retarget_launch(exe_path: str) -> bool:
     A disabled entry stays disabled; an enabled one is rewritten so the
     next boot launches the fresh versioned exe, not the superseded one.
     """
-    if not is_autostart_enabled():
+    controller = AutostartController(app_name=APP_NAME, exe_path=exe_path)
+    if not controller.is_enabled():
         return True
-    global REG_VALUE
-    REG_VALUE = f'"{exe_path}"'
-    return set_autostart(True)
+    return controller.set_enabled(True)
