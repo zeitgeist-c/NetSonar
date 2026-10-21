@@ -1,11 +1,33 @@
 # NetSonar — DURUM (ortak — Desktop + Telegram okur)
 
-**Güncelleme:** 2026-10-21
-**Versiyon:** v0.6.0 (tag: bu commit; dağıtım: zeitgeist-c/NetSonar-Releases v0.6.0)
-**Branch:** main (push edildi: main + v0.6.0; dagitim: NetSonar-Releases v0.6.0 yayinda)
-**Son commit:** bu commit (v0.6.0 kurulumcu kanalı + kalıcı model deposu)
+**Güncelleme:** 2026-10-22
+**Versiyon:** v0.6.1 (tag: bu commit; dağıtım: zeitgeist-c/NetSonar-Releases v0.6.1)
+**Branch:** main (push edildi: main + v0.6.1; dagitim: NetSonar-Releases v0.6.1 yayinda)
+**Son commit:** bu commit (v0.6.1 guncelleme dongusu duzeltmesi)
 **Ağaç:** kapsam içi dosyalar commit'lendi; `ui-kesif/` keşif çıktıları ve `.hermes/`, `AGENTS.md` untracked.
 **Not:** Kirli dosyalar kullanıcıya ait olabilir; commit öncesi kullanıcıya sorulur. (2026-10-17: "Yedek işlemini yapabilir misin?" talebiyle tam kapanış yetkisi verildi.)
+
+## v0.6.1 — Güncelleme döngüsü düzeltmesi (2026-10-22)
+**Kullanıcı şikayeti:** "Güncelle dediğimde tekrar tekrar kendini güncelliyor" + "güncelleme tarafı kurulmamış gibi görünüyor".
+
+**Kök nedenler (gerçek kod okunarak bulundu, tahmin değil):**
+1. **Kurulum sırası yanlış:** `launch_installer()` program çalışırken installer'ı başlatıyordu → "Access denied" (çalışan exe değiştirilemez) → kurulum yarım kalıyor → program eski sürümde kalıyor → kullanıcı tekrar "Güncelle" → **aynı sürüm tekrar kuruluyor**. Döngünün kaynağı buydu.
+2. **PID kontrolü bozuk:** `tasklist /FI "PID eq X"` filtresi bu makinede **uygulanmıyor** (PID 22400 soruldu, 4736 döndü). Baton hiç tetiklenmiyordu.
+3. **timeout çakışması:** Git-Bash/MSYS kurulu → `timeout` GNU aracına çözünüyor → `/t 1` parametresi hata veriyor → bekleme döngüsü hiç bitmiyordu.
+4. **WinError 87:** `DETACHED_PROCESS | CREATE_NEW_CONSOLE` birlikte geçersiz → baton hiç başlamıyordu.
+5. **Yetki:** NSIS kurulumcusu admin ister; yetkisiz bağlamda UAC'a takılıp `start /wait` sonsuza kadar bekliyordu.
+6. **Denetim sonucu görünmüyordu:** `_update_checked` "güncelleme yok" mesajını sadece manuel denetimde ve Ayarlar sekmesi açıkken gösteriyordu → kullanıcı "kurulmamış gibi" görüyordu.
+
+**Düzeltmeler:**
+- `update.py`: sıra düzeltildi — program kapanır → baton PID'i bekler → installer **yönetici yetkisiyle** çalışır ve bitene kadar beklenir → program otomatik yeniden başlar.
+- `update.py`: PID kontrolü PowerShell `Get-Process -Id` (güvenilir), bekleme `C:\Windows\System32\timeout.exe` (mutlak yol).
+- `update.py`: `installed_version()` — kurulum sonrası sürüm exe'nin kendisinden okunur; `install_outcome()` başarı/başarısızlığı doğrular.
+- `app_gui.py`: **döngü koruması** — hedef sürüm kurulu sürümden yeni değilse indirme/kurulum yapılmaz, "en güncel" gösterilir. Bekleyen installer sürüm eşleşmiyorsa silinip yeniden indirilir.
+- `app_gui.py`: denetim sonucu **her zaman** karta yansır (otomatik/manuel, sekme açık/kapalı fark etmez); `UPDATE_LAST_SEEN_VERSION` + `UPDATE_AVAILABLE` ayarlara kaydedilir; Ayarlar açılışında kayıtlı durum gösterilir.
+- `config.py` + `settings_service.py`: yeni ayar alanları eklendi ve doğrulamaya bağlandı.
+- Testler: 128 → **143 test + 29 alt test** (`tests/test_update_loop.py` yeni, 15 test).
+
+**Gerçek doğrulama:** v0.6.0 kurulu iken geçici v0.6.1 release açıldı → program güncellemeyi buldu → indirdi (SHA256 doğrulandı) → sessiz kurulum → kurulu exe v0.6.1 oldu → store + 9.8 MB veritabanı yerinde kaldı → test release silindi. Baton betiği ayrıca canlı olarak PID bekleyiş → kurulum → yeniden başlatma zinciriyle doğrulandı.
 
 ## v0.6.0 — Kurulumcu kanalı + kalıcı model deposu (2026-10-21)
 - **Dağıtım tek kanala indi:** portable tek EXE + BAT yerine NSIS kurulumcu (`NetSonar-vX.Y.Z-Setup.exe`).

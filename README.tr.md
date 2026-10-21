@@ -41,9 +41,13 @@ onayı ister, masaüstü ve Başlat menüsü kısayolları yazar, "Programlar ve
 Özellikler" listesine kaldırıcı olarak eklenir.
 
 Güncelleme programın içinden çalışır: günde bir kez sürüm denetler, yeni
-kurulum dosyasını indirir (SHA256 doğrulamalı), kurulumdan önce onay ister ve
-program klasörünü yerinde değiştirir. Kullanıcı verisi ve kalıcı model deposu
-program klasörünün dışındadır; her güncellemede korunur.
+kurulum dosyasını indirir (SHA256 doğrulamalı), kurulumdan önce onay ister,
+programı kapatır, program klasörünü yerinde değiştirir ve kurulum bitince
+kendini yeniden başlatır. Kullanıcı verisi ve kalıcı model deposu program
+klasörünün dışındadır; her güncellemede korunur.
+
+Yayınlanan sürüm kurulu sürümden yeni değilse program "kurulu sürüm en
+güncel" der ve hiçbir şey yapmaz — aynı sürümü tekrar kurmaz.
 
 ## Özellikler
 
