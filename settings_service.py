@@ -96,4 +96,7 @@ def validate_settings(data: dict, defaults: dict) -> dict:
     except (TypeError, ValueError):
         result["AUTO_BLOCK_MIN_RISK_SCORE"] = 7.0
     result["UPDATE_LAST_CHECK"] = str(result.get("UPDATE_LAST_CHECK", "") or "")
+    result["UPDATE_LAST_SEEN_VERSION"] = str(
+        result.get("UPDATE_LAST_SEEN_VERSION", "") or "")
+    result["UPDATE_AVAILABLE"] = bool(result.get("UPDATE_AVAILABLE", False))
     return result

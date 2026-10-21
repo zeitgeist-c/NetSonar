@@ -11,6 +11,7 @@ import threading
 from datetime import datetime
 from pathlib import Path
 from config import get_app_version, app_path, SUSPICIOUS_PORTS
+from update import is_newer as update_is_newer
 import config as _config
 from ui_theme import C as PREMIUM_C, STYLESHEET as PREMIUM_STYLESHEET
 from ui_components import (
@@ -1430,7 +1431,11 @@ class MainWindow(QMainWindow):
                 if pending is not None:
                     self._settings_tab.show_update_available(pending)
                     self._pending_update = None
-            self._settings_tab.refresh()
+                else:
+                    # Kayitli durumu goster: denetim yapilmadiysa "denetleniyor",
+                    # yapildiysa sonuc (guncelleme var / yok).
+                    self._settings_tab._load_update_state()
+                self._settings_tab.refresh()
 
         self._animate_page_transition()
 
@@ -1687,12 +1692,36 @@ class MainWindow(QMainWindow):
         except OSError:
             pass
 
+    def _record_update_state(self, latest_version: str, has_update: bool):
+        """Son denetim sonucunu kaydet: hangi sürüm görüldü, güncelleme var mı.
+
+        Program açılışında kart "güncelleme yok / var" durumunu doğru
+        göstermeli; yoksa kullanıcı sistemin çalışmadığını sanıyor.
+        """
+        try:
+            from config import load_settings, save_settings
+            s = load_settings()
+            s["UPDATE_LAST_SEEN_VERSION"] = str(latest_version or "")
+            s["UPDATE_AVAILABLE"] = bool(has_update)
+            save_settings(s)
+        except OSError:
+            pass
+
     def _update_checked(self, info):
         self._record_update_check()
         if info is None:
-            if self._update_manual and self._settings_tab is not None:
+            # Güncelleme yok: kart HER ZAMAN bunu göstermeli, otomatik
+            # denetimde de. Yoksa kullanici "guncelleme tarafi kurulmus
+            # gibi gozukmiyor" diyor.
+            self._record_update_state(get_app_version().lstrip("v"), False)
+            if self._settings_tab is not None:
                 self._settings_tab.show_update_latest()
+            elif self._update_manual and self.tray.isVisible():
+                self.tray.showMessage(
+                    "NetSonar", "Kurulu sürüm en günceli.",
+                    QSystemTrayIcon.MessageIcon.Information, 5000)
             return
+        self._record_update_state(info.version, True)
         if self._settings_tab is not None:
             self._settings_tab.show_update_available(info)
         else:
@@ -1704,6 +1733,9 @@ class MainWindow(QMainWindow):
                     QSystemTrayIcon.MessageIcon.Information, 10000)
 
     def _update_failed(self, message):
+        # Denetim basarisiz olsa da durum kaydedilir; kullanici "sistem
+        # kurulmamis gibi" gormemeli, gercek hata mesaji gorunmeli.
+        self._record_update_state("", False)
         if self._settings_tab is not None:
             self._settings_tab.show_update_error(message)
         elif self._update_manual and self.tray.isVisible():
@@ -1714,12 +1746,27 @@ class MainWindow(QMainWindow):
         info = self._settings_tab._update_info if self._settings_tab else None
         if info is None or not self._updates_possible():
             return
-        # Kurulum dosyasi daha once indirildiyse onay adimina gec.
+        # Kurulu surum zaten yeni mi? Ayni surumu tekrar kurmak dongu yaratir.
+        current = get_app_version().lstrip("v")
+        if not update_is_newer(info.version, current):
+            self._settings_tab.show_update_latest()
+            return
+        # Kurulum dosyasi daha once indirildiyse onay adimina gec; ama
+        # indirilen surum hedeflenen surumle ayni olmali.
         pending = getattr(self, "_pending_installer", None)
-        if pending is not None and pending.exists():
+        pending_version = getattr(self, "_pending_version", "")
+        if pending is not None and pending.exists() and pending_version == info.version:
             self._update_apply()
             return
-        worker = UpdateWorker(get_app_version().lstrip("v"), info=info)
+        # Farkli surum icin eski indirilmis installer'i temizle.
+        if pending is not None and pending.exists():
+            try:
+                pending.unlink()
+            except OSError:
+                pass
+        self._pending_installer = None
+        self._pending_version = ""
+        worker = UpdateWorker(current, info=info)
         worker.progress.connect(self._update_progress)
         worker.failed.connect(self._update_failed)
         worker.downloaded.connect(self._update_downloaded)
@@ -1748,37 +1795,45 @@ class MainWindow(QMainWindow):
     def _update_apply(self):
         """Kullanici 'Kurulumu Başlat' dedi: onay iste, sonra kur.
 
-        Program once kapanmali; kurulum dosyasi kilitli dosyalari degistirir.
+        Sıra önemli: installer çalışan exe'nin dosyalarını değiştiremez
+        ("Access denied"). Bu yüzden program önce kapanır; bekleyen betik
+        PID düşünü bekler, sonra installer'ı çalıştırır ve programı yeniden
+        başlatır. Böylece kurulum gerçekten uygulanır.
         """
         installer = getattr(self, "_pending_installer", None)
         if installer is None or not installer.exists():
             self._update_failed("Kurulum dosyası bulunamadı.")
             return
+        version = getattr(self, "_pending_version", "")
+        current = get_app_version().lstrip("v")
+        if version and not update_is_newer(version, current):
+            # Ayni sürümü kurmak döngü yaratır; kullanıcıya durumu bildir.
+            self._settings_tab.show_update_latest()
+            return
         from PyQt6.QtWidgets import QMessageBox
         answer = QMessageBox.question(
             self, "NetSonar Güncellemesi",
-            f"Yeni sürüm kurulacak. NetSonar kapanıp kurulum tamamlandıktan "
-            f"sonra yeniden başlatılacak.\n\nDevam edilsin mi?",
+            f"v{version} kurulacak. NetSonar kapanacak, kurulum tamamlandıktan "
+            f"sonra otomatik yeniden başlayacak.\n\nDevam edilsin mi?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
         if answer != QMessageBox.StandardButton.Yes:
-            self._settings_tab.show_update_ready(
-                getattr(self, "_pending_version", ""), str(installer))
+            self._settings_tab.show_update_ready(version, str(installer))
             return
-        from update import launch_installer
+        from update import spawn_install_baton
         try:
-            launch_installer(installer)
+            spawn_install_baton(installer, os.getpid())
         except Exception as exc:
-            log.error("Installer could not be started", exc_info=True)
+            log.error("Install baton could not be armed", exc_info=True)
             self._update_failed(f"Kurulum başlatılamadı: {exc}")
             return
         if self.tray.isVisible():
             self.tray.showMessage(
                 "NetSonar",
-                "Yeni sürüm kuruluyor. Kurulum bitince NetSonar'ı yeniden başlatın.",
+                f"v{version} kuruluyor. Kurulum bitince NetSonar otomatik açılacak.",
                 QSystemTrayIcon.MessageIcon.Information, 8000)
-        # Temiz kapanis: kurulum dosyasi program dosyalarini degistirecek.
+        # Temiz kapanis: bekleyen betik installer'i calistiracak.
         self._quit()
 
     def closeEvent(self, event):
@@ -3065,16 +3120,55 @@ class SettingsTab(QWidget):
     def refresh(self):
         self._load_settings()
 
+    def _load_update_state(self):
+        """Kayıtlı güncelleme durumunu karta yansıtır.
+
+        Denetim henüz yapılmadıysa "denetleniyor" gösterilir; yapılmışsa
+        sonuç gösterilir. Böylece kart her zaman dolu ve anlaşılır olur.
+        """
+        try:
+            from config import load_settings
+            s = load_settings()
+            seen = str(s.get("UPDATE_LAST_SEEN_VERSION", "") or "")
+            available = bool(s.get("UPDATE_AVAILABLE", False))
+            checked = bool(s.get("UPDATE_LAST_CHECK", "") or "")
+        except Exception:
+            seen, available, checked = "", False, False
+        self.show_update_state(seen, available, checked=checked)
+
     # ── Güncelleme arayüzü ─────────────────────────────────────────────
     def show_update_current(self):
         self._update_info = None
         self._update_status.setText(
-            "Kurulu sürüm: " + get_app_version() + ". Yeni sürümler günde bir kez sessizce denetlenir.")
+            f"Kurulu sürüm: {get_app_version()}. "
+            "Yeni sürümler günde bir kez sessizce denetlenir.")
         self._update_status.setStyleSheet(f"color:{C['text3']}; font-size:12px;")
         self._update_check_btn.setEnabled(True)
         self._update_install_btn.setVisible(False)
         self._update_cancel_btn.setVisible(False)
         self._update_progress.setVisible(False)
+
+    def show_update_state(self, latest_version: str, has_update: bool,
+                          checked: bool = True):
+        """Kayıtlı denetim durumunu gösterir.
+
+        Program açılışında denetim henüz yapılmamış olabilir; o durumda
+        kullanıcı "güncelleme tarafı kurulmamış gibi" görmemeli. Kayıtlı
+        durum varsa o gösterilir, yoksa "denetleniyor" bilgisi verilir.
+        """
+        if not checked:
+            self._update_status.setText(
+                f"Kurulu sürüm: {get_app_version()}. "
+                "Yeni sürüm denetimi yapılıyor...")
+            self._update_status.setStyleSheet(f"color:{C['text3']}; font-size:12px;")
+            return
+        if has_update and latest_version:
+            self._update_status.setText(
+                f"Yeni sürüm hazır: v{latest_version} "
+                f"(kurulu: {get_app_version()}). İndirip kurabilirsiniz.")
+            self._update_status.setStyleSheet(f"color:{C['accent']}; font-size:12px;")
+            return
+        self.show_update_latest()
 
     def show_update_checking(self):
         self.show_update_current()
@@ -3084,7 +3178,8 @@ class SettingsTab(QWidget):
     def show_update_available(self, info):
         self._update_info = info
         self._update_status.setText(
-            f"Yeni sürüm hazır: v{info.version}. İndirip kurabilirsiniz.")
+            f"Yeni sürüm hazır: v{info.version} "
+            f"(kurulu: {get_app_version()}). İndirip kurabilirsiniz.")
         self._update_status.setStyleSheet(f"color:{C['accent']}; font-size:12px;")
         self._update_check_btn.setEnabled(True)
         self._update_install_btn.setVisible(True)
@@ -3092,8 +3187,16 @@ class SettingsTab(QWidget):
         self._update_progress.setVisible(False)
 
     def show_update_latest(self):
-        self.show_update_current()
-        self._update_status.setText("Kurulu sürüm en günceli: " + get_app_version())
+        """Güncelleme yok: kurulu sürüm en günceli."""
+        self._update_info = None
+        self._update_status.setText(
+            f"Kurulu sürüm en günceli: {get_app_version()}. "
+            "Yeni sürüm çıktığında burada bildirilecek.")
+        self._update_status.setStyleSheet(f"color:{C['text3']}; font-size:12px;")
+        self._update_check_btn.setEnabled(True)
+        self._update_install_btn.setVisible(False)
+        self._update_cancel_btn.setVisible(False)
+        self._update_progress.setVisible(False)
 
     def show_update_error(self, message):
         self.show_update_current()
