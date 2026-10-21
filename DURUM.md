@@ -1,11 +1,33 @@
 # NetSonar — DURUM (ortak — Desktop + Telegram okur)
 
 **Güncelleme:** 2026-10-22
-**Versiyon:** v0.6.1 (tag: bu commit; dağıtım: zeitgeist-c/NetSonar-Releases v0.6.1)
-**Branch:** main (push edildi: main + v0.6.1; dagitim: NetSonar-Releases v0.6.1 yayinda)
-**Son commit:** bu commit (v0.6.1 guncelleme dongusu duzeltmesi)
+**Versiyon:** v0.6.2 (tag: bu commit; dağıtım: zeitgeist-c/NetSonar-Releases v0.6.2)
+**Branch:** main (push edildi: main + v0.6.2; dagitim: NetSonar-Releases v0.6.2 yayinda)
+**Son commit:** bu commit (ortak masaüstü seçenekleri modülü)
 **Ağaç:** kapsam içi dosyalar commit'lendi; `ui-kesif/` keşif çıktıları ve `.hermes/`, `AGENTS.md` untracked.
 **Not:** Kirli dosyalar kullanıcıya ait olabilir; commit öncesi kullanıcıya sorulur. (2026-10-17: "Yedek işlemini yapabilir misin?" talebiyle tam kapanış yetkisi verildi.)
+
+## v0.6.2 — Ortak masaüstü seçenekleri modülü (2026-10-22)
+**Kullanıcı isteği:** "Ayarlar kısmı oluşturulup orada güncellemeler ve vs. orada tutulsun; ayrıca Windows başladığında başlat ve sistem tepsisine küçült butonları ayarlarda olsun. Bundan sonraki tüm projelerde de aynı özellikler olsun — istemediğim sürece hepsinde olmasın."
+
+**Kapsam (kullanıcı onayıyla):** NetSonar + VoxoraStudio + WordArc + Evrakçı. Sırayla işlendi. Diğer projelere (Finance, Opener, Muhasebe, araç klasörleri) dokunulmadı.
+
+**Yeni ortak modül — `app_options.py`:**
+- `AutostartController` — HKCU Run kaydı: aç/kapa/dogrula/tazele. Kayıt defteri esas kaynak, ayar dosyası yedek (kayıt elle silinirse ayardan geri yüklenir).
+- `TrayOption` — "kapatılınca tepsiye küçült" tercihi + `should_minimize(tray_available)`: tepsi simgesi yoksa küçültme uygulanmaz, uygulama kapanır (kullanıcı uygulamayı kaybetmesin).
+- `build_settings_widgets()` — PyQt6 için iki onay kutusu; PyQt6 yoksa modül yine de çalışır (saf stdlib).
+- Ortak ayar anahtarları (projeler arası sözleşme): `AUTOSTART_ENABLED`, `MINIMIZE_TO_TRAY`.
+
+**NetSonar'da uygulama:**
+- `autostart.py` artık ince bir sarmalayıcı; iş mantığı `app_options.AutostartController`'da. Eski fonksiyon adları korundu (geriye uyum).
+- `app_gui.py` Ayarlar > Genel: iki seçenek ortak modülden üretiliyor. Kapanış davranışı `MINIMIZE_TO_TRAY` + tepsi varlığına bağlandı (geri düşüş eklendi).
+- Yeni ayar `AUTOSTART_ENABLED` şemaya eklendi, `settings_service` doğrulamasına bağlandı.
+
+**Testler:** 143 → **166 test + 29 alt test** (`tests/test_app_options.py` yeni, 20 test — kayıt defterine yazmadan sahte depo ile doğrular).
+
+**Canlı doğrulama:** GUI'da kutuyu işaretleyince `HKCU\...\Run` altına kayıt yazıldı, kaldırınca silindi; kurulum tercihi ve kayıt defteri tutarlı kaldı.
+
+**Kalıcı şey:** `AI-Coding-OS-v1.0/skills/desktop-app-options` skill'i oluşturuldu (onay bekliyor) — `assets/app_options.py` + `assets/test_app_options.py` ile birlikte. Yeni projede bu modülü kopyalamak yeterli.
 
 ## v0.6.1 — Güncelleme döngüsü düzeltmesi (2026-10-22)
 **Kullanıcı şikayeti:** "Güncelle dediğimde tekrar tekrar kendini güncelliyor" + "güncelleme tarafı kurulmamış gibi görünüyor".

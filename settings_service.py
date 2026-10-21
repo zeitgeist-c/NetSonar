@@ -78,7 +78,8 @@ def validate_settings(data: dict, defaults: dict) -> dict:
     result = dict(defaults)
     result.update(data if isinstance(data, dict) else {})
     for key, default in (("AUTO_ANALYSIS_ENABLED", True), ("AUTO_BLOCK_ENABLED", False),
-                         ("MINIMIZE_TO_TRAY", True), ("autostart", False)):
+                         ("MINIMIZE_TO_TRAY", True), ("autostart", False),
+                         ("AUTOSTART_ENABLED", False)):
         result[key] = bool(result.get(key, default))
     try:
         result["ANALYSIS_INTERVAL_MINUTES"] = max(
