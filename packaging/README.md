@@ -28,11 +28,16 @@ kimliksiz GitHub API'si ile `releases/latest` sorar (update.py):
 2. Kurulum dosyası kullanıcı önbelleğine iner
    (`%LOCALAPPDATA%\NetSonar\cache\updates`), SHA256 doğrulanır.
 3. Kullanıcı "Kurulumu Başlat" dedikten sonra onay penceresi açılır.
-4. Program kapanır, kurulum dosyası sessizce (`/S`) çalışır ve program klasörünü
-   yerinde değiştirir.
+4. Program kapanır; bekleyen betik (baton) PID'in düşmesini bekler, kurulum
+   dosyasını **yönetici yetkisiyle** çalıştırır ve bitmesini bekler.
+5. Kurulum bitince program otomatik yeniden başlar.
 
 Program zaten yönetici olarak çalıştığı için güncellemede ayrıca yönetici
 onayı sorulmaz; onay penceresi "başlat" onayıdır.
+
+Yayınlanan sürüm kurulu sürümden yeni değilse güncelleme yapılmaz: program
+"kurulu sürüm en güncel" der, indirme ve kurulum başlatılmaz. Aynı sürümün
+tekrar tekrar kurulması böylece engellenir.
 
 Otomatik başlatma kaydı yalnızca kullanıcı açtıysa yeni exe'ye yönlendirilir;
 kapalıysa kapalı kalır.

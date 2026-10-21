@@ -41,9 +41,13 @@ admin approval, creates desktop and Start Menu shortcuts, and adds itself to
 "Apps & Features" for uninstall.
 
 Updates run from inside the app: it checks the release once a day, downloads the
-new installer (SHA256 verified), asks before installing, then replaces the
-program folder in place. User data and the local model store live outside the
-program folder and survive every update.
+new installer (SHA256 verified), asks before installing, then closes the app and
+replaces the program folder in place. The app restarts itself when the install
+finishes. User data and the local model store live outside the program folder
+and survive every update.
+
+If the released version is not newer than the installed one, the app says so
+and does nothing — it never reinstalls the same version.
 
 ## Features
 
