@@ -12,14 +12,12 @@ import update
 
 
 REAL_057 = {
-    "tag_name": "v0.5.7",
-    "html_url": "https://github.com/x/y/releases/tag/v0.5.7",
+    "tag_name": "v0.6.0",
+    "html_url": "https://github.com/x/y/releases/tag/v0.6.0",
     "assets": [
-        {"name": "NetSonar-v0.5.7.bat", "size": 325,
-         "digest": "sha256:4bd7", "browser_download_url": "https://x/bat"},
-        {"name": "NetSonar-v0.5.7.exe", "size": 38321660,
+        {"name": "NetSonar-v0.6.0-Setup.exe", "size": 38321660,
          "digest": "sha256:a54a13df",
-         "browser_download_url": "https://x/exe"},
+         "browser_download_url": "https://x/setup"},
     ],
 }
 
@@ -30,7 +28,7 @@ class VersionTests(unittest.TestCase):
         self.assertTrue(update.is_newer("v0.5.8", "0.5.7"))
         self.assertTrue(update.is_newer("0.10.0", "0.8.99"))
         self.assertFalse(update.is_newer("v0.5.7", "0.5.7"))
-        self.assertFalse(update.is_newer("v0.5.6", "0.5.7"))
+        self.assertFalse(update.is_newer("0.5.6", "0.5.7"))
 
     def test_unparsable_version_raises(self):
         with self.assertRaises(update.UpdateError):
@@ -38,21 +36,34 @@ class VersionTests(unittest.TestCase):
 
 
 class ReleaseParsingTests(unittest.TestCase):
-    def test_exe_asset_with_digest(self):
+    def test_installer_asset_with_digest(self):
         info = update.parse_release(REAL_057)
-        self.assertEqual(info.version, "0.5.7")
-        self.assertEqual(info.asset_name, "NetSonar-v0.5.7.exe")
+        self.assertEqual(info.version, "0.6.0")
+        self.assertEqual(info.asset_name, "NetSonar-v0.6.0-Setup.exe")
         self.assertEqual(info.sha256, "a54a13df")
         self.assertEqual(info.size, 38321660)
 
-    def test_missing_exe_asset_raises(self):
-        payload = dict(REAL_057, assets=[REAL_057["assets"][0]])
+    def test_missing_installer_asset_raises(self):
+        payload = dict(REAL_057, assets=[])
+        with self.assertRaises(update.UpdateError):
+            update.parse_release(payload)
+
+    def test_portable_exe_asset_is_not_accepted(self):
+        """Kurulumcu kanalı: sadece -Setup.exe kabul edilir."""
+        payload = dict(REAL_057, assets=[
+            {"name": "NetSonar-v0.6.0.exe", "size": 10,
+             "browser_download_url": "https://x/exe"},
+        ])
         with self.assertRaises(update.UpdateError):
             update.parse_release(payload)
 
     def test_unknown_tag_shape_raises(self):
         with self.assertRaises(update.UpdateError):
             update.parse_release(dict(REAL_057, tag_name="latest"))
+
+    def test_asset_name_follows_delivery_rule(self):
+        self.assertEqual(update.installer_asset_name("0.6.0"),
+                         "NetSonar-v0.6.0-Setup.exe")
 
 
 class DownloadTests(unittest.TestCase):
@@ -95,31 +106,48 @@ class DownloadTests(unittest.TestCase):
 
 
 class InstallLayoutTests(unittest.TestCase):
-    def test_install_path_keeps_release_naming(self):
-        dest = update.install_path(Path("C:/tools/NetSonar-v0.5.7.exe"), "0.5.8")
-        self.assertEqual(dest.name, "NetSonar-v0.5.8.exe")
+    def test_install_path_targets_the_update_cache(self):
+        """Kurulum dosyasi Program Files'a degil, kullanici onbellegine iner."""
+        dest = update.install_path(Path("C:/tools/NetSonar.exe"), "0.6.0")
+        self.assertEqual(dest.name, "NetSonar-v0.6.0-Setup.exe")
+        self.assertIn("updates", str(dest).lower())
 
-    def test_write_launcher_points_at_matching_exe(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            exe = Path(tmp) / "NetSonar-v0.5.8.exe"
-            exe.write_bytes(b"")
-            bat = update.write_launcher(exe)
-            text = bat.read_text(encoding="ascii")
-            self.assertEqual(bat.name, "NetSonar-v0.5.8.bat")
-            self.assertIn("NetSonar-v0.5.8.exe", text)
-            self.assertNotIn("NetSonar-v0.5.7", text)
+    def test_install_path_is_outside_the_program_folder(self):
+        dest = update.install_path(Path("C:/tools/NetSonar.exe"), "0.6.0")
+        self.assertNotIn(str(update.INSTALL_DIR).lower(), str(dest).lower())
 
-    def test_spawn_swap_writes_matching_launcher_before_arm(self):
+    def test_spawn_swap_is_no_longer_a_valid_flow(self):
+        """Sabit kurulum yolunda kopya-degistir akisi kaldirildi."""
+        with self.assertRaises(update.UpdateError):
+            update.spawn_swap(4242, Path("C:/tools/NetSonar-v0.6.0.exe"))
+
+    def test_launch_installer_requires_an_existing_file(self):
+        with self.assertRaises(update.UpdateError):
+            update.launch_installer(Path("C:/yok/NetSonar-v0.6.0-Setup.exe"))
+
+    def test_launch_installer_runs_silently(self):
         with tempfile.TemporaryDirectory() as tmp:
-            exe = Path(tmp) / "NetSonar-v0.5.8.exe"
-            exe.write_bytes(b"")
+            installer = Path(tmp) / "NetSonar-v0.6.0-Setup.exe"
+            installer.write_bytes(b"")
             with mock.patch("update.subprocess.Popen") as popen:
-                update.spawn_swap(4242, exe)
-            self.assertTrue((Path(tmp) / "NetSonar-v0.5.8.bat").exists())
-            swap = (Path(tmp) / "netsonar-swap.bat").read_text(encoding="ascii")
-            self.assertIn("4242", swap)
-            self.assertIn("NetSonar-v0.5.8.exe", swap)
+                update.launch_installer(installer)
             popen.assert_called_once()
+            args = popen.call_args[0][0]
+            self.assertEqual(args[0], str(installer))
+            self.assertIn("/S", args)
+
+    def test_cleanup_keeps_the_installer_in_use(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            keep = folder / "NetSonar-v0.6.0-Setup.exe"
+            old = folder / "NetSonar-v0.5.9-Setup.exe"
+            keep.write_bytes(b"")
+            old.write_bytes(b"")
+            with mock.patch("update.cache_dir", return_value=folder):
+                removed = update.cleanup_old_installers(keep)
+            self.assertEqual(removed, 1)
+            self.assertTrue(keep.exists())
+            self.assertFalse(old.exists())
 
 
 class CheckWindowTests(unittest.TestCase):

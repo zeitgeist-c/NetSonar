@@ -1714,10 +1714,15 @@ class MainWindow(QMainWindow):
         info = self._settings_tab._update_info if self._settings_tab else None
         if info is None or not self._updates_possible():
             return
+        # Kurulum dosyasi daha once indirildiyse onay adimina gec.
+        pending = getattr(self, "_pending_installer", None)
+        if pending is not None and pending.exists():
+            self._update_apply()
+            return
         worker = UpdateWorker(get_app_version().lstrip("v"), info=info)
         worker.progress.connect(self._update_progress)
         worker.failed.connect(self._update_failed)
-        worker.installed.connect(self._update_installed)
+        worker.downloaded.connect(self._update_downloaded)
         self._update_worker = worker
         self._update_thread = worker
         worker.finished.connect(lambda: setattr(self, "_update_thread", None))
@@ -1734,21 +1739,46 @@ class MainWindow(QMainWindow):
         if self._settings_tab is not None:
             self._settings_tab.show_update_progress(done, total)
 
-    def _update_installed(self, version, new_exe):
-        from update import spawn_swap
+    def _update_downloaded(self, version, installer_path):
+        """Kurulum dosyası indirildi. Kuruluma geçmek için buton etkin."""
+        self._pending_installer = Path(installer_path)
+        self._pending_version = version
+        self._settings_tab.show_update_ready(version, str(self._pending_installer))
+
+    def _update_apply(self):
+        """Kullanici 'Kurulumu Başlat' dedi: onay iste, sonra kur.
+
+        Program once kapanmali; kurulum dosyasi kilitli dosyalari degistirir.
+        """
+        installer = getattr(self, "_pending_installer", None)
+        if installer is None or not installer.exists():
+            self._update_failed("Kurulum dosyası bulunamadı.")
+            return
+        from PyQt6.QtWidgets import QMessageBox
+        answer = QMessageBox.question(
+            self, "NetSonar Güncellemesi",
+            f"Yeni sürüm kurulacak. NetSonar kapanıp kurulum tamamlandıktan "
+            f"sonra yeniden başlatılacak.\n\nDevam edilsin mi?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            self._settings_tab.show_update_ready(
+                getattr(self, "_pending_version", ""), str(installer))
+            return
+        from update import launch_installer
         try:
-            from autostart import retarget_launch
-            retarget_launch(new_exe)
-        except Exception:
-            log.warning("Autostart retarget failed", exc_info=True)
+            launch_installer(installer)
+        except Exception as exc:
+            log.error("Installer could not be started", exc_info=True)
+            self._update_failed(f"Kurulum başlatılamadı: {exc}")
+            return
         if self.tray.isVisible():
             self.tray.showMessage(
                 "NetSonar",
-                f"v{version} indirildi. NetSonar yeniden başlatılıyor.",
-                QSystemTrayIcon.MessageIcon.Information, 5000)
-        spawn_swap(os.getpid(), Path(new_exe))
-        # Temiz kapanis: swap batonu PID'in dusmesini bekler, sonra yeni exe'yi
-        # baslatir. Veritabani/lock temiz birim birakilmali.
+                "Yeni sürüm kuruluyor. Kurulum bitince NetSonar'ı yeniden başlatın.",
+                QSystemTrayIcon.MessageIcon.Information, 8000)
+        # Temiz kapanis: kurulum dosyasi program dosyalarini degistirecek.
         self._quit()
 
     def closeEvent(self, event):
@@ -2478,12 +2508,17 @@ class ApiKeyManager(QWidget):
 
 
 class UpdateWorker(QThread):
-    """Güncellemeyi GUI iş parçacığı dışında sorar/indirir; sinyal bildirir."""
+    """Güncellemeyi GUI iş parçacığı dışında sorar/indirir; sinyal bildirir.
+
+    İki aşama: denetim (checked) ve indirme (downloaded). Kurulum, dosya
+    yerine geçtikten sonra ayrı bir adımda yapılır: program önce kapanır,
+    sonra kurulum dosyası sessizce çalışır.
+    """
 
     checked = pyqtSignal(object)        # UpdateInfo ya da None (zaten güncel)
     failed = pyqtSignal(str)
     progress = pyqtSignal(int, int)     # indirilen bayt, toplam bayt
-    installed = pyqtSignal(str, str)    # sürüm, yeni exe yolu
+    downloaded = pyqtSignal(str, str)   # sürüm, kurulum dosyası yolu
 
     def __init__(self, current, info=None, parent=None):
         super().__init__(parent)
@@ -2512,7 +2547,7 @@ class UpdateWorker(QThread):
                 return
             self.failed.emit(str(exc))
             return
-        self.installed.emit(self._info.version, str(dest))
+        self.downloaded.emit(self._info.version, str(dest))
 
     def _on_progress(self, done, total):
         # MB başına tek emit: GUI iş parçacığı şişmesin.
@@ -2976,7 +3011,7 @@ class SettingsTab(QWidget):
         upd_row = QHBoxLayout()
         self._update_check_btn = AppButton("Güncellemeleri Denetle", icon="scan", variant="secondary", size="md")
         self._update_check_btn.clicked.connect(self.update_check_requested.emit)
-        self._update_install_btn = AppButton("İndir ve Kur", icon="save", variant="primary", size="md")
+        self._update_install_btn = AppButton("Kurulumu Başlat", icon="save", variant="primary", size="md")
         self._update_install_btn.clicked.connect(self.update_install_requested.emit)
         self._update_install_btn.setVisible(False)
         self._update_cancel_btn = AppButton("Vazgeç", variant="ghost", size="md")
@@ -3066,12 +3101,22 @@ class SettingsTab(QWidget):
         self._update_status.setStyleSheet(f"color:{C['warning']}; font-size:12px;")
 
     def show_update_installing(self):
-        self._update_status.setText("Yeni sürüm indiriliyor...")
+        self._update_status.setText("Yeni sürüm kurulum dosyası indiriliyor...")
         self._update_check_btn.setEnabled(False)
         self._update_install_btn.setVisible(False)
         self._update_cancel_btn.setVisible(True)
         self._update_progress.setValue(0)
         self._update_progress.setVisible(True)
+
+    def show_update_ready(self, version, installer_path):
+        """Kurulum dosyasi indirildi; kullanicidan 'Kurulumu Baslat' beklenir."""
+        self._update_status.setText(
+            f"v{version} kurulum dosyası indirildi. Kurulumu başlatabilirsiniz.")
+        self._update_status.setStyleSheet(f"color:{C['accent']}; font-size:12px;")
+        self._update_check_btn.setEnabled(True)
+        self._update_install_btn.setVisible(True)
+        self._update_cancel_btn.setVisible(False)
+        self._update_progress.setVisible(False)
 
     def show_update_progress(self, done, total):
         if total > 0:
