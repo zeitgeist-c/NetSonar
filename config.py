@@ -11,7 +11,7 @@ from settings_service import protect_secret, unprotect_secret, validate_settings
 
 log = logging.getLogger("NetSonar.Config")
 
-APP_VERSION = "v0.6.1"
+APP_VERSION = "v0.6.2"
 IS_FROZEN = bool(getattr(sys, "frozen", False))
 APP_DIR = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
 
@@ -80,6 +80,7 @@ def _default_settings() -> dict:
         "UPDATE_LAST_CHECK": "",
         "UPDATE_LAST_SEEN_VERSION": "",
         "UPDATE_AVAILABLE": False,
+        "AUTOSTART_ENABLED": False,
     }
 
 
