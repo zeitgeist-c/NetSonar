@@ -12,12 +12,21 @@ log = logging.getLogger("NetSonar.Autostart")
 
 APP_NAME = "NetSonar"
 
-if getattr(sys, 'frozen', False):
-    REG_VALUE = f'"{sys.executable}"'
-else:
+
+def _default_command() -> str:
+    """Otomatik başlatma komutu.
+
+    Kurulu sürüm sabit yerde durur (C:\\Program Files\\NetSonar\\NetSonar.exe),
+    bu yüzden güncellemede komut değişmez — sürüm adı exe adında yok.
+    """
+    if getattr(sys, 'frozen', False):
+        return f'"{sys.executable}"'
     app_dir = os.path.dirname(os.path.abspath(__file__))
     main_path = os.path.join(app_dir, "main.py")
-    REG_VALUE = f'"{sys.executable}" "{main_path}"'
+    return f'"{sys.executable}" "{main_path}"'
+
+
+REG_VALUE = _default_command()
 
 
 def is_autostart_enabled() -> bool:

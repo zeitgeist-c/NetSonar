@@ -30,7 +30,20 @@ One-shot CLI:
 .\.venv\Scripts\python.exe main.py --list-blocked
 ```
 
-Other flags: `--no-gui`, `--accept-v05-reset` (confirms the v0.5 storage reset). Ready build: `dist\NetSonar-v0.5.9.exe` + `.bat` (portable, self-updating).
+Other flags: `--no-gui`, `--accept-v05-reset` (confirms the v0.5 storage reset).
+
+## Install
+
+    dist\NetSonar-vX.Y.Z-Setup.exe
+
+One installer, one channel. It installs to `C:\Program Files\NetSonar`, asks for
+admin approval, creates desktop and Start Menu shortcuts, and adds itself to
+"Apps & Features" for uninstall.
+
+Updates run from inside the app: it checks the release once a day, downloads the
+new installer (SHA256 verified), asks before installing, then replaces the
+program folder in place. User data and the local model store live outside the
+program folder and survive every update.
 
 ## Features
 
