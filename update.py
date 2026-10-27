@@ -1,4 +1,4 @@
-"""Self-update over the public NetSonar-Releases GitHub repository.
+"""Self-update over the public NetSonar GitHub repository.
 
 The source repository stays private; releases (the installer only) live in a
 public repo so an installed app can ask "what is the newest version?" without
@@ -35,7 +35,7 @@ import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 
-RELEASE_REPO = "zeitgeist-c/NetSonar-Releases"
+RELEASE_REPO = "zeitgeist-c/NetSonar"
 API_LATEST = f"https://api.github.com/repos/{RELEASE_REPO}/releases/latest"
 USER_AGENT = "NetSonar/updater"
 log = logging.getLogger("NetSonar.Update")

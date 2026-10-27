@@ -17,7 +17,7 @@ Unicode True
 
 !define APP_NAME "NetSonar"
 !define APP_EXE "NetSonar.exe"
-!define APP_PUBLISHER "NetSonar"
+!define APP_PUBLISHER "zeitgeist-c"
 !define APP_UNINST_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APP_NAME}"
 
 Name "${APP_NAME}"
