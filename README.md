@@ -1,19 +1,170 @@
 # NetSonar — AI-assisted network visibility for Windows
 
-> Türkçe için: [README.tr.md](./README.tr.md)
+> Türkçe: [README.tr.md](./README.tr.md)
 
-Local network traffic analysis and SOC helper: per-minute bidirectional flow summaries via Npcap, Gemini risk analysis with VirusTotal + web context, and audited Windows Firewall blocking. Raw detail is discarded by design — no content, URL, or password logging.
+**See what your machine is talking to, and let an AI tell you if it is a problem.**
 
-![NetSonar screenshots](./docs/screenshots/)
+NetSonar captures local network traffic through Npcap, summarises it into per-minute bidirectional flows, maps every flow to the process that opened it, and sends the summary to Gemini for a risk assessment backed by VirusTotal reputation and web context. When you decide something must be blocked, it writes an audited Windows Firewall rule.
 
-> Screenshots are being added from a clean install (no sample data). The folder above will hold them.
+Raw payload is discarded by design — no content, no URLs, no passwords are logged.
+
+![NetSonar · Panel](./docs/screenshots/01-panel.png)
+
+---
+
+## Contents
+
+- [What it does](#what-it-does)
+- [Screens, one by one](#screens-one-by-one)
+  - [1. Panel](#1-panel)
+  - [2. Analysis](#2-analysis)
+  - [3. Flows](#3-flows)
+  - [4. Rules](#4-rules)
+  - [5. Keys](#5-keys)
+  - [6. Settings](#6-settings)
+- [Requirements](#requirements)
+- [Install](#install)
+- [Command line](#command-line)
+- [How analysis works](#how-analysis-works)
+- [Privacy and retention](#privacy-and-retention)
+- [Project structure](#project-structure)
+- [License](#license)
+
+---
+
+## What it does
+
+| Capability | Detail |
+|---|---|
+| **Live capture** | Npcap + scapy, summarised into per-minute bidirectional flow buckets |
+| **Process mapping** | per-process, endpoint, port and protocol counters with sent/received split |
+| **AI analysis** | batched structured Gemini analysis; invented IPs, sources and flow IDs rejected by local verification |
+| **Threat intel** | VirusTotal reputation plus web context for selected public remote IPs only |
+| **Key failover** | multiple API keys with automatic failover, DPAPI-encrypted at rest |
+| **Firewall blocking** | audited bidirectional rules in a dedicated `NetSonar` group; off by default |
+| **SOC panel** | live flow table, metric cards, report view, tray icon |
+| **Scheduler** | timed analysis and database maintenance with desktop notifications |
+| **Reports** | JSON, CSV and TXT export |
+| **Retention** | raw detail dropped, IP-less hourly totals kept 30 days, unanalysed detail anonymised within 24 hours |
+
+---
+
+## Screens, one by one
+
+The captures below come from a clean install with no data, so the counters read zero — that is what a first launch looks like.
+
+### 1. Panel
+
+![Panel](./docs/screenshots/01-panel.png)
+
+The operational centre. Four cards across the top:
+
+| Card | Meaning |
+|---|---|
+| **Bugünkü Akış** | flows captured today, updated live |
+| **Tehdit** | total threats the AI has flagged |
+| **Engellenen** | IPs currently blocked by firewall rule |
+| **AI Raporu** | number of stored analysis reports |
+
+Under the cards sits the **traffic chart** with hour / day / week / 30-day totals and the sent-versus-received split, plus a **top traffic** panel. On the right, **Canlı Akış** streams the newest destinations as they are captured, without waiting for an analysis.
+
+The header shows sensor state (`SENSÖR AKTİF`), capture state (`YAKALAMA KAPALI` / on), and the `AI Analizi Başlat` action. The status bar repeats the essentials: monitoring state, active interface, AI provider, next scheduled analysis, database state.
+
+### 2. Analysis
+
+![Analysis](./docs/screenshots/02-analiz.png)
+
+The result of the last AI run.
+
+- **Risk score** with a label (`riskli`, `orta risk`, `temiz`) and the provider and timestamp that produced it.
+- **Short conclusion** — the plain-language verdict, naming the process, port and destination that triggered it.
+- **Detected risks** — one bullet per finding.
+- **Recommended actions** — what to check or do next.
+- **Suspicious flows** table: IP/port, process, why it was flagged, the recommendation, the state, and a `Güven` (trust) action to whitelist it.
+- **Report history** on the right: date, provider, risk and state for every stored report.
+- `JSON`, `CSV`, `TXT` export buttons.
+
+An empty state is explicit — `Henüz analiz yapılmadı` rather than a zeroed chart pretending to be data.
+
+**Verification.** Before a result is displayed, the flow IDs, source IPs and addresses the model returned are checked against what was actually captured. Anything the model invented is rejected, so a hallucinated IP can never appear as a finding.
+
+### 3. Flows
+
+![Flows](./docs/screenshots/03-akislar.png)
+
+Every recorded flow, newest first.
+
+| Column | Meaning |
+|---|---|
+| **Durum** | severity badge (`YÜKSEK`, `NORMAL`) |
+| **Bağ** | connection count for the flow |
+| **Hedef IP** | destination address |
+| **Port** | destination port |
+| **Proto** | TCP / UDP |
+| **Veri** | bytes transferred |
+| **Süreç** | the process that opened it |
+
+Filters: `Tümü`, `Şüpheli port`, `>50MB`, `Mesai dışı`, plus a page-size selector and free-text search on IP or process. `Listeyi Yenile` reloads from the database.
+
+Row actions block an IP directly — that path goes through the same audited firewall code as the Rules page.
+
+### 4. Rules
+
+![Rules](./docs/screenshots/04-kurallar.png)
+
+Two tabs: **Engellenenler** (blocked) and **Güvenli IP'ler** (allowlisted).
+
+Blocked targets are the defence layer: each entry corresponds to a Windows Firewall rule in the `NetSonar` group, created in both directions. Allowlisted addresses are excluded from analysis entirely — they are never sent to any external service.
+
+The counters in the header (`TOPLAM`, `BUGÜN`) and the search box work across both tabs. An empty state says `Engellenen IP yok` and explains where entries will appear.
+
+### 5. Keys
+
+![Keys](./docs/screenshots/05-anahtarlar.png)
+
+Provider credentials and their quotas, one card per provider:
+
+| Provider | Used for |
+|---|---|
+| **Gemini** | the AI analysis engine |
+| **VirusTotal** | IP reputation |
+| **Tavily** | current web research |
+
+Each card shows a state badge (`YOK` when unset) and a `Yönet` action. Usage counters show today's or this month's consumption against the limit — `0 / 480` for VirusTotal daily, `0 / 900` for Tavily monthly.
+
+Keys are stored DPAPI-encrypted for the current Windows user; they are never written to the database in clear text and never appear in a report. Multiple Gemini keys can be stored and are used with automatic failover when one is rate-limited or rejected.
+
+### 6. Settings
+
+![Settings](./docs/screenshots/06-ayarlar.png)
+
+Five sections down the left:
+
+| Section | Holds |
+|---|---|
+| **Genel** | run at Windows startup, minimise to tray on close |
+| **Analiz** | analysis cadence, batching, provider and model selection |
+| **Güvenlik** | blocking behaviour, auto-block thresholds, allowlist policy |
+| **AI Prompt** | the system instruction sent with each analysis |
+| **Güncelleme** | update checks (once a day, SHA-256 verified) |
+
+`Ayarları Kaydet` writes the settings; changes that affect a running analysis take effect on the next run. Header, footer and status bar stay visible in every section, so the sensor state is never hidden behind a settings page.
+
+---
 
 ## Requirements
 
-- Windows 10/11, Python 3.11+, administrator rights
-- Npcap (`C:\Windows\System32\Npcap\wpcap.dll`)
+- Windows 10/11, Python 3.11+ for a source run
+- Administrator rights (capture and firewall rules both need them)
+- Npcap installed (`C:\Windows\System32\Npcap\wpcap.dll`)
 
-## Quick start
+## Install
+
+Download `NetSonar-v<version>-Setup.exe` from [Releases](https://github.com/zeitgeist-c/NetSonar/releases/latest) and run it. One installer, one channel: it installs to `C:\Program Files\NetSonar`, asks for administrator approval, creates desktop and Start Menu shortcuts, and registers itself in Apps & Features.
+
+Updates run from inside the app: it checks once a day, downloads the new installer, verifies its SHA-256, asks before installing, then closes and replaces the program folder in place, restarting afterwards. User data and the model store live outside the program folder and survive every update. If the released version is not newer than the installed one, the app says so and does nothing.
+
+## Command line
 
 ```powershell
 python -m venv .venv
@@ -21,7 +172,7 @@ python -m venv .venv
 .\.venv\Scripts\python.exe main.py
 ```
 
-One-shot CLI:
+One-shot operations:
 
 ```powershell
 .\.venv\Scripts\python.exe main.py --analyze
@@ -32,35 +183,24 @@ One-shot CLI:
 
 Other flags: `--no-gui`, `--accept-v05-reset` (confirms the v0.5 storage reset).
 
-## Install
+## How analysis works
 
-    dist\NetSonar-vX.Y.Z-Setup.exe
+1. Capture collects packets and folds them into per-minute bidirectional buckets per endpoint pair.
+2. Buckets are attributed to the owning process through the Windows API.
+3. A batch is built from the top flows, with payload contents never included.
+4. Gemini returns a structured verdict; the local verifier matches every returned identifier against the captured set and drops anything that does not exist.
+5. Only selected **public remote** IPs are sent to VirusTotal and the web-context provider. Local addresses, multicast addresses and allowlisted addresses never leave the machine.
+6. The result is stored as a report and shown on the Analysis page.
 
-One installer, one channel. It installs to `C:\Program Files\NetSonar`, asks for
-admin approval, creates desktop and Start Menu shortcuts, and adds itself to
-"Apps & Features" for uninstall.
+Auto-block is deliberately conservative: it requires a critical severity, at least 0.95 confidence **and** an explicit `block_now` from the model. Blocking is off by default.
 
-Updates run from inside the app: it checks the release once a day, downloads the
-new installer (SHA256 verified), asks before installing, then closes the app and
-replaces the program folder in place. The app restarts itself when the install
-finishes. User data and the local model store live outside the program folder
-and survive every update.
+## Privacy and retention
 
-If the released version is not newer than the installed one, the app says so
-and does nothing — it never reinstalls the same version.
-
-## Features
-
-- **Live capture** — Npcap/scapy capture with per-minute bidirectional `FlowBucket` summaries.
-- **Process mapping** — per-process, endpoint, port, and protocol counters (bytes/packets, sent/recv split).
-- **AI analysis** — batched structured Gemini analysis; fake IP/source/flow-id rejected by local verification.
-- **Threat intel** — VirusTotal reputation + web context; only selected public remote IPs are sent, local/multicast/allowlisted never leave.
-- **Key failover** — multiple API keys with automatic failover, DPAPI-encrypted storage.
-- **Firewall blocking** — audited bidirectional Windows Firewall rules (`NetSonar` group); off by default, auto-block only on critical + ≥0.95 confidence + `block_now`.
-- **SOC panel** — PyQt6 live flow table, metric cards, report view, tray icon.
-- **Scheduler** — timed analysis + DB maintenance, desktop notifications.
-- **Reports** — JSON/CSV/TXT export.
-- **Privacy-first retention** — raw detail dropped, IP-less hourly totals + 30-day audit, unanalyzed detail anonymized in 24h.
+- Raw packet detail is dropped after the flow is summarised; content, URLs and credentials are never written.
+- Hourly totals are stored without IP addresses and kept for 30 days; the audit trail is kept 30 days.
+- Unanalysed detail is anonymised within 24 hours.
+- Keys are DPAPI-encrypted per Windows user.
+- No analytics, no telemetry, no account. Network calls go only to the AI provider, the threat-intel provider and GitHub for update checks.
 
 ## Project structure
 
@@ -78,10 +218,6 @@ exporter.py          JSON/CSV/TXT reports
 packaging/  assets/  tests/  dist/
 ```
 
-## Contributing
-
-Small PRs, no captures or keys in test data. See [.github/PULL_REQUEST_TEMPLATE.md](./.github/PULL_REQUEST_TEMPLATE.md).
-
 ## License
 
-See [LICENSE](./LICENSE) (pending — to be confirmed).
+MIT — see [LICENSE](./LICENSE).
