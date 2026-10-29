@@ -8,7 +8,6 @@ EN_EXTRA = {
 'Bu risk satırında geçerli bir IP adresi yok.': 'No valid IP address in this risk row.',
 'Bu ölçütlere uyan akış yok': 'No flows match these criteria',
 'Uyarı kuralları yüklenemedi (custom_alerts.json)': 'Could not load warning rules (custom_alerts.json)',
-'Veriler yükleniyor...': 'Loading data...',
 'Wildcard IP eşleştirme (örn. 192.168.*.1).': 'Wildcard IP matching (e.g. 192.168.*.1).',
 '{active:,} AKTİF IP': '{active:,} ACTIVE IPs',
 '{ip} güvenli listede bulunamadı.': '{ip} not found in safe list.',
