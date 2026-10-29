@@ -1932,7 +1932,7 @@ class DataTab(QWidget):
             self._empty_state.setVisible(True)
 
         total_pages = max(1, (len(rows) + self._page_size - 1) // self._page_size)
-        self._page_lbl.setText(f"Sayfa {self._page + 1} / {total_pages}")
+        self._page_lbl.setText(t("Sayfa {page} / {total}", page=self._page + 1, total=total_pages))
         self._prev_btn.setEnabled(self._page > 0)
         self._next_btn.setEnabled(self._page < total_pages - 1 and total_pages > 1)
 
@@ -2184,7 +2184,7 @@ class RulesTab(QWidget):
         today = datetime.now().strftime("%Y-%m-%d")
         if self._view == self.VIEW_BLOCKED:
             today_count = sum(1 for r in self._rows if str(r.get("blocked_at", "")).startswith(today))
-            self._stats_lbl.set_status("danger", t(f"TOPLAM {len(self._rows)} · BUGÜN {today_count}"))
+            self._stats_lbl.set_status("danger", t("TOPLAM {total} · BUGÜN {today}", total=len(self._rows), today=today_count))
         else:
             self._stats_lbl.set_status("success", f"TOPLAM {len(self._rows)}")
         self._page = 0
@@ -2251,7 +2251,7 @@ class RulesTab(QWidget):
         self._empty_state.setVisible(not visible)
 
         total_pages = max(1, (len(rows) + self._page_size - 1) // self._page_size)
-        self._page_lbl.setText(f"Sayfa {self._page + 1} / {total_pages}")
+        self._page_lbl.setText(t("Sayfa {page} / {total}", page=self._page + 1, total=total_pages))
         self._prev_btn.setEnabled(self._page > 0)
         self._next_btn.setEnabled(self._page < total_pages - 1 and total_pages > 1)
 
@@ -2356,7 +2356,7 @@ class ApiKeyManager(QWidget):
 
     def _prompt(self, title, current=""):
         value, accepted = QInputDialog.getText(
-            self, title, t(f"{self.provider_name} API anahtarı:"),
+            self, title, t("{provider} API anahtarı:", provider=self.provider_name),
             QLineEdit.EchoMode.Password, current)
         return value.strip() if accepted else ""
 
@@ -2596,8 +2596,8 @@ class KeysTab(QWidget):
         day = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
         month = datetime.now().replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
         if self.db is not None and hasattr(self.db, "api_usage"):
-            self._usage_labels["virustotal"].setText(f"{self.db.api_usage('virustotal', day)} / 480")
-            self._usage_labels["tavily"].setText(f"{self.db.api_usage('tavily', month)} / 900")
+            self._usage_labels["virustotal"].setText(t("{used} / 480", used=self.db.api_usage("virustotal", day)))
+            self._usage_labels["tavily"].setText(t("{used} / 900", used=self.db.api_usage("tavily", month)))
         else:
             self._usage_labels["virustotal"].setText("—")
             self._usage_labels["tavily"].setText("—")
@@ -2632,13 +2632,13 @@ class KeysTab(QWidget):
                     }, timeout=20)
             if response.status_code == 200:
                 QMessageBox.information(self, t("API testi başarılı"),
-                    t(f"{provider.title()} API {row + 1} çalışıyor."))
+                    t("{provider} API {number} çalışıyor.", provider=provider.title(), number=row + 1))
             else:
                 QMessageBox.warning(self, t("API testi başarısız"),
-                    t(f"{provider.title()} HTTP {response.status_code} döndürdü."))
+                    t("{provider} HTTP {status} döndürdü.", provider=provider.title(), status=response.status_code))
         except requests.RequestException as exc:
             QMessageBox.warning(self, t("API testi başarısız"),
-                t(f"{provider.title()} bağlantı hatası: {str(exc)[:160]}"))
+                t("{provider} bağlantı hatası: {error}", provider=provider.title(), error=str(exc)[:160]))
 
     def _save(self):
         try:
