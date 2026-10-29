@@ -1,6 +1,6 @@
 # NetSonar — AI-assisted network visibility for Windows
 
-> Türkçe: [README.tr.md](./README.tr.md)
+> Turkish: [README.tr.md](./README.tr.md)
 
 **See what your machine is talking to, and let an AI tell you if it is a problem.**
 
@@ -61,14 +61,14 @@ The operational centre. Four cards across the top:
 
 | Card | Meaning |
 |---|---|
-| **Bugünkü Akış** | flows captured today, updated live |
-| **Tehdit** | total threats the AI has flagged |
-| **Engellenen** | IPs currently blocked by firewall rule |
-| **AI Raporu** | number of stored analysis reports |
+| **Today's Flows** | flows captured today, updated live |
+| **Threats** | total threats the AI has flagged |
+| **Blocked** | IPs currently blocked by firewall rule |
+| **AI Reports** | number of stored analysis reports |
 
-Under the cards sits the **traffic chart** with hour / day / week / 30-day totals and the sent-versus-received split, plus a **top traffic** panel. On the right, **Canlı Akış** streams the newest destinations as they are captured, without waiting for an analysis.
+Under the cards sits the **traffic chart** with hour / day / week / 30-day totals and the sent-versus-received split, plus a **top traffic** panel. On the right, **Live Flows** streams the newest destinations as they are captured, without waiting for an analysis.
 
-The header shows sensor state (`SENSÖR AKTİF`), capture state (`YAKALAMA KAPALI` / on), and the `AI Analizi Başlat` action. The status bar repeats the essentials: monitoring state, active interface, AI provider, next scheduled analysis, database state.
+The header shows sensor state (`SENSOR ACTIVE`), capture state (`CAPTURE OFF` / on), and the `Start AI Analysis` action. The status bar repeats the essentials: monitoring state, active interface, AI provider, next scheduled analysis, database state.
 
 ### 2. Analysis
 
@@ -76,15 +76,15 @@ The header shows sensor state (`SENSÖR AKTİF`), capture state (`YAKALAMA KAPAL
 
 The result of the last AI run.
 
-- **Risk score** with a label (`riskli`, `orta risk`, `temiz`) and the provider and timestamp that produced it.
+- **Risk score** with a label (`risky`, `medium risk`, `clean`) and the provider and timestamp that produced it.
 - **Short conclusion** — the plain-language verdict, naming the process, port and destination that triggered it.
 - **Detected risks** — one bullet per finding.
 - **Recommended actions** — what to check or do next.
-- **Suspicious flows** table: IP/port, process, why it was flagged, the recommendation, the state, and a `Güven` (trust) action to whitelist it.
+- **Suspicious flows** table: IP/port, process, why it was flagged, the recommendation, the state, and a `Trust` action to whitelist it.
 - **Report history** on the right: date, provider, risk and state for every stored report.
 - `JSON`, `CSV`, `TXT` export buttons.
 
-An empty state is explicit — `Henüz analiz yapılmadı` rather than a zeroed chart pretending to be data.
+An empty state is explicit — `No analysis yet` rather than a zeroed chart pretending to be data.
 
 **Verification.** Before a result is displayed, the flow IDs, source IPs and addresses the model returned are checked against what was actually captured. Anything the model invented is rejected, so a hallucinated IP can never appear as a finding.
 
@@ -96,15 +96,15 @@ Every recorded flow, newest first.
 
 | Column | Meaning |
 |---|---|
-| **Durum** | severity badge (`YÜKSEK`, `NORMAL`) |
-| **Bağ** | connection count for the flow |
-| **Hedef IP** | destination address |
+| **State** | severity badge (`HIGH`, `NORMAL`) |
+| **Conns** | connection count for the flow |
+| **Dest IP** | destination address |
 | **Port** | destination port |
 | **Proto** | TCP / UDP |
-| **Veri** | bytes transferred |
-| **Süreç** | the process that opened it |
+| **Data** | bytes transferred |
+| **Process** | the process that opened it |
 
-Filters: `Tümü`, `Şüpheli port`, `>50MB`, `Mesai dışı`, plus a page-size selector and free-text search on IP or process. `Listeyi Yenile` reloads from the database.
+Filters: `All`, `Suspicious port`, `>50MB`, `Off-hours`, plus a page-size selector and free-text search on IP or process. `Refresh List` reloads from the database.
 
 Row actions block an IP directly — that path goes through the same audited firewall code as the Rules page.
 
@@ -112,11 +112,11 @@ Row actions block an IP directly — that path goes through the same audited fir
 
 ![Rules](./docs/screenshots/04-kurallar.png)
 
-Two tabs: **Engellenenler** (blocked) and **Güvenli IP'ler** (allowlisted).
+Two tabs: **Blocked** and **Trusted IPs** (allowlisted).
 
 Blocked targets are the defence layer: each entry corresponds to a Windows Firewall rule in the `NetSonar` group, created in both directions. Allowlisted addresses are excluded from analysis entirely — they are never sent to any external service.
 
-The counters in the header (`TOPLAM`, `BUGÜN`) and the search box work across both tabs. An empty state says `Engellenen IP yok` and explains where entries will appear.
+The counters in the header (`TOTAL`, `TODAY`) and the search box work across both tabs. An empty state says `No blocked IPs` and explains where entries will appear.
 
 ### 5. Keys
 
@@ -130,7 +130,7 @@ Provider credentials and their quotas, one card per provider:
 | **VirusTotal** | IP reputation |
 | **Tavily** | current web research |
 
-Each card shows a state badge (`YOK` when unset) and a `Yönet` action. Usage counters show today's or this month's consumption against the limit — `0 / 480` for VirusTotal daily, `0 / 900` for Tavily monthly.
+Each card shows a state badge (`NONE` when unset) and a `Manage` action. Usage counters show today's or this month's consumption against the limit — `0 / 480` for VirusTotal daily, `0 / 900` for Tavily monthly.
 
 Keys are stored DPAPI-encrypted for the current Windows user; they are never written to the database in clear text and never appear in a report. Multiple Gemini keys can be stored and are used with automatic failover when one is rate-limited or rejected.
 
@@ -142,13 +142,13 @@ Five sections down the left:
 
 | Section | Holds |
 |---|---|
-| **Genel** | run at Windows startup, minimise to tray on close |
-| **Analiz** | analysis cadence, batching, provider and model selection |
-| **Güvenlik** | blocking behaviour, auto-block thresholds, allowlist policy |
+| **General** | run at Windows startup, minimise to tray on close |
+| **Analysis** | analysis cadence, batching, provider and model selection |
+| **Security** | blocking behaviour, auto-block thresholds, allowlist policy |
 | **AI Prompt** | the system instruction sent with each analysis |
-| **Güncelleme** | update checks (once a day, SHA-256 verified) |
+| **Updates** | update checks (once a day, SHA-256 verified) |
 
-`Ayarları Kaydet` writes the settings; changes that affect a running analysis take effect on the next run. Header, footer and status bar stay visible in every section, so the sensor state is never hidden behind a settings page.
+`Save Settings` writes the settings; changes that affect a running analysis take effect on the next run. Header, footer and status bar stay visible in every section, so the sensor state is never hidden behind a settings page.
 
 ---
 
