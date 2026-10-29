@@ -126,4 +126,6 @@ PB4 = {
     '   Süreç: {proc}': '   Processo: {proc}',
     'Şüpheli akış tespit edilmedi.': 'Nenhum fluxo suspeito detectado.',
     'Güncel dış kaynak kullanılmadı.': 'Nenhuma fonte externa atual usada.',
+    'Kurallar': 'Regras',
+    'Anahtarlar': 'Chaves',
 }

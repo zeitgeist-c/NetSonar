@@ -125,4 +125,6 @@ FR4 = {
     '   Süreç: {proc}': '   Processus : {proc}',
     'Şüpheli akış tespit edilmedi.': 'Aucun flux suspect détecté.',
     'Güncel dış kaynak kullanılmadı.': 'Aucune source externe actuelle utilisée.',
+    'Kurallar': 'Règles',
+    'Anahtarlar': 'Clés',
 }

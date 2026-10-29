@@ -125,4 +125,6 @@ PL4 = {
     '   Süreç: {proc}': '   Proces: {proc}',
     'Şüpheli akış tespit edilmedi.': 'Nie wykryto podejrzanego przepływu.',
     'Güncel dış kaynak kullanılmadı.': 'Nie użyto bieżącego źródła zewnętrznego.',
+    'Kurallar': 'Reguły',
+    'Anahtarlar': 'Klucze',
 }

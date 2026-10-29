@@ -125,4 +125,6 @@ DE4 = {
     '   Süreç: {proc}': '   Prozess: {proc}',
     'Şüpheli akış tespit edilmedi.': 'Kein verdächtiger Datenfluss erkannt.',
     'Güncel dış kaynak kullanılmadı.': 'Keine aktuelle externe Quelle verwendet.',
+    'Kurallar': 'Regeln',
+    'Anahtarlar': 'Schlüssel',
 }

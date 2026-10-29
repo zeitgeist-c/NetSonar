@@ -125,4 +125,6 @@ JA4 = {
     '   Süreç: {proc}': '   プロセス: {proc}',
     'Şüpheli akış tespit edilmedi.': '不審なフローは検出されませんでした。',
     'Güncel dış kaynak kullanılmadı.': '最新の外部ソースは使用されませんでした。',
+    'Kurallar': 'ルール',
+    'Anahtarlar': 'キー',
 }

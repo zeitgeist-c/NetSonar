@@ -125,4 +125,6 @@ NL4 = {
     '   Süreç: {proc}': '   Proces: {proc}',
     'Şüpheli akış tespit edilmedi.': 'Geen verdachte stroom gedetecteerd.',
     'Güncel dış kaynak kullanılmadı.': 'Geen actuele externe bron gebruikt.',
+    'Kurallar': 'Regels',
+    'Anahtarlar': 'Sleutels',
 }

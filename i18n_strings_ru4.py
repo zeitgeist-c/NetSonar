@@ -125,4 +125,6 @@ RU4 = {
     '   Süreç: {proc}': '   Процесс: {proc}',
     'Şüpheli akış tespit edilmedi.': 'Подозрительный поток не обнаружен.',
     'Güncel dış kaynak kullanılmadı.': 'Актуальный внешний источник не использовался.',
+    'Kurallar': 'Правила',
+    'Anahtarlar': 'Ключи',
 }
