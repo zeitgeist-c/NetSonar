@@ -47,32 +47,32 @@ VIAddVersionKey /LANG=1055 "OriginalFilename" "NetSonar-${APP_VERSION}.exe"
 !insertmacro MUI_PAGE_FINISH
 !insertmacro MUI_UNPAGE_CONFIRM
 !insertmacro MUI_UNPAGE_INSTFILES
-LangString nsRunText ${LANG_ENGLISH} "Launch ${APP_NAME}"
-LangString nsRunText ${LANG_TURKISH} "${APP_NAME}'ı başlat"
-LangString nsRunText ${LANG_GERMAN} "${APP_NAME} starten"
-LangString nsRunText ${LANG_SPANISH} "Iniciar ${APP_NAME}"
-LangString nsRunText ${LANG_FRENCH} "Lancer ${APP_NAME}"
-LangString nsRunText ${LANG_ITALIAN} "Avvia ${APP_NAME}"
-LangString nsRunText ${LANG_PORTUGUESEBR} "Iniciar ${APP_NAME}"
-LangString nsRunText ${LANG_RUSSIAN} "Запустить ${APP_NAME}"
-LangString nsRunText ${LANG_POLISH} "Uruchom ${APP_NAME}"
-LangString nsRunText ${LANG_DUTCH} "${APP_NAME} starten"
-LangString nsRunText ${LANG_SIMPCHINESE} "启动 ${APP_NAME}"
-LangString nsRunText ${LANG_JAPANESE} "${APP_NAME} を起動"
-LangString nsRunText ${LANG_KOREAN} "${APP_NAME} 시작"
-LangString nsRunCheck ${LANG_ENGLISH} "Run ${APP_NAME} after setup"
-LangString nsRunCheck ${LANG_TURKISH} "Kurulumdan sonra ${APP_NAME} başlatılsın"
-LangString nsRunCheck ${LANG_GERMAN} "${APP_NAME} nach dem Setup starten"
-LangString nsRunCheck ${LANG_SPANISH} "Ejecutar ${APP_NAME} después de la instalación"
-LangString nsRunCheck ${LANG_FRENCH} "Lancer ${APP_NAME} après l'installation"
-LangString nsRunCheck ${LANG_ITALIAN} "Esegui ${APP_NAME} dopo il setup"
-LangString nsRunCheck ${LANG_PORTUGUESEBR} "Executar ${APP_NAME} após a instalação"
-LangString nsRunCheck ${LANG_RUSSIAN} "Запустить ${APP_NAME} после установки"
-LangString nsRunCheck ${LANG_POLISH} "Uruchom ${APP_NAME} po instalacji"
-LangString nsRunCheck ${LANG_DUTCH} "${APP_NAME} starten na de setup"
-LangString nsRunCheck ${LANG_SIMPCHINESE} "安装后运行 ${APP_NAME}"
-LangString nsRunCheck ${LANG_JAPANESE} "セットアップ後に ${APP_NAME} を実行"
-LangString nsRunCheck ${LANG_KOREAN} "설치 후 ${APP_NAME} 실행"
+LangString nsRunText 1033 "Launch ${APP_NAME}"
+LangString nsRunText 1055 "${APP_NAME}'ı başlat"
+LangString nsRunText 1031 "${APP_NAME} starten"
+LangString nsRunText 1034 "Iniciar ${APP_NAME}"
+LangString nsRunText 1036 "Lancer ${APP_NAME}"
+LangString nsRunText 1040 "Avvia ${APP_NAME}"
+LangString nsRunText 1046 "Iniciar ${APP_NAME}"
+LangString nsRunText 1049 "Запустить ${APP_NAME}"
+LangString nsRunText 1045 "Uruchom ${APP_NAME}"
+LangString nsRunText 1043 "${APP_NAME} starten"
+LangString nsRunText 2052 "启动 ${APP_NAME}"
+LangString nsRunText 1041 "${APP_NAME} を起動"
+LangString nsRunText 1042 "${APP_NAME} 시작"
+LangString nsRunCheck 1033 "Run ${APP_NAME} after setup"
+LangString nsRunCheck 1055 "Kurulumdan sonra ${APP_NAME} başlatılsın"
+LangString nsRunCheck 1031 "${APP_NAME} nach dem Setup starten"
+LangString nsRunCheck 1034 "Ejecutar ${APP_NAME} después de la instalación"
+LangString nsRunCheck 1036 "Lancer ${APP_NAME} après l'installation"
+LangString nsRunCheck 1040 "Esegui ${APP_NAME} dopo il setup"
+LangString nsRunCheck 1046 "Executar ${APP_NAME} após a instalação"
+LangString nsRunCheck 1049 "Запустить ${APP_NAME} после установки"
+LangString nsRunCheck 1045 "Uruchom ${APP_NAME} po instalacji"
+LangString nsRunCheck 1043 "${APP_NAME} starten na de setup"
+LangString nsRunCheck 2052 "安装后运行 ${APP_NAME}"
+LangString nsRunCheck 1041 "セットアップ後に ${APP_NAME} を実行"
+LangString nsRunCheck 1042 "설치 후 ${APP_NAME} 실행"
 !insertmacro MUI_LANGUAGE "English"
 !insertmacro MUI_LANGUAGE "Turkish"
 !insertmacro MUI_LANGUAGE "German"
@@ -94,6 +94,12 @@ Var AutostartWasEnabled
 
 ; ─── Kurulum oncesi kontroller ──────────────────────────────────────
 Function .onInit
+  ; Kayitli kurulumcu dili yoksa varsayilan EN (LCID 1033); OS/sistem
+  ; dili EN varsayilanini ezemez (AUD-INSTALL-001). Secici yine de 13 dili sunar.
+  ReadRegStr $0 HKLM "Software\${APP_NAME}" "Installer Language"
+  ${If} $0 == ""
+    StrCpy $LANGUAGE 1033
+  ${EndIf}
   !insertmacro MUI_LANGDLL_DISPLAY
   ; Bu kurulumcu 64-bit uygulama kurar (Program Files). NSIS 32-bit oldugu
   ; icin kayit defteri gorunumu acikca 64-bit yapilir; aksi halde anahtarlar
@@ -167,6 +173,8 @@ Section "NetSonar" SEC_APP
 
   ; Kayit defteri: kurulum yolu ve kaldirma bilgisi
   WriteRegStr HKLM "Software\${APP_NAME}" "InstallDir" "$INSTDIR"
+  ; Kurulumcu dil secimi: sonraki kurulumda varsayilan olur (AUD-INSTALL-001).
+  WriteRegStr HKLM "Software\${APP_NAME}" "Installer Language" "$LANGUAGE"
   WriteRegStr HKLM "${APP_UNINST_KEY}" "DisplayName" "${APP_NAME}"
   WriteRegStr HKLM "${APP_UNINST_KEY}" "DisplayVersion" "${APP_VERSION}"
   WriteRegStr HKLM "${APP_UNINST_KEY}" "Publisher" "${APP_PUBLISHER}"

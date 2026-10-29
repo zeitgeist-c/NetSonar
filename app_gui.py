@@ -501,7 +501,9 @@ class DashboardTab(QWidget):
         today = next((p for p in traffic if p.get("short") == t("Bugün")), None)
         if today:
             self._dir_lbl.setText(
-                t(f"↑ {_fmt(today.get('upload', 0))} gönderilen · ↓ {_fmt(today.get('download', 0))} indirilen")
+                t("↑ {up} gönderilen · ↓ {down} indirilen",
+                  up=_fmt(today.get("upload", 0)),
+                  down=_fmt(today.get("download", 0)))
             )
 
         if timeline:
@@ -867,14 +869,16 @@ class AnalysisTab(QWidget):
                 analysis_time_text = str(analysis_time)[:19].replace("T", " ")
         else:
             analysis_time_text = datetime.now().strftime("%d.%m.%Y %H:%M")
-        self._risk_time.setText(f"Son analiz: {analysis_time_text}")
-        self._provider_lbl.setText(f"AI sağlayıcısı: {provider}")
+        self._risk_time.setText(t("Son analiz: {time}", time=analysis_time_text))
+        self._provider_lbl.setText(t("AI sağlayıcısı: {provider}", provider=provider))
 
         meta = r.get("_meta", {}) or {}
-        preview = t(f"[Atlandı] {meta.get('reason','')}") if meta.get("skipped") else str(meta.get("raw_payload", ""))
+        preview = t("[Atlandı] {reason}", reason=meta.get("reason", "")) if meta.get("skipped") else str(meta.get("raw_payload", ""))
         self._preview_browser.setPlainText(preview or t("Teknik veri kaydedilmemiş."))
         if meta.get("est_tokens"):
-            self._provider_lbl.setText(f"AI sağlayıcısı: {provider}\nYaklaşık {meta['est_tokens']} token")
+            self._provider_lbl.setText(
+                t("AI sağlayıcısı: {provider}\nYaklaşık {tokens} token",
+                  provider=provider, tokens=meta["est_tokens"]))
 
         conns = [c for c in (r.get("suspicious_connections", []) or []) if isinstance(c, dict)]
         if not conns:
@@ -1050,7 +1054,7 @@ class MainWindow(QMainWindow):
         self.analyzer  = analyzer
         self.engine    = engine
         self.scheduler = scheduler
-        self.setWindowTitle(t(f"NetSonar {get_app_version()} — AI Ağ İzleyici"))
+        self.setWindowTitle(t("NetSonar {version} — AI Ağ İzleyici", version=get_app_version()))
         self.setMinimumSize(1280, 760)
         self.resize(1280, 800)
         self.setStyleSheet(STYLESHEET)
@@ -1424,7 +1428,7 @@ class MainWindow(QMainWindow):
 
     def _on_model_changed(self, model: str):
         """Kaydedilen model seçimini durum çubuğuna anında yansıt."""
-        self._sb_ai.setText(f"AI: GEMINI - {model}")
+        self._sb_ai.setText(t("AI: GEMINI - {model}", model=model))
 
     def _init_statusbar_config(self):
         """Statusbar'daki AI bilgisini başlangıçta yükle."""
@@ -1542,7 +1546,7 @@ class MainWindow(QMainWindow):
             if self.tray.isVisible():
                 self.tray.showMessage(
                     "NetSonar",
-                    t(f"Yeni sürüm hazır: v{info.version}. Ayarlar sekmesinden kurabilirsiniz."),
+                    t("Yeni sürüm hazır: v{version}. Ayarlar sekmesinden kurabilirsiniz.", version=info.version),
                     QSystemTrayIcon.MessageIcon.Information, 10000)
 
     def _update_failed(self, message):
@@ -1860,7 +1864,9 @@ class DataTab(QWidget):
     def _on_data_loaded(self, rows, since_label):
         self._loading = False
         total_bytes = sum(r.get("total_bytes", 0) for r in rows)
-        self._stats_lbl.setText(f"{len(rows)} akış · {_fmt(total_bytes)} veri — {since_label}")
+        self._stats_lbl.setText(
+            t("{count} akış · {total} veri — {since}",
+              count=len(rows), total=_fmt(total_bytes), since=since_label))
         self._all_rows = rows
         self._visible_rows = rows
         self._page = 0
@@ -3009,7 +3015,7 @@ class SettingsTab(QWidget):
     def show_update_current(self):
         self._update_info = None
         self._update_status.setText(
-            t(f"Kurulu sürüm: {get_app_version()}. ") +
+            t("Kurulu sürüm: {version}. ", version=get_app_version()) +
             t("Yeni sürümler günde bir kez sessizce denetlenir."))
         self._update_status.setStyleSheet(f"color:{C['text3']}; font-size:12px;")
         self._update_check_btn.setEnabled(True)
@@ -3027,14 +3033,14 @@ class SettingsTab(QWidget):
         """
         if not checked:
             self._update_status.setText(
-                t(f"Kurulu sürüm: {get_app_version()}. ") +
+                t("Kurulu sürüm: {version}. ", version=get_app_version()) +
                 t("Yeni sürüm denetimi yapılıyor..."))
             self._update_status.setStyleSheet(f"color:{C['text3']}; font-size:12px;")
             return
         if has_update and latest_version:
             self._update_status.setText(
                 t("Yeni sürüm hazır: v{latest_version} ", latest_version=latest_version) +
-                t(f"(kurulu: {get_app_version()}). İndirip kurabilirsiniz."))
+                t("(kurulu: {version}). İndirip kurabilirsiniz.", version=get_app_version()))
             self._update_status.setStyleSheet(f"color:{C['accent']}; font-size:12px;")
             return
         self.show_update_latest()
@@ -3047,8 +3053,8 @@ class SettingsTab(QWidget):
     def show_update_available(self, info):
         self._update_info = info
         self._update_status.setText(
-            t(f"Yeni sürüm hazır: v{info.version} ") +
-            t(f"(kurulu: {get_app_version()}). İndirip kurabilirsiniz."))
+            t("Yeni sürüm hazır: v{latest_version} ", latest_version=info.version) +
+            t("(kurulu: {version}). İndirip kurabilirsiniz.", version=get_app_version()))
         self._update_status.setStyleSheet(f"color:{C['accent']}; font-size:12px;")
         self._update_check_btn.setEnabled(True)
         self._update_install_btn.setVisible(True)
@@ -3059,7 +3065,7 @@ class SettingsTab(QWidget):
         """Güncelleme yok: kurulu sürüm en günceli."""
         self._update_info = None
         self._update_status.setText(
-            t(f"Kurulu sürüm en günceli: {get_app_version()}. ") +
+            t("Kurulu sürüm en günceli: {version}. ", version=get_app_version()) +
             t("Yeni sürüm çıktığında burada bildirilecek."))
         self._update_status.setStyleSheet(f"color:{C['text3']}; font-size:12px;")
         self._update_check_btn.setEnabled(True)
