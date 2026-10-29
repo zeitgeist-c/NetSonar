@@ -1258,8 +1258,8 @@ class MainWindow(QMainWindow):
             (t("Panel"), "dashboard", t("Canlı görünüm: trafik, akış, rapor özeti")),
             (t("Analiz"), "ai", t("AI analiz sonucu ve rapor geçmişi")),
             (t("Akışlar"), "connections", t("Trafik akışı incelemesi")),
-            ("Kurallar", "blocked", t("Engellenen ve güvenli IP listeleri")),
-            ("Anahtarlar", "shield", t("AI sağlayıcı erişimi ve kotalar")),
+            (t("Kurallar"), "blocked", t("Engellenen ve güvenli IP listeleri")),
+            (t("Anahtarlar"), "shield", t("AI sağlayıcı erişimi ve kotalar")),
             (t("Ayarlar"), "settings", t("Zamanlama, güvenlik, sistem, güncelleme")),
         ]
         self._navigation = NavigationRail(navigation_items)

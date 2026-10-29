@@ -125,4 +125,6 @@ ES4 = {
     '   Süreç: {proc}': '   Proceso: {proc}',
     'Şüpheli akış tespit edilmedi.': 'No se detectó flujo sospechoso.',
     'Güncel dış kaynak kullanılmadı.': 'No se usó ninguna fuente externa actual.',
+    'Kurallar': 'Reglas',
+    'Anahtarlar': 'Claves',
 }

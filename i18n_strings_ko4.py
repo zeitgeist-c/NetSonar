@@ -125,4 +125,6 @@ KO4 = {
     '   Süreç: {proc}': '   프로세스: {proc}',
     'Şüpheli akış tespit edilmedi.': '의심스러운 흐름이 감지되지 않았습니다.',
     'Güncel dış kaynak kullanılmadı.': '최신 외부 소스를 사용하지 않았습니다.',
+    'Kurallar': '규칙',
+    'Anahtarlar': '키',
 }

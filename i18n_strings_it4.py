@@ -125,4 +125,6 @@ IT4 = {
     '   Süreç: {proc}': '   Processo: {proc}',
     'Şüpheli akış tespit edilmedi.': 'Nessun flusso sospetto rilevato.',
     'Güncel dış kaynak kullanılmadı.': 'Nessuna fonte esterna recente usata.',
+    'Kurallar': 'Regole',
+    'Anahtarlar': 'Chiavi',
 }

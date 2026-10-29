@@ -93,4 +93,6 @@ EN_EXTRA = {
     '   Süreç: {proc}': '   Process: {proc}',
     'Şüpheli akış tespit edilmedi.': 'No suspicious flow detected.',
     'Güncel dış kaynak kullanılmadı.': 'No current external source used.',
+    'Kurallar': 'Rules',
+    'Anahtarlar': 'Keys',
 }

@@ -125,4 +125,6 @@ ZH4 = {
     '   Süreç: {proc}': '   进程：{proc}',
     'Şüpheli akış tespit edilmedi.': '未检测到可疑流量。',
     'Güncel dış kaynak kullanılmadı.': '未使用最新外部来源。',
+    'Kurallar': '规则',
+    'Anahtarlar': '密钥',
 }
