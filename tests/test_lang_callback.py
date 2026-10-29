@@ -20,8 +20,10 @@ def qt_app():
     yield app
 
 
-def test_on_lang_emits_signal_without_attribute_error(qt_app):
+def test_on_lang_emits_signal_without_attribute_error(qt_app, monkeypatch):
+    import app_gui
     from app_gui import SettingsTab
+    monkeypatch.setattr(app_gui, "cfg_set_language", lambda code: code)
     tab = SettingsTab(db=None)
     received = []
     tab.language_changed.connect(lambda: received.append(True))
