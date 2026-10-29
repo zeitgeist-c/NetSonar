@@ -127,4 +127,5 @@ ES4 = {
     'Güncel dış kaynak kullanılmadı.': 'No se usó ninguna fuente externa actual.',
     'Kurallar': 'Reglas',
     'Anahtarlar': 'Claves',
+    'Akışlar': 'Flujos',
 }

@@ -127,4 +127,5 @@ PL4 = {
     'Güncel dış kaynak kullanılmadı.': 'Nie użyto bieżącego źródła zewnętrznego.',
     'Kurallar': 'Reguły',
     'Anahtarlar': 'Klucze',
+    'Akışlar': 'Przepływy',
 }

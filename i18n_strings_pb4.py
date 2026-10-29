@@ -128,4 +128,5 @@ PB4 = {
     'Güncel dış kaynak kullanılmadı.': 'Nenhuma fonte externa atual usada.',
     'Kurallar': 'Regras',
     'Anahtarlar': 'Chaves',
+    'Akışlar': 'Fluxos',
 }

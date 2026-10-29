@@ -127,4 +127,5 @@ NL4 = {
     'Güncel dış kaynak kullanılmadı.': 'Geen actuele externe bron gebruikt.',
     'Kurallar': 'Regels',
     'Anahtarlar': 'Sleutels',
+    'Akışlar': 'Stromen',
 }

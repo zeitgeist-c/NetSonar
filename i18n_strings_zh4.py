@@ -127,4 +127,5 @@ ZH4 = {
     'Güncel dış kaynak kullanılmadı.': '未使用最新外部来源。',
     'Kurallar': '规则',
     'Anahtarlar': '密钥',
+    'Akışlar': '流量',
 }
