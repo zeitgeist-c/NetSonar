@@ -3,6 +3,7 @@ NetSonar — Rapor Dışa Aktarma Modülü
 AI raporlarını JSON, CSV veya TXT olarak dışa aktarır.
 """
 
+from i18n import t
 import json
 import csv
 from pathlib import Path
@@ -73,11 +74,11 @@ def _export_csv(report: dict, filepath: str) -> str:
     
     with open(filepath, "w", encoding="utf-8", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow(["Analysis Time", "IP", "Port", "Process", "Reason", "Action", "Risk Score", "Status", "Sources"])
+        writer.writerow(["Analysis Time", "IP", t("Port"), "Process", "Reason", "Action", "Risk Score", "Status", "Sources"])
         
         writer.writerow([
             _csv_cell(report.get("analysis_time", report.get("created_at", ""))),
-            "Genel",
+            t("Genel"),
             "",
             "",
             "",
@@ -105,7 +106,7 @@ def _export_csv(report: dict, filepath: str) -> str:
             ])
         
         writer.writerow([])
-        writer.writerow(["Özet"])
+        writer.writerow([t("Özet")])
         writer.writerow([_csv_cell(report.get("summary", ""))])
     
     return filepath
@@ -114,14 +115,14 @@ def _export_csv(report: dict, filepath: str) -> str:
 def _export_txt(report: dict, filepath: str) -> str:
     lines = [
         "=" * 60,
-        "NETSONAR GÜVENLIK RAPORU",
+        t("NETSONAR GÜVENLIK RAPORU"),
         "=" * 60,
         f"Risk Skoru: {report.get('risk_score', '')}/10",
         f"Durum: {report.get('status', '')}",
         f"Tarih: {report.get('analysis_time', report.get('created_at', ''))}",
         "",
         "=" * 60,
-        "ŞÜPHELI BAĞLANTILAR",
+        t("ŞÜPHELI BAĞLANTILAR"),
         "=" * 60,
     ]
     
@@ -130,11 +131,11 @@ def _export_txt(report: dict, filepath: str) -> str:
         for i, conn in enumerate(conns, 1):
             lines.append(f"\n{i}. IP: {conn.get('ip', '')}")
             lines.append(f"   Port: {conn.get('port', '')}")
-            lines.append(f"   Süreç: {conn.get('process', '')}")
+            lines.append(t(f"   Süreç: {conn.get('process', '')}"))
             lines.append(f"   Neden: {conn.get('reason', '')}")
             lines.append(f"   Eylem: {conn.get('action', '')}")
     else:
-        lines.append("\nŞüpheli bağlantı tespit edilmedi.")
+        lines.append(t("\nŞüpheli bağlantı tespit edilmedi."))
     
     lines.extend([
         "",
@@ -144,7 +145,7 @@ def _export_txt(report: dict, filepath: str) -> str:
         report.get("summary", ""),
         "",
         "=" * 60,
-        "GÜNCEL KAYNAKLAR",
+        t("GÜNCEL KAYNAKLAR"),
         "=" * 60,
         *[f"{s.get('provider','')}: {s.get('indicator','')} @ {s.get('checked_at','')} - {s.get('source_url') or s.get('url','')}"
           for s in (report.get("intel_sources", []) + report.get("web_sources", []))],

@@ -1,6 +1,7 @@
 """Optional, quota-aware IP reputation and current web enrichment."""
 
 from __future__ import annotations
+from i18n import t
 
 import ipaddress
 import logging
@@ -225,7 +226,7 @@ class ThreatIntelService:
         web_candidates = [item for item in candidates if item["local_score"] >= 4 or
             vt_by_ip.get(item["ip"], {}).get("verdict") in {"malicious", "suspicious"}]
         web_sources = []
-        if stage_callback: stage_callback("Güncel web kaynakları aranıyor…", 40)
+        if stage_callback: stage_callback(t("Güncel web kaynakları aranıyor…"), 40)
         for candidate in web_candidates[:cfg.TAVILY_MAX_SEARCHES_PER_RUN]:
             web_sources.extend(self.search_tavily(candidate["ip"], cfg))
         return {"candidates": candidates, "virustotal": vt_results, "web_sources": web_sources,

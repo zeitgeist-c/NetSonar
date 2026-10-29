@@ -1,6 +1,6 @@
 PyInstaller==6.22.3
 PyQt6==6.11.0
-scapy==2.7.0
+scapy==2.8.0
 psutil==7.2.2
 APScheduler==3.11.3
 pytz==2026.3.post1

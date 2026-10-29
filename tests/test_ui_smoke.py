@@ -321,13 +321,13 @@ class ApiKeyManagerTests(QtSmokeTestCase):
         try:
             manager.set_keys(["first-secret", "second-secret", "first-secret"])
             self.assertEqual(["first-secret", "second-secret"], manager.keys())
-            self.assertTrue(manager.list.item(0).text().startswith("Varsayılan API"))
-            self.assertTrue(manager.list.item(1).text().startswith("Yedek API 2"))
+            self.assertTrue(manager.list.item(0).text().startswith("Default API"))
+            self.assertTrue(manager.list.item(1).text().startswith("Backup API 2"))
             self.assertNotIn("first-secret", manager.list.item(0).text())
             manager.list.setCurrentRow(1)
             manager._move(-1)
             self.assertEqual(["second-secret", "first-secret"], manager.keys())
-            self.assertTrue(manager.list.item(0).text().startswith("Varsayılan API"))
+            self.assertTrue(manager.list.item(0).text().startswith("Default API"))
         finally:
             self._dispose(manager)
 

@@ -1,12 +1,14 @@
 """NetSonar v0.5 SQLite flow, analysis, finding and rollup storage."""
 
 from __future__ import annotations
+from i18n import t
 
 import ipaddress
 import json
 import logging
 import sqlite3
 import threading
+from contextlib import contextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -157,39 +159,62 @@ class Database:
         with self._lock:
             self.conn.rollback()
 
+    @contextmanager
+    def _atomic(self):
+        """Run a write block in its own transaction without breaking callers.
+
+        `upsert_flow_bucket(commit=False)` intentionally leaves a transaction
+        open so a whole flush batch commits once. A concurrent analysis thread
+        calling `BEGIN IMMEDIATE` in that window raised "cannot start a
+        transaction within a transaction", and its rollback discarded the
+        capture thread's pending bucket writes. Nested callers now use a
+        savepoint, so both the outer batch and this block stay intact.
+        """
+        with self._lock:
+            nested = self.conn.in_transaction
+            if nested:
+                self.conn.execute("SAVEPOINT ns_atomic")
+            else:
+                self.conn.execute("BEGIN IMMEDIATE")
+            try:
+                yield
+                if nested:
+                    self.conn.execute("RELEASE ns_atomic")
+                else:
+                    self.conn.commit()
+            except BaseException:
+                if nested:
+                    self.conn.execute("ROLLBACK TO ns_atomic")
+                    self.conn.execute("RELEASE ns_atomic")
+                else:
+                    self.conn.rollback()
+                raise
+
     def claim_pending_batch(self) -> dict | None:
         now = datetime.now().isoformat()
-        with self._lock:
-            self.conn.execute("BEGIN IMMEDIATE")
-            try:
-                pending = self.conn.execute(
-                    "SELECT id FROM analysis_batches WHERE status='pending' ORDER BY id LIMIT 1"
-                ).fetchone()
-                if pending:
-                    self.conn.execute(
-                        "UPDATE analysis_batches SET status='running',started_at=?,error=NULL WHERE id=?",
-                        (now, pending[0]))
-                    self.conn.commit()
-                    return dict(self.conn.execute(
-                        "SELECT * FROM analysis_batches WHERE id=?", (pending[0],)).fetchone())
-                row = self.conn.execute(
-                    "SELECT MAX(id),COUNT(*) FROM flow_buckets WHERE batch_id IS NULL").fetchone()
-                if row[0] is None:
-                    self.conn.rollback()
-                    return None
-                cursor = self.conn.execute("""INSERT INTO analysis_batches
-                    (status,high_water_id,flow_count,created_at,started_at)
-                    VALUES('running',?,?,?,?)""", (row[0], row[1], now, now))
-                batch_id = cursor.lastrowid
+        with self._atomic():
+            pending = self.conn.execute(
+                "SELECT id FROM analysis_batches WHERE status='pending' ORDER BY id LIMIT 1"
+            ).fetchone()
+            if pending:
                 self.conn.execute(
-                    "UPDATE flow_buckets SET batch_id=? WHERE batch_id IS NULL AND id<=?",
-                    (batch_id, row[0]))
-                self.conn.commit()
+                    "UPDATE analysis_batches SET status='running',started_at=?,error=NULL WHERE id=?",
+                    (now, pending[0]))
                 return dict(self.conn.execute(
-                    "SELECT * FROM analysis_batches WHERE id=?", (batch_id,)).fetchone())
-            except Exception:
-                self.conn.rollback()
-                raise
+                    "SELECT * FROM analysis_batches WHERE id=?", (pending[0],)).fetchone())
+            row = self.conn.execute(
+                "SELECT MAX(id),COUNT(*) FROM flow_buckets WHERE batch_id IS NULL").fetchone()
+            if row[0] is None:
+                return None
+            cursor = self.conn.execute("""INSERT INTO analysis_batches
+                (status,high_water_id,flow_count,created_at,started_at)
+                VALUES('running',?,?,?,?)""", (row[0], row[1], now, now))
+            batch_id = cursor.lastrowid
+            self.conn.execute(
+                "UPDATE flow_buckets SET batch_id=? WHERE batch_id IS NULL AND id<=?",
+                (batch_id, row[0]))
+            return dict(self.conn.execute(
+                "SELECT * FROM analysis_batches WHERE id=?", (batch_id,)).fetchone())
 
     def get_batch_flows(self, batch_id: int, limit: int = 200, offset: int = 0) -> list[dict]:
         with self._lock:
@@ -284,38 +309,32 @@ class Database:
     def complete_batch(self, batch_id: int, risk_score: float, status: str = "safe",
                        findings: list[dict] | None = None, report: dict | None = None):
         now = datetime.now().isoformat()
-        with self._lock:
-            self.conn.execute("BEGIN IMMEDIATE")
-            try:
-                batch = self.conn.execute(
-                    "SELECT flow_count FROM analysis_batches WHERE id=? AND status='running'",
-                    (batch_id,)).fetchone()
-                if not batch:
-                    raise ValueError("Batch is not running")
-                self.conn.execute("""INSERT INTO analysis_runs
-                    (batch_id,analyzed_at,status,risk_score,flow_count,report_json)
-                    VALUES(?,?,?,?,?,?)""",
-                    (batch_id, now, status, risk_score, batch[0],
-                     json.dumps(report or {}, ensure_ascii=False)))
-                for finding in findings or []:
-                    self.conn.execute("""INSERT INTO security_findings
-                        (batch_id,created_at,severity,confidence,evidence,flow_refs,
-                         recommended_action,block_now,flow_evidence,status,source_evidence)
-                        VALUES(?,?,?,?,?,?,?,?,?,'open',?)""",
-                        (batch_id, now, finding["severity"], finding["confidence"],
-                         finding["evidence"], json.dumps(finding["flow_refs"]),
-                         finding.get("recommended_action", ""), int(finding.get("block_now", False)),
-                         json.dumps(finding.get("flow_evidence", []), ensure_ascii=False),
-                         json.dumps(finding.get("source_evidence", []), ensure_ascii=False)))
-                self._rollup_batch_locked(batch_id)
-                self.conn.execute("DELETE FROM flow_buckets WHERE batch_id=?", (batch_id,))
-                self.conn.execute(
-                    "UPDATE analysis_batches SET status='completed',completed_at=? WHERE id=?",
-                    (now, batch_id))
-                self.conn.commit()
-            except Exception:
-                self.conn.rollback()
-                raise
+        with self._atomic():
+            batch = self.conn.execute(
+                "SELECT flow_count FROM analysis_batches WHERE id=? AND status='running'",
+                (batch_id,)).fetchone()
+            if not batch:
+                raise ValueError("Batch is not running")
+            self.conn.execute("""INSERT INTO analysis_runs
+                (batch_id,analyzed_at,status,risk_score,flow_count,report_json)
+                VALUES(?,?,?,?,?,?)""",
+                (batch_id, now, status, risk_score, batch[0],
+                 json.dumps(report or {}, ensure_ascii=False)))
+            for finding in findings or []:
+                self.conn.execute("""INSERT INTO security_findings
+                    (batch_id,created_at,severity,confidence,evidence,flow_refs,
+                     recommended_action,block_now,flow_evidence,status,source_evidence)
+                    VALUES(?,?,?,?,?,?,?,?,?,'open',?)""",
+                    (batch_id, now, finding["severity"], finding["confidence"],
+                     finding["evidence"], json.dumps(finding["flow_refs"]),
+                     finding.get("recommended_action", ""), int(finding.get("block_now", False)),
+                     json.dumps(finding.get("flow_evidence", []), ensure_ascii=False),
+                     json.dumps(finding.get("source_evidence", []), ensure_ascii=False)))
+            self._rollup_batch_locked(batch_id)
+            self.conn.execute("DELETE FROM flow_buckets WHERE batch_id=?", (batch_id,))
+            self.conn.execute(
+                "UPDATE analysis_batches SET status='completed',completed_at=? WHERE id=?",
+                (now, batch_id))
 
     def fail_batch(self, batch_id: int, error: str):
         with self._lock:
@@ -326,53 +345,50 @@ class Database:
     def cleanup_old_records(self) -> dict:
         detail_cutoff, audit_cutoff = self._cutoff(24), self._cutoff(24 * 30)
         expired_batches = expired_flows = 0
+        orphan_count = 0
+        with self._atomic():
+            batches = self.conn.execute("""SELECT id,flow_count FROM analysis_batches
+                WHERE status IN('pending','running') AND created_at<?""", (detail_cutoff,)).fetchall()
+            for batch in batches:
+                self._rollup_batch_locked(batch["id"])
+                expired_flows += self.conn.execute(
+                    "DELETE FROM flow_buckets WHERE batch_id=?", (batch["id"],)).rowcount
+                now = datetime.now().isoformat()
+                self.conn.execute("""UPDATE analysis_batches SET status='expired',completed_at=?
+                    WHERE id=?""", (now, batch["id"]))
+                self.conn.execute("""INSERT INTO analysis_runs
+                    (batch_id,analyzed_at,status,risk_score,flow_count)
+                    VALUES(?,?,'expired',-1,?)""", (batch["id"], now, batch["flow_count"]))
+                expired_batches += 1
+            orphan_count = self.conn.execute("""SELECT COUNT(*) FROM flow_buckets
+                WHERE batch_id IS NULL AND last_seen<?""", (detail_cutoff,)).fetchone()[0]
+            if orphan_count:
+                self.conn.execute("""INSERT INTO hourly_rollups
+                    (hour_start,protocol,sent_bytes,received_bytes,flow_count)
+                    SELECT substr(bucket_start,1,13)||':00:00',protocol,
+                           SUM(sent_bytes),SUM(received_bytes),COUNT(*)
+                    FROM flow_buckets WHERE batch_id IS NULL AND last_seen<?
+                    GROUP BY substr(bucket_start,1,13),protocol
+                    ON CONFLICT(hour_start,protocol) DO UPDATE SET
+                      sent_bytes=sent_bytes+excluded.sent_bytes,
+                      received_bytes=received_bytes+excluded.received_bytes,
+                      flow_count=flow_count+excluded.flow_count""", (detail_cutoff,))
+                expired_flows += self.conn.execute("""DELETE FROM flow_buckets
+                    WHERE batch_id IS NULL AND last_seen<?""", (detail_cutoff,)).rowcount
+            old_rollups = self.conn.execute(
+                "DELETE FROM hourly_rollups WHERE hour_start<?", (audit_cutoff,)).rowcount
+            old_runs = self.conn.execute(
+                "DELETE FROM analysis_runs WHERE analyzed_at<?", (audit_cutoff,)).rowcount
+            self.conn.execute("DELETE FROM threat_intel_cache WHERE expires_at<?",
+                              (datetime.now().isoformat(),))
+            self.conn.execute("DELETE FROM external_api_usage WHERE used_at<?",
+                              (self._cutoff(24 * 35),))
+            self.conn.execute("""DELETE FROM analysis_batches
+                WHERE status IN('completed','expired') AND created_at<?""", (audit_cutoff,))
         with self._lock:
-            self.conn.execute("BEGIN IMMEDIATE")
-            try:
-                batches = self.conn.execute("""SELECT id,flow_count FROM analysis_batches
-                    WHERE status IN('pending','running') AND created_at<?""", (detail_cutoff,)).fetchall()
-                for batch in batches:
-                    self._rollup_batch_locked(batch["id"])
-                    expired_flows += self.conn.execute(
-                        "DELETE FROM flow_buckets WHERE batch_id=?", (batch["id"],)).rowcount
-                    now = datetime.now().isoformat()
-                    self.conn.execute("""UPDATE analysis_batches SET status='expired',completed_at=?
-                        WHERE id=?""", (now, batch["id"]))
-                    self.conn.execute("""INSERT INTO analysis_runs
-                        (batch_id,analyzed_at,status,risk_score,flow_count)
-                        VALUES(?,?,'expired',-1,?)""", (batch["id"], now, batch["flow_count"]))
-                    expired_batches += 1
-                orphan_count = self.conn.execute("""SELECT COUNT(*) FROM flow_buckets
-                    WHERE batch_id IS NULL AND last_seen<?""", (detail_cutoff,)).fetchone()[0]
-                if orphan_count:
-                    self.conn.execute("""INSERT INTO hourly_rollups
-                        (hour_start,protocol,sent_bytes,received_bytes,flow_count)
-                        SELECT substr(bucket_start,1,13)||':00:00',protocol,
-                               SUM(sent_bytes),SUM(received_bytes),COUNT(*)
-                        FROM flow_buckets WHERE batch_id IS NULL AND last_seen<?
-                        GROUP BY substr(bucket_start,1,13),protocol
-                        ON CONFLICT(hour_start,protocol) DO UPDATE SET
-                          sent_bytes=sent_bytes+excluded.sent_bytes,
-                          received_bytes=received_bytes+excluded.received_bytes,
-                          flow_count=flow_count+excluded.flow_count""", (detail_cutoff,))
-                    expired_flows += self.conn.execute("""DELETE FROM flow_buckets
-                        WHERE batch_id IS NULL AND last_seen<?""", (detail_cutoff,)).rowcount
-                old_rollups = self.conn.execute(
-                    "DELETE FROM hourly_rollups WHERE hour_start<?", (audit_cutoff,)).rowcount
-                old_runs = self.conn.execute(
-                    "DELETE FROM analysis_runs WHERE analyzed_at<?", (audit_cutoff,)).rowcount
-                self.conn.execute("DELETE FROM threat_intel_cache WHERE expires_at<?",
-                                  (datetime.now().isoformat(),))
-                self.conn.execute("DELETE FROM external_api_usage WHERE used_at<?",
-                                  (self._cutoff(24 * 35),))
-                self.conn.execute("""DELETE FROM analysis_batches
-                    WHERE status IN('completed','expired') AND created_at<?""", (audit_cutoff,))
-                self.conn.commit()
-            except Exception:
-                self.conn.rollback()
-                raise
-            self.conn.execute("PRAGMA wal_checkpoint(PASSIVE)")
-            self.conn.execute("PRAGMA incremental_vacuum(200)")
+            if not self.conn.in_transaction:
+                self.conn.execute("PRAGMA wal_checkpoint(PASSIVE)")
+                self.conn.execute("PRAGMA incremental_vacuum(200)")
         return {"expired_batches": expired_batches, "expired_flows": expired_flows,
                 "old_rollups": old_rollups, "old_runs": old_runs,
                 "warning": bool(expired_batches or orphan_count)}
@@ -469,10 +485,10 @@ class Database:
 
     def get_traffic_stats(self) -> list[dict]:
         with self._lock:
-            return [{"label":"Son 1 Saat","short":"Saat",**self._traffic_totals(self._cutoff(1))},
-                    {"label":"Bugün","short":"Bugün",**self._traffic_totals(self._cutoff(24))},
+            return [{"label":"Son 1 Saat","short":t("Saat"),**self._traffic_totals(self._cutoff(1))},
+                    {"label":t("Bugün"),"short":t("Bugün"),**self._traffic_totals(self._cutoff(24))},
                     {"label":"Bu Hafta","short":"Hafta",**self._traffic_totals(self._cutoff(168))},
-                    {"label":"Son 30 Gün","short":"30 Gün",**self._traffic_totals(self._cutoff(720))}]
+                    {"label":t("Son 30 Gün"),"short":t("30 Gün"),**self._traffic_totals(self._cutoff(720))}]
 
     def get_stats(self) -> dict:
         with self._lock:
@@ -536,21 +552,36 @@ class Database:
                                 "connections":row[1],"flows":row[1]})
         return list(reversed(results))
 
+    def _findings_by_batch(self, batch_ids: list[int]) -> dict[int, list[dict]]:
+        """Bulgu satirlarini tek sorguda topla (rapor basina ayri sorgu = N+1)."""
+        unique = sorted({int(value) for value in batch_ids if value is not None})
+        if not unique:
+            return {}
+        placeholders = ",".join("?" for _ in unique)
+        grouped: dict[int, list[dict]] = {}
+        for row in self.conn.execute(
+                f"SELECT * FROM security_findings WHERE batch_id IN ({placeholders}) "
+                "ORDER BY batch_id, id", unique):
+            finding = dict(row)
+            for field in ("flow_evidence", "flow_refs", "source_evidence"):
+                try:
+                    finding[field] = json.loads(finding.get(field) or "[]")
+                except json.JSONDecodeError:
+                    finding[field] = []
+            grouped.setdefault(finding["batch_id"], []).append(finding)
+        return grouped
+
     def get_all_reports(self, limit: int = 100, offset: int = 0) -> list[dict]:
         with self._lock:
             rows = self.conn.execute("""SELECT id,batch_id,analyzed_at AS created_at,
                 'gemini' AS provider,risk_score,status,flow_count,report_json FROM analysis_runs
                 ORDER BY analyzed_at DESC LIMIT ? OFFSET ?""", (limit, offset)).fetchall()
+            findings_by_batch = self._findings_by_batch(
+                [row["batch_id"] for row in rows])
             result=[]
             for row in rows:
-                item=dict(row); findings=[]
-                for finding_row in self.conn.execute(
-                    "SELECT * FROM security_findings WHERE batch_id=? ORDER BY id", (item["batch_id"],)):
-                    finding=dict(finding_row)
-                    finding["flow_evidence"]=json.loads(finding["flow_evidence"] or "[]")
-                    finding["flow_refs"]=json.loads(finding["flow_refs"] or "[]")
-                    finding["source_evidence"]=json.loads(finding.get("source_evidence") or "[]")
-                    findings.append(finding)
+                item=dict(row)
+                findings = findings_by_batch.get(item["batch_id"], [])
                 try:
                     content = json.loads(item.get("report_json") or "{}")
                 except json.JSONDecodeError:

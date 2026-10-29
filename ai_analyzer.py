@@ -1,6 +1,7 @@
 """Structured, batch-safe Gemini analysis for NetSonar v0.5."""
 
 from __future__ import annotations
+from i18n import t
 
 import importlib
 import ipaddress
@@ -286,7 +287,7 @@ class AIAnalyzer:
                 "summary":str(result.get("summary","")),"findings":validated}
 
     def analyze_pending(self, stage_callback=None) -> dict:
-        if stage_callback: stage_callback("Hazırlanıyor…",10)
+        if stage_callback: stage_callback(t("Hazırlanıyor…"),10)
         batch=self.db.claim_pending_batch()
         if batch is None:
             return {"risk_score":0.0,"status":"SKIPPED","findings":[],"summary":"No pending flows",
@@ -297,7 +298,7 @@ class AIAnalyzer:
         flow_index={}; chunk_index=0
         try:
             from threat_intel import ThreatIntelService
-            if stage_callback: stage_callback("Aday IP'ler seçiliyor…", 15)
+            if stage_callback: stage_callback(t("Aday IP'ler seçiliyor…"), 15)
             intel = ThreatIntelService(self.db).enrich_batch(batch["id"], cfg, stage_callback)
             priority_ips = {item["indicator"] for item in intel["virustotal"]
                             if item.get("verdict") in {"malicious", "suspicious"}}
@@ -311,7 +312,7 @@ class AIAnalyzer:
                     "total_flow_count":batch["flow_count"],"sampled_flow_count":len(flows),
                     "flows":flows,"threat_intelligence":sources},ensure_ascii=False)
                 self.db.record_analysis_chunk(batch["id"],chunk_index,"running")
-                if stage_callback: stage_callback("Gemini analizi yapılıyor…",60)
+                if stage_callback: stage_callback(t("Gemini analizi yapılıyor…"),60)
                 result=self._validate_chunk_result(PROVIDERS[self.provider](payload),flow_ids,
                                                    source_index, flow_index)
                 self.db.record_analysis_chunk(batch["id"],chunk_index,"completed",
@@ -336,7 +337,7 @@ class AIAnalyzer:
                                 "analyzed_flow_count":len(flow_index),"skipped":False}
             self.db.complete_batch(batch["id"],combined["risk_score"],combined["status"],
                                    combined["findings"],combined)
-            if stage_callback: stage_callback("Tamamlandı",100)
+            if stage_callback: stage_callback(t("Tamamlandı"),100)
             return combined
         except Exception as exc:
             self.db.record_analysis_chunk(batch["id"],chunk_index,"failed",error=str(exc)[:2000])

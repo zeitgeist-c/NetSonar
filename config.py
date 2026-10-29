@@ -11,7 +11,7 @@ from settings_service import protect_secret, unprotect_secret, validate_settings
 
 log = logging.getLogger("NetSonar.Config")
 
-APP_VERSION = "v0.6.2"
+APP_VERSION = "v0.6.3"
 IS_FROZEN = bool(getattr(sys, "frozen", False))
 APP_DIR = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
 
@@ -38,6 +38,50 @@ def user_data_path(*parts: str) -> str:
 # Kalici model/ek kutuphane deposu. Kurulum ve guncelleme bu klasore dokunmaz;
 # program surumu degisince indirilen icerik oldugu gibi kalir.
 STORE_DIR = user_data_path("store")
+
+
+def install_language_file() -> str:
+    """Kurulum klasöründeki install-language.txt yolu (NSIS dil devri)."""
+    try:
+        base = os.path.dirname(os.path.abspath(sys.argv[0]))
+    except Exception:
+        base = APP_DIR
+    return os.path.join(base, "install-language.txt")
+
+
+def get_language() -> str:
+    """Kayıtlı açık UI tercihi; yoksa kurulum devri; yoksa İngilizce."""
+    try:
+        from i18n import resolve as _resolve
+        code = _settings.get("LANGUAGE")
+        if code:
+            return _resolve(code)
+        try:
+            with open(install_language_file(), "r", encoding="utf-8") as f:
+                raw = (f.read() or "").strip()
+            inst = raw.split()[0] if raw else ""
+        except Exception:
+            inst = ""
+        if inst:
+            return _resolve(inst)
+        return "en"
+    except Exception:
+        return "en"
+
+
+def set_language(code: str) -> str:
+    """UI dil tercihini kaydet ve çözülmüş kodu döndür."""
+    try:
+        from i18n import resolve as _resolve, set_language as _set
+        resolved = _resolve(code)
+    except Exception:
+        resolved = "en"
+    _settings["LANGUAGE"] = resolved
+    try:
+        save_settings(_settings)
+    except Exception:
+        pass
+    return resolved
 
 
 def get_app_version() -> str:
@@ -78,6 +122,7 @@ def _default_settings() -> dict:
         "ANALYSIS_INTERVAL_MINUTES": 60,
         "HIGH_TRAFFIC_THRESHOLD_BYTES": 50 * 1024 * 1024,
         "UPDATE_LAST_CHECK": "",
+        "LANGUAGE": "en",
         "UPDATE_LAST_SEEN_VERSION": "",
         "UPDATE_AVAILABLE": False,
         "AUTOSTART_ENABLED": False,

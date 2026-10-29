@@ -7,6 +7,7 @@ Bu dosya NetSonar'a özel komutu (exe yolu) tanımlar ve eski fonksiyon
 adlarını korur.
 """
 
+from i18n import t
 import logging
 import os
 import sys

@@ -121,6 +121,24 @@ class InstallBatonTests(unittest.TestCase):
             self.assertTrue(script.exists())
             self.assertEqual(script.name, "netsonar-install.bat")
 
+    def test_baton_survives_a_non_ascii_user_profile_path(self):
+        """Türkçe kullanıcı adı güncellemeyi durdurmamalı.
+
+        Kurulum dosyası %LOCALAPPDATA% altına iner; kullanıcı adı ASCII dışı
+        karakter içeriyorsa (C:\\Users\\Şükrü\\...) sabit ASCII yazım
+        UnicodeEncodeError veriyordu ve baton hiç oluşmuyordu.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp) / "C_Users_Şükrü_Ğ" / "updates"
+            folder.mkdir(parents=True)
+            installer = folder / "NetSonar-v0.7.0-Setup.exe"
+            installer.write_bytes(b"")
+            script = update.write_install_baton(installer, 4242)
+            text = script.read_text(encoding=update._oem_encoding())
+            self.assertIn("4242", text)
+            self.assertIn("/S", text)
+            self.assertIn("Setup.exe", text)
+
     def test_spawn_baton_does_not_combine_incompatible_creation_flags(self):
         """DETACHED_PROCESS + CREATE_NEW_CONSOLE birlikte WinError 87 verir."""
         with tempfile.TemporaryDirectory() as tmp:
