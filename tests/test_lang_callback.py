@@ -21,9 +21,10 @@ def qt_app():
 
 
 def test_on_lang_emits_signal_without_attribute_error(qt_app, monkeypatch):
-    import app_gui
+    import config
     from app_gui import SettingsTab
-    monkeypatch.setattr(app_gui, "cfg_set_language", lambda code: code)
+    monkeypatch.setattr(config, "set_language", lambda code: code)
+    monkeypatch.setattr(config, "get_language", lambda: "en")
     tab = SettingsTab(db=None)
     received = []
     tab.language_changed.connect(lambda: received.append(True))
