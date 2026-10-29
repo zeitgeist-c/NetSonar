@@ -131,11 +131,11 @@ def _export_txt(report: dict, filepath: str) -> str:
         for i, conn in enumerate(conns, 1):
             lines.append(f"\n{i}. IP: {conn.get('ip', '')}")
             lines.append(f"   Port: {conn.get('port', '')}")
-            lines.append(t(f"   Süreç: {conn.get('process', '')}"))
+            lines.append(t("   Süreç: {proc}", proc=conn.get('process', '')))
             lines.append(f"   Neden: {conn.get('reason', '')}")
             lines.append(f"   Eylem: {conn.get('action', '')}")
     else:
-        lines.append(t("\nŞüpheli bağlantı tespit edilmedi."))
+        lines.append("\n" + t("Şüpheli bağlantı tespit edilmedi."))
     
     lines.extend([
         "",
