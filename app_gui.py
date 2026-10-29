@@ -1089,6 +1089,7 @@ class MainWindow(QMainWindow):
         nav_items = [
             (t("Panel"), t("Canlı görünüm: trafik, akış, rapor özeti")),
             (t("Analiz"), t("AI analiz sonucu ve rapor geçmişi")),
+            (t("Akışlar"), t("Trafik akışı incelemesi")),
             (t("Kurallar"), t("Engellenen ve güvenli IP listeleri")),
             (t("Anahtarlar"), t("AI sağlayıcı erişimi ve kotalar")),
             (t("Ayarlar"), t("Zamanlama, güvenlik, sistem, güncelleme")),
@@ -1120,6 +1121,7 @@ class MainWindow(QMainWindow):
             except RuntimeError:
                 pass
         if busy:
+            self._pending_lang_refresh = True
             return
         # 3) Kurulu sekmeleri giris durumunu koruyarak yeniden kur.
         # _on_tab_changed zaten lazy-kur + replace + refresh yapar.
@@ -1360,6 +1362,7 @@ class MainWindow(QMainWindow):
                 self._settings_tab = SettingsTab(self.db)
                 self._settings_tab.model_changed.connect(self._on_model_changed)
                 self._settings_tab.settings_changed.connect(self.scheduler.reload_settings)
+                self._settings_tab.language_changed.connect(self.refresh_ui_language)
                 self._settings_tab.update_check_requested.connect(self._update_check)
                 self._settings_tab.update_install_requested.connect(self._update_install)
                 self._settings_tab.update_cancel_requested.connect(self._update_cancel)
@@ -1450,7 +1453,9 @@ class MainWindow(QMainWindow):
             if getattr(self, "_worker", None):
                 self._worker.deleteLater()
                 self._worker = None
-
+            if getattr(self, "_pending_lang_refresh", False):
+                self._pending_lang_refresh = False
+                self.refresh_ui_language()
             risk_score = result.get("risk_score", 0)
             status = result.get("status", "")
 
@@ -2799,6 +2804,7 @@ class SettingsTab(QWidget):
 
     model_changed = pyqtSignal(str)
     settings_changed = pyqtSignal()
+    language_changed = pyqtSignal()
     update_check_requested = pyqtSignal()
     update_install_requested = pyqtSignal()
     update_cancel_requested = pyqtSignal()
@@ -2921,7 +2927,7 @@ class SettingsTab(QWidget):
             code = self._lang_combo.itemData(i)
             cfg_set_language(code)
             i18n_set(code)
-            self.refresh_ui_language()
+            self.language_changed.emit()
         self._lang_combo.currentIndexChanged.connect(_on_lang)
         lang_card.body_layout().addWidget(self._lang_combo)
         body.addWidget(lang_card)
