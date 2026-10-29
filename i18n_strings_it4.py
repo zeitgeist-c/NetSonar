@@ -127,4 +127,5 @@ IT4 = {
     'Güncel dış kaynak kullanılmadı.': 'Nessuna fonte esterna recente usata.',
     'Kurallar': 'Regole',
     'Anahtarlar': 'Chiavi',
+    'Akışlar': 'Flussi',
 }

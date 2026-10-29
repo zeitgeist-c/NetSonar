@@ -127,4 +127,5 @@ KO4 = {
     'Güncel dış kaynak kullanılmadı.': '최신 외부 소스를 사용하지 않았습니다.',
     'Kurallar': '규칙',
     'Anahtarlar': '키',
+    'Akışlar': '플로',
 }

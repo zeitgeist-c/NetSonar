@@ -127,4 +127,5 @@ JA4 = {
     'Güncel dış kaynak kullanılmadı.': '最新の外部ソースは使用されませんでした。',
     'Kurallar': 'ルール',
     'Anahtarlar': 'キー',
+    'Akışlar': 'フロー',
 }

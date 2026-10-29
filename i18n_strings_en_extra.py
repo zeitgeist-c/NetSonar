@@ -95,4 +95,5 @@ EN_EXTRA = {
     'Güncel dış kaynak kullanılmadı.': 'No current external source used.',
     'Kurallar': 'Rules',
     'Anahtarlar': 'Keys',
+    'Akışlar': 'Flows',
 }

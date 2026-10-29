@@ -127,4 +127,5 @@ FR4 = {
     'Güncel dış kaynak kullanılmadı.': 'Aucune source externe actuelle utilisée.',
     'Kurallar': 'Règles',
     'Anahtarlar': 'Clés',
+    'Akışlar': 'Flux',
 }

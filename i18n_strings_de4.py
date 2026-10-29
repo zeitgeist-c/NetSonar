@@ -127,4 +127,5 @@ DE4 = {
     'Güncel dış kaynak kullanılmadı.': 'Keine aktuelle externe Quelle verwendet.',
     'Kurallar': 'Regeln',
     'Anahtarlar': 'Schlüssel',
+    'Akışlar': 'Flüsse',
 }
