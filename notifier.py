@@ -5,6 +5,7 @@ Kural: Yalnizca AI analizi tamamlaninca veya basarisiz olunca bildirim goster.
 Diger olaylar (port uyarisi, yuksek trafik vb.) sadece log'a yazilir.
 """
 
+from i18n import t
 import logging
 import threading
 import time
@@ -13,6 +14,12 @@ log = logging.getLogger("NetSonar.Notifier")
 _cooldown_lock = threading.Lock()
 _toast_cooldowns: dict[tuple[str, str], float] = {}
 _TOAST_COOLDOWN_SECONDS = 10 * 60
+# Port uyarisi paket basina log yaziyordu: 8888 gibi mesru ama "supheli"
+# portlarda tek oturum bile log dosyasini saniyeler icinde sisirir. Ayni
+# hedef+port cifti icin uyari 10 dakikada bir yazilir.
+_SUSPICIOUS_LOG_COOLDOWN_SECONDS = 10 * 60
+_suspicious_log_lock = threading.Lock()
+_suspicious_log_at: dict[tuple[str, int], float] = {}
 
 
 def _send_toast(title: str, message: str, severity: str = "info"):
@@ -58,12 +65,22 @@ def _log(title: str, message: str, level: str = "INFO"):
 
 # ─── Sadece loglanan olaylar (bildirim GÖNDERILMEZ) ──────────────────
 def notify_suspicious_port(ip: str, port: int, process: str):
+    key, now = (str(ip), int(port)), time.monotonic()
+    with _suspicious_log_lock:
+        if now < _suspicious_log_at.get(key, 0):
+            return False
+        _suspicious_log_at[key] = now + _SUSPICIOUS_LOG_COOLDOWN_SECONDS
+        # Sinirsiz buyumesin: eskimis kayitlari ara sira temizle.
+        if len(_suspicious_log_at) > 1024:
+            for stale in [k for k, until in _suspicious_log_at.items() if until <= now]:
+                _suspicious_log_at.pop(stale, None)
     _log("Supheeli Port", f"{process} -> {ip}:{port}", "WARNING")
+    return True
 
 
 def notify_high_traffic(ip: str, bytes_sent: int, process: str):
     mb = bytes_sent / (1024 * 1024)
-    _log("Yuksek Transfer", f"{process} -> {ip}: {mb:.1f} MB", "WARNING")
+    _log(t("Yuksek Transfer"), f"{process} -> {ip}: {mb:.1f} MB", "WARNING")
 
 
 def notify_custom_alert(rule_name: str, ip: str, message: str):

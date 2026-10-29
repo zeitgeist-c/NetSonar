@@ -22,6 +22,7 @@ write there — a copy-then-swap dance would fight it for the same files.
 """
 
 from __future__ import annotations
+from i18n import t
 
 import hashlib
 import json
@@ -67,8 +68,27 @@ def parse_version(text: str) -> tuple:
     """'v0.5.10' / '0.5.10-beta' -> (0, 5, 10); non-numeric tails stop."""
     match = re.search(r"(\d+)\.(\d+)\.(\d+)", str(text or ""))
     if not match:
-        raise UpdateError(f"Sürüm numarası çözümlenemedi: {text!r}")
+        raise UpdateError(t("Sürüm numarası çözümlenemedi: {text!r}", text=text))
     return tuple(int(part) for part in match.groups())
+
+
+VERSION_PATTERN = re.compile(r"^\d{1,6}\.\d{1,6}\.\d{1,6}$")
+
+
+def clean_version(text: str) -> str:
+    """Sürümü yol/dosya adı olarak güvenli biçime indirger.
+
+    `parse_version` etiketin içinden sayıları çeker; ``1.2.3/../../evil`` gibi
+    bir etiket de eşleşir ve ham hâliyle `installer_asset_name`'e girerse
+    indirme yolu önbellek klasörünün dışına çıkar. Bu yüzden sürüm yalnız
+    ``X.Y.Z`` biçiminde kabul edilir.
+    """
+    value = str(text or "").strip()
+    if value.startswith("v"):
+        value = value[1:]
+    if not VERSION_PATTERN.match(value):
+        raise UpdateError(t("Geçersiz sürüm biçimi: {text!r}", text=text))
+    return value
 
 
 def is_newer(candidate: str, current: str) -> bool:
@@ -77,7 +97,7 @@ def is_newer(candidate: str, current: str) -> bool:
 
 def installer_asset_name(version: str) -> str:
     """Release asset name for a version: NetSonar-v0.6.0-Setup.exe."""
-    return f"NetSonar-v{version}-Setup.exe"
+    return f"NetSonar-v{clean_version(version)}-Setup.exe"
 
 
 def parse_release(payload: dict) -> UpdateInfo:
@@ -85,10 +105,12 @@ def parse_release(payload: dict) -> UpdateInfo:
 
     Asset names carry the 'v' prefix (NetSonar-v0.6.0-Setup.exe), matching
     the tag and the delivery file naming rule.
+
+    The tag is untrusted input from the network: it is reduced to a strict
+    ``X.Y.Z`` before it can reach a file name (see `clean_version`).
     """
     tag = str(payload.get("tag_name") or "")
-    version = tag[1:] if tag.startswith("v") else tag
-    parse_version(version)  # reject tags we cannot compare against
+    version = clean_version(tag)
     exe_name = installer_asset_name(version)
     for asset in payload.get("assets") or []:
         if asset.get("name") != exe_name:
@@ -102,7 +124,7 @@ def parse_release(payload: dict) -> UpdateInfo:
             size=int(asset.get("size") or 0),
             page_url=str(payload.get("html_url") or ""),
         )
-    raise UpdateError(f"Yayının içinde {exe_name} dosyası yok.")
+    raise UpdateError(t("Yayının içinde {exe_name} dosyası yok.", exe_name=exe_name))
 
 
 def fetch_latest() -> UpdateInfo:
@@ -111,7 +133,7 @@ def fetch_latest() -> UpdateInfo:
         with urllib.request.urlopen(request, timeout=20) as response:
             payload = json.loads(response.read().decode("utf-8"))
     except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
-        raise UpdateError("Güncelleme sunucusuna ulaşılamadı.") from exc
+        raise UpdateError(t("Güncelleme sunucusuna ulaşılamadı.")) from exc
     return parse_release(payload)
 
 
@@ -161,18 +183,18 @@ def download(info: UpdateInfo, dest: Path, progress=None, cancel=None) -> Path:
                     pass
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
         dest.unlink(missing_ok=True)
-        raise UpdateError("Güncelleme indirmesi yarıda kesildi.") from exc
+        raise UpdateError(t("Güncelleme indirmesi yarıda kesildi.")) from exc
     if cancel is not None and cancel.is_set():
         dest.unlink(missing_ok=True)
         raise UpdateError("cancelled")
     if info.size and written != info.size:
         dest.unlink(missing_ok=True)
-        raise UpdateError("İndirme dosya tamamlanmadan bitti.")
+        raise UpdateError(t("İndirme dosya tamamlanmadan bitti."))
     if info.sha256:
         actual = _sha256_of(dest)
         if actual.lower() != info.sha256.lower():
             dest.unlink(missing_ok=True)
-            raise UpdateError("İndirilen dosyanın sağlama değeri uyuşmuyor.")
+            raise UpdateError(t("İndirilen dosyanın sağlama değeri uyuşmuyor."))
     return dest
 
 
@@ -187,8 +209,16 @@ def install_path(current_exe: Path, version: str) -> Path:
 
     The cache lives in the user data folder: Program Files is writable only
     by the installer, and the download must not need admin rights.
+
+    The result is checked to stay inside the cache directory: the version
+    string reaches this function and a traversal (``1.2.3/../../x``) must
+    never redirect the download elsewhere.
     """
-    return cache_dir() / installer_asset_name(version)
+    folder = cache_dir().resolve()
+    target = (folder / installer_asset_name(version)).resolve()
+    if target.parent != folder:
+        raise UpdateError(t("Kurulum dosyası yolu önbellek klasörü dışına çıkıyor."))
+    return target
 
 
 def is_installed() -> bool:
@@ -251,7 +281,7 @@ def launch_installer(installer: Path, wait: bool = False) -> int:
     installer is started detached.
     """
     if not installer.exists():
-        raise UpdateError("Kurulum dosyası bulunamadı.")
+        raise UpdateError(t("Kurulum dosyası bulunamadı."))
     flags = getattr(subprocess, "DETACHED_PROCESS", 0) if not wait else 0
     process = subprocess.Popen([str(installer), "/S"], creationflags=flags)
     log.info("installer started: %s pid=%s", installer, process.pid)
@@ -262,13 +292,13 @@ def run_installer_and_wait(installer: Path,
                             timeout: float = INSTALLER_TIMEOUT_SECONDS) -> int:
     """Start the installer and block until it finishes; return its exit code."""
     if not installer.exists():
-        raise UpdateError("Kurulum dosyası bulunamadı.")
+        raise UpdateError(t("Kurulum dosyası bulunamadı."))
     try:
         completed = subprocess.run([str(installer), "/S"], timeout=timeout)
     except subprocess.TimeoutExpired as exc:
-        raise UpdateError("Kurulum zaman aşımına uğradı.") from exc
+        raise UpdateError(t("Kurulum zaman aşımına uğradı.")) from exc
     except OSError as exc:
-        raise UpdateError("Kurulum başlatılamadı.") from exc
+        raise UpdateError(t("Kurulum başlatılamadı.")) from exc
     log.info("installer finished: code=%s", completed.returncode)
     return completed.returncode
 
@@ -306,6 +336,45 @@ def install_outcome(installer: Path, previous_version: str,
     return result
 
 
+def _ascii_safe_path(path: Path, escape_quote: bool = False) -> str:
+    """Return a path that survives being embedded in a cmd.exe batch file.
+
+    A Turkish user name produces e.g. ``C:\\Users\\Şükrü\\AppData\\...``. Such
+    characters cannot be encoded as ASCII, and writing them as UTF-8 makes
+    cmd.exe mis-read the line under its OEM code page. The batch file is
+    therefore written in the console OEM code page, and this helper only
+    falls back to the 8.3 short form for characters that code page still
+    cannot represent.
+    """
+    text = str(path)
+    encoding = _oem_encoding()
+    try:
+        text.encode(encoding)
+    except UnicodeEncodeError:
+        import ctypes
+        buffer = ctypes.create_unicode_buffer(32768)
+        if ctypes.windll.kernel32.GetShortPathNameW(str(path), buffer, 32768):
+            if buffer.value:
+                text = buffer.value
+        try:
+            text.encode(encoding)
+        except UnicodeEncodeError as exc:
+            raise UpdateError(
+                t("Kurulum yolu konsol kod sayfasıyla yazılamıyor ve kısa (8.3) ") +
+                t("yol alınamadı: {path}", path=path)
+            ) from exc
+    return text.replace("'", "''") if escape_quote else text
+
+
+def _oem_encoding() -> str:
+    """Code page cmd.exe uses to read a batch file on this machine."""
+    try:
+        import ctypes
+        return f"cp{ctypes.windll.kernel32.GetOEMCP()}"
+    except Exception:
+        return "cp1252"
+
+
 def cleanup_old_installers(keep: Path | None = None) -> int:
     """Remove cached installers other than the one we are about to use."""
     folder = cache_dir()
@@ -341,11 +410,17 @@ def write_install_baton(installer: Path, old_pid: int) -> Path:
     Kurulum bittikten sonra program yeniden başlatılır; eski exe yerinde
     durduğu için aynı yol geçerlidir. Kaynak kod modunda yeniden başlatma
     yapılmaz (orada zaten program Python yorumlayıcısıdır).
+
+    Kodlama: betik konsolun OEM kod sayfasıyla yazılır (bu makinede cp857).
+    Sabit ASCII kodlama Türkçe kullanıcı adlarında (C:\\Users\\Şükrü\\...)
+    UnicodeEncodeError verip güncellemeyi tamamen durduruyordu; UTF-8 ise
+    cmd.exe tarafından yanlış okunur. OEM kod sayfası ikisini de çözer,
+    sığmayan karakter için 8.3 kısa yol kullanılır.
     """
     script = installer.parent / "netsonar-install.bat"
     restart = ""
     if getattr(sys, "frozen", False):
-        restart = f'start "" "{Path(sys.executable)}"\r\n'
+        restart = f'start "" "{_ascii_safe_path(Path(sys.executable))}"\r\n'
     script.write_text(
         "@echo off\r\n"
         "setlocal\r\n"
@@ -356,16 +431,17 @@ def write_install_baton(installer: Path, old_pid: int) -> Path:
         f"if (Get-Process -Id {old_pid} -ErrorAction SilentlyContinue) "
         "{ exit 0 } else { exit 1 }\"\r\n"
         "if not errorlevel 1 ("
-        f'"{WINDOWS_TIMEOUT}" /t 1 /nobreak >NUL & goto wait)\r\n'
+        f'"{_ascii_safe_path(WINDOWS_TIMEOUT)}" /t 1 /nobreak >NUL & goto wait)\r\n'
         # Installer calistirilir ve BITENE KADAR beklenir. NSIS kurulumcusu
         # admin ister; "runas" ile baslatilir. Program zaten yonetici
         # oldugu icin ek onay penceresi acilmaz.
         "powershell -NoProfile -Command \""
-        f"Start-Process -FilePath '{installer}' -ArgumentList '/S' "
+        f"Start-Process -FilePath '{_ascii_safe_path(installer, escape_quote=True)}' "
+        "-ArgumentList '/S' "
         f"-Verb runas -WindowStyle Hidden -Wait\"\r\n"
         f"{restart}"
         'del "%~f0"\r\n',
-        encoding="ascii")
+        encoding=_oem_encoding(), errors="strict")
     return script
 
 
@@ -400,14 +476,14 @@ def run_installer_elevated(installer: Path) -> int:
     ShellExecute "runas" bunu çözer.
     """
     if not installer.exists():
-        raise UpdateError("Kurulum dosyası bulunamadı.")
+        raise UpdateError(t("Kurulum dosyası bulunamadı."))
     import ctypes
     # SW_HIDE: kurulum arka planda çalışır, pencere açılmaz.
     result = ctypes.windll.shell32.ShellExecuteW(
         None, "runas", str(installer), "/S", None, 0)
     # 32 = başarıyla başlatıldı; 5 = shell başlatılamadı; >32 = hata kodu.
     if result <= 32:
-        raise UpdateError("Kurulum yetki isteği reddedildi veya başlatılamadı.")
+        raise UpdateError(t("Kurulum yetki isteği reddedildi veya başlatılamadı."))
     log.info("elevated installer started: %s (hwnd=%s)", installer, result)
     return result
 
@@ -442,7 +518,7 @@ def spawn_swap(old_pid: int, new_exe: Path) -> None:
     installer for the same files. Kept only so old callers fail loudly with
     a clear message instead of silently doing nothing.
     """
-    raise UpdateError("Kurulum güncellemesi artık kurulum dosyası üzerinden yapılır.")
+    raise UpdateError(t("Kurulum güncellemesi artık kurulum dosyası üzerinden yapılır."))
 
 
 def last_check_is_old(stamp: str, max_age_seconds: float = 24 * 3600) -> bool:

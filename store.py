@@ -16,6 +16,7 @@ Düzen:
 """
 
 from __future__ import annotations
+from i18n import t
 
 import datetime
 import hashlib
@@ -65,7 +66,7 @@ def _kind_dir(kind: str) -> Path:
         return models_dir()
     if kind == KIND_LIB:
         return lib_dir()
-    raise StoreError(f"Bilinmeyen depo türü: {kind!r}")
+    raise StoreError(t("Bilinmeyen depo türü: {kind!r}", kind=kind))
 
 
 def item_path(name: str, kind: str = KIND_MODEL) -> Path:
@@ -82,13 +83,13 @@ def _safe_name(name: str) -> str:
     """
     raw = str(name or "").strip()
     if not raw:
-        raise StoreError("Depo öğesi adı boş olamaz.")
+        raise StoreError(t("Depo öğesi adı boş olamaz."))
     if "/" in raw or "\\" in raw or ".." in raw:
-        raise StoreError(f"Depo öğesi adı yol ayırıcı içeremez: {raw!r}")
+        raise StoreError(t("Depo öğesi adı yol ayırıcı içeremez: {raw!r}", raw=raw))
     cleaned = "".join(ch for ch in raw if ch.isalnum() or ch in "._-")
     cleaned = cleaned.strip("._-")
     if not cleaned:
-        raise StoreError("Depo öğesi adı boş olamaz.")
+        raise StoreError(t("Depo öğesi adı boş olamaz."))
     return cleaned
 
 
@@ -180,7 +181,7 @@ def install_item(name: str, source: str | os.PathLike, kind: str = KIND_MODEL,
     """
     source_path = Path(source)
     if not source_path.exists():
-        raise StoreError(f"Kaynak bulunamadı: {source_path}")
+        raise StoreError(t("Kaynak bulunamadı: {source_path}", source_path=source_path))
     safe = _safe_name(name)
     target = item_path(safe, kind)
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -202,7 +203,7 @@ def install_item(name: str, source: str | os.PathLike, kind: str = KIND_MODEL,
         os.replace(staging, target)
     except OSError as exc:
         shutil.rmtree(staging, ignore_errors=True)
-        raise StoreError(f"Depoya kopyalanamadı: {exc}") from exc
+        raise StoreError(t("Depoya kopyalanamadı: {exc}", exc=exc)) from exc
 
     record = {
         "name": safe,

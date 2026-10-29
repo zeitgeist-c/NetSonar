@@ -9,7 +9,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 from ai_analyzer import AIAnalyzer
 from config import DB_CLEANUP_INTERVAL_HOURS, load_settings
 from database import Database
-from notifier import notify_report_ready
+from notifier import notify_analysis_done
 
 log = logging.getLogger("NetSonar.Scheduler")
 _analysis_lock = threading.Lock()
@@ -31,7 +31,8 @@ def _run_analysis(db: Database, analyzer: AIAnalyzer):
             from notifier import notify_analysis_failed
             notify_analysis_failed(report.get("summary", "Analysis failed"), analyzer.provider)
         if risk >= 0 and report.get("findings"):
-            notify_report_ready(risk, status)
+            notify_analysis_done(risk, status, analyzer.provider,
+                                 len(report["findings"]))
         log.info("NETSONAR REPORT - Risk: %.1f/10 | %s", risk, status)
         return report
     finally:
