@@ -492,7 +492,7 @@ class DashboardTab(QWidget):
 
         if speed:
             self._speed_lbl.setText(f"{speed.get('total_kbs', 0):.1f} KB/s")
-            self._flow_lbl.setText("Anlık hız")
+            self._flow_lbl.setText(t("Anlık hız"))
 
         for period in traffic:
             chip = self._period_labels.get(period.get("short", ""))
@@ -560,9 +560,9 @@ def _show_trusted_ip_dialog(parent, db, initial_ip=""):
     layout = QVBoxLayout(dialog)
     form = QFormLayout()
     ip_input = QLineEdit(str(initial_ip or ""))
-    ip_input.setPlaceholderText("Örnek: 8.8.8.8 veya 2001:4860:4860::8888")
+    ip_input.setPlaceholderText(t("Örnek: 8.8.8.8 veya 2001:4860:4860::8888"))
     note_input = QLineEdit()
-    note_input.setPlaceholderText("Neden güvenli? (isteğe bağlı)")
+    note_input.setPlaceholderText(t("Neden güvenli? (isteğe bağlı)"))
     form.addRow("IP adresi:", ip_input)
     form.addRow(t("Açıklama:"), note_input)
     layout.addLayout(form)
@@ -1078,6 +1078,10 @@ class MainWindow(QMainWindow):
         root.addWidget(self._build_statusbar())
 
     # ── Topbar ─────────────────────────────────────────────────────────
+    def refresh_ui_language(self):
+        """Dil degisiminde yasayan metinleri yeniler (DOLDURULACAK)."""
+        pass
+
     def _build_topbar(self):
         bar = QFrame()
         bar.setObjectName("topBar")
@@ -1307,7 +1311,7 @@ class MainWindow(QMainWindow):
         if getattr(self, "_worker", None) and self._worker.isRunning():
             return
         self._set_analysis_buttons_busy(True)
-        self._status_label.setText("● Analiz çalışıyor…")
+        self._status_label.setText(t("● Analiz çalışıyor…"))
         self._status_label.setStyleSheet(
             f"color:{C['warning']}; font-size:11px; font-family:'Cascadia Mono',monospace; border:none;"
         )
@@ -1324,7 +1328,7 @@ class MainWindow(QMainWindow):
             status = result.get("status", "")
 
             if risk_score == -1:
-                self._status_label.setText("● Hata oluştu")
+                self._status_label.setText(t("● Hata oluştu"))
                 self._status_label.setStyleSheet(
                     f"color:{C['danger']}; font-size:11px; font-family:'Cascadia Mono',monospace; border:none;"
                 )
@@ -1340,12 +1344,12 @@ class MainWindow(QMainWindow):
                     + f"{api_hint}"
                 )
             else:
-                self._status_label.setText("● Analiz tamamlandı")
+                self._status_label.setText(t("● Analiz tamamlandı"))
                 self._status_label.setStyleSheet(
                     f"color:{C['success']}; font-size:11px; font-family:'Cascadia Mono',monospace; border:none;"
                 )
 
-            QTimer.singleShot(5000, lambda: self._status_label.setText("● İzleme aktif"))
+            QTimer.singleShot(5000, lambda: self._status_label.setText(t("● İzleme aktif")))
 
         def failed(message):
             done({
@@ -1742,7 +1746,7 @@ class DataTab(QWidget):
         tools.setSpacing(8)
 
         self._search = QLineEdit()
-        self._search.setPlaceholderText("IP veya süreç ara…")
+        self._search.setPlaceholderText(t("IP veya süreç ara…"))
         self._search.setMinimumHeight(38)
         self._search.textChanged.connect(self._filter_debounce)
         tools.addWidget(self._search, 2)
@@ -1848,7 +1852,7 @@ class DataTab(QWidget):
         if self._loading:
             return
         self._loading = True
-        self._stats_lbl.setText("Veriler yükleniyor...")
+        self._stats_lbl.setText(t("Veriler yükleniyor..."))
         self._worker = DataTabWorker(self.db)
         self._worker.done.connect(self._on_data_loaded)
         self._worker.start()
@@ -2098,7 +2102,7 @@ class RulesTab(QWidget):
         tools = QHBoxLayout()
         tools.setSpacing(8)
         self._search = QLineEdit()
-        self._search.setPlaceholderText("IP veya sebep ara…")
+        self._search.setPlaceholderText(t("IP veya sebep ara…"))
         self._search.setMinimumHeight(38)
         self._search.textChanged.connect(lambda _: self._populate())
         tools.addWidget(self._search, 2)
@@ -2788,6 +2792,10 @@ class SettingsTab(QWidget):
             code = self._lang_combo.itemData(i)
             cfg_set_language(code)
             i18n_set(code)
+            self.refresh_ui_language()
+            QMessageBox.information(
+                self, t("Arayüz Dili"),
+                t("Dil değiştirildi. Bazı ekranlar tam yenilenme için yeniden başlatma isteyebilir."))
         self._lang_combo.currentIndexChanged.connect(_on_lang)
         lang_card.body_layout().addWidget(self._lang_combo)
         body.addWidget(lang_card)
@@ -3033,7 +3041,7 @@ class SettingsTab(QWidget):
 
     def show_update_checking(self):
         self.show_update_current()
-        self._update_status.setText("Yeni sürüm aranıyor...")
+        self._update_status.setText(t("Yeni sürüm aranıyor..."))
         self._update_check_btn.setEnabled(False)
 
     def show_update_available(self, info):
@@ -3065,7 +3073,7 @@ class SettingsTab(QWidget):
         self._update_status.setStyleSheet(f"color:{C['warning']}; font-size:12px;")
 
     def show_update_installing(self):
-        self._update_status.setText("Yeni sürüm kurulum dosyası indiriliyor...")
+        self._update_status.setText(t("Yeni sürüm kurulum dosyası indiriliyor..."))
         self._update_check_btn.setEnabled(False)
         self._update_install_btn.setVisible(False)
         self._update_cancel_btn.setVisible(True)

@@ -60,6 +60,10 @@ def t(key, _fmt=True, **kwargs):
 
 TABLES = {}
 
+# Paketleme denetimi icin: yuklenemeyen katalog modulleri burada gorunur.
+# Sessiz fallback uretimde surer; testler bu listeyi bos assert eder.
+LOAD_ERRORS = []
+
 
 def _load():
     global TABLES
@@ -77,14 +81,15 @@ def _load():
                              ("ja", "JA"), ("ko", "KO")):
             _bir = {}
             for _i in (1, 2, 3, 4):
+                _mod = "i18n_strings_%s%d" % (_ad.lower(), _i)
                 try:
-                    _m = __import__("i18n_strings_%s%d" % (_ad.lower(), _i),
+                    _m = __import__(_mod,
                                      fromlist=["%s%d" % (_ad, _i)])
                     _parca = getattr(_m, "%s%d" % (_ad, _i), None)
                     if isinstance(_parca, dict):
                         _bir.update(_parca)
                 except ImportError:
-                    pass
+                    LOAD_ERRORS.append(_mod)
             if _bir:
                 TABLES[_kod] = _bir
     except ImportError:

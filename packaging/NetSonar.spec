@@ -34,6 +34,11 @@ hiddenimports = [
 hiddenimports += collect_submodules("winotify")
 hiddenimports += collect_submodules("apscheduler")
 
+# Dil kataloglari i18n._load() tarafindan dinamik import edilir
+# (i18n_strings_de1, ...); PyInstaller statik analizle bulamaz.
+# Deterministik paket icin proje kokundeki tum katalog modullerini ekle.
+hiddenimports += sorted(p.stem for p in project_root.glob("i18n_strings_*.py"))
+
 a = Analysis(
     [str(project_root / "main.py")],
     pathex=[str(project_root)],
