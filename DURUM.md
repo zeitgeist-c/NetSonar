@@ -1,8 +1,8 @@
 # NetSonar — DURUM (ortak — Desktop + Telegram okur)
 
-**Güncelleme:** 2026-10-22
-**Versiyon:** v0.6.2 (tag: bu commit; dağıtım: zeitgeist-c/NetSonar-Releases v0.6.2)
-**Branch:** main (push edildi: main + v0.6.2; dagitim: NetSonar-Releases v0.6.2 yayinda)
+**Güncelleme:** 2026-10-30
+**Versiyon:** v0.6.4 (tag: bu commit; dağıtım: zeitgeist-c/NetSonar v0.6.4)
+**Branch:** main (push edildi: main + v0.6.4; dagitim: NetSonar v0.6.4 yayinda)
 **Son commit:** bu commit (ortak masaüstü seçenekleri modülü)
 **Ağaç:** kapsam içi dosyalar commit'lendi; `ui-kesif/` keşif çıktıları ve `.hermes/`, `AGENTS.md` untracked.
 **Not:** Kirli dosyalar kullanıcıya ait olabilir; commit öncesi kullanıcıya sorulur. (2026-10-17: "Yedek işlemini yapabilir misin?" talebiyle tam kapanış yetkisi verildi.)
@@ -84,7 +84,7 @@
 - Paket: `dist/NetSonar-v0.5.9.exe` + BAT; portable onefile, kendi kendine güncelleme aynı.
 
 ## v0.5.8 — Kendi kendine güncelleme + portable paket (2026-10-17)
-- WordArc'ın güncelleyicisi uyarlandı (`update.py`): herkese açık `zeitgeist-c/NetSonar-Releases` deposundan `releases/latest` kimliksiz sorgu, SHA256 doğrulamalı indirme, swap batonu ile kendini değiştirme. BAT eşleşen exe'ye yeniden yazılır; autostart HKCU kaydı `retarget_launch` ile çevrilir.
+- WordArc'ın güncelleyicisi uyarlandı (`update.py`): herkese açık `zeitgeist-c/NetSonar` deposundan `releases/latest` kimliksiz sorgu, SHA256 doğrulamalı indirme, swap batonu ile kendini değiştirme. BAT eşleşen exe'ye yeniden yazılır; autostart HKCU kaydı `retarget_launch` ile çevrilir.
 - Dağıtım portable onefile: `dist/NetSonar-v0.5.8.exe` (49.722.012 bayt; SHA-256: cc9c4a7738f044e26d38fd9d38c959172a83fd0c360f3e17192ab6b6cd762f0e) + eşleşen BAT. NSIS kurulumcusu (`NetSonar.nsi`) kaldırıldı; yönetici yetkisi UAC manifestinde, Npcap uyarısı exe açılışına taşındı (`_npcap_notice_once`).
 - Ayarlar sekmesinde "Güncellemeler" kartı: açılıştan 30 sn sonra günde bir sessiz denetim (`UPDATE_LAST_CHECK`), elle denetleme, ilerleme çubuğu, İndir ve Kur. Kaynak koddan çalışırken kilitli.
 - `tests/test_update.py`: 13 yeni test; `test_version_and_api_errors` BAT sözleşmesi portable'a uyarlandı.
