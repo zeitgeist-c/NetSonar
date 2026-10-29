@@ -1,6 +1,7 @@
 """NetSonar için ortak IP adresi yardımcı fonksiyonları."""
 
 from __future__ import annotations
+from i18n import t
 
 import base64
 import ipaddress

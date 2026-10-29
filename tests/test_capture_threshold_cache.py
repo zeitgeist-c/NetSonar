@@ -2,7 +2,10 @@
 
 import unittest
 
-from scapy.all import IP, TCP
+import pytest
+
+scapy = pytest.importorskip("scapy.all", reason="scapy yok (canlı yakalama çevresi)")
+IP, TCP = scapy.IP, scapy.TCP
 
 import capture_engine
 from capture_engine import _packet_handler

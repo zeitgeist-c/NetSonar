@@ -27,7 +27,7 @@ class InstallerScriptTests(unittest.TestCase):
         self.assertIn('InstallDir "$PROGRAMFILES64\\${APP_NAME}"', self.text)
 
     def test_output_name_follows_delivery_rule(self):
-        self.assertIn('OutFile "..\\dist\\NetSonar-v${APP_VERSION}-Setup.exe"',
+        self.assertIn('OutFile "..\\dist\\NetSonar-${APP_VERSION}.exe"',
                       self.text)
 
     def test_installer_requires_admin(self):
@@ -122,7 +122,7 @@ class BuildScriptTests(unittest.TestCase):
         self.text = _read(BUILD)
 
     def test_build_produces_the_installer(self):
-        self.assertIn("$VersionedStem-Setup.exe", self.text)
+        self.assertIn("$VersionedStem.exe", self.text)
         self.assertIn("makensis", self.text.lower())
 
     def test_build_passes_the_version_to_nsis(self):
@@ -135,7 +135,7 @@ class BuildScriptTests(unittest.TestCase):
         self.assertIn("Paketlenmemesi gereken dosyalar bulundu", self.text)
 
     def test_old_release_artifacts_are_removed(self):
-        self.assertIn("NetSonar-v\\d+\\.\\d+\\.\\d+(-Setup)?\\.(exe|bat)$",
+        self.assertIn("NetSonar-(v\\d+\\.\\d+\\.\\d+(-Setup)?|\\d+\\.\\d+\\.\\d+)\\.(exe|bat)$",
                       self.text)
 
 

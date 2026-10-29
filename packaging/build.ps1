@@ -9,13 +9,13 @@ $ConfigText = Get-Content -LiteralPath (Join-Path $ProjectRoot "config.py") -Raw
 $VersionMatch = [regex]::Match($ConfigText, '(?m)^APP_VERSION\s*=\s*"v(?<version>\d+\.\d+\.\d+)"')
 if (-not $VersionMatch.Success) { throw "config.py icinde APP_VERSION bulunamadi." }
 $Version = $VersionMatch.Groups["version"].Value
-$VersionedStem = "NetSonar-v$Version"
+$VersionedStem = "NetSonar-$Version"
 $BuildVenv = Join-Path $PackagingDir ".build-venv"
 $BuildPython = Join-Path $BuildVenv "Scripts\python.exe"
 $BuildDir = Join-Path $PackagingDir "build"
 $AppDistDir = Join-Path $PackagingDir "app-dist"
 $ReleaseDir = Join-Path $ProjectRoot "dist"
-$Installer = Join-Path $ReleaseDir "$VersionedStem-Setup.exe"
+$Installer = Join-Path $ReleaseDir "$VersionedStem.exe"
 $Makensis = "C:\Program Files (x86)\NSIS\makensis.exe"
 
 if (-not $PythonPath) {
@@ -42,7 +42,7 @@ foreach ($path in @($BuildDir, $AppDistDir)) {
 }
 New-Item -ItemType Directory -Force -Path $ReleaseDir | Out-Null
 Get-ChildItem -LiteralPath $ReleaseDir -File | Where-Object {
-    $_.Name -match '^NetSonar-v\d+\.\d+\.\d+(-Setup)?\.(exe|bat)$'
+    $_.Name -match '^NetSonar-(v\d+\.\d+\.\d+(-Setup)?|\d+\.\d+\.\d+)\.(exe|bat)$'
 } | Remove-Item -Force
 
 Write-Host "Klasorlu (onedir) surum paketleniyor..."

@@ -3,9 +3,11 @@ NetSonar — Özel Uyarı Kuralları
 Belirli IP veya portlar için otomatik bildirim oluşturur.
 """
 
+from i18n import t
 import json
 import logging
 import threading
+import time
 import ipaddress
 from pathlib import Path
 from config import user_data_path
@@ -103,20 +105,37 @@ class AlertRule:
 _cache_lock = threading.Lock()
 _cached_rules: list[AlertRule] = []
 _cached_mtime_ns: int | None = None
+_cached_checked_at: float = 0.0
+# Her paket icin ALERTS_FILE.exists()+stat() cagriliyordu (olcum: ~66k paket/sn
+# tavaninin tamami dosya sistemi cagrisiydi). Kural dosyasi en fazla saniyede
+# bir yoklanir; kullanici kural eklediginde 1 sn icinde etkin olur.
+_STAT_INTERVAL_SECONDS = 1.0
 
 
 def load_alerts() -> list[AlertRule]:
-    """Kayıtlı uyarı kurallarını yükle."""
-    global _cached_rules, _cached_mtime_ns
-    if not ALERTS_FILE.exists():
-        with _cache_lock:
-            _cached_rules, _cached_mtime_ns = [], None
-        return []
+    """Kayıtlı uyarı kurallarını yükle.
+
+    Paket yolundan çağrılır: dosya sistemi yoklaması saniyede bir ile
+    sınırlıdır, aksi halde her paket `stat()` maliyeti öder.
+    """
+    global _cached_rules, _cached_mtime_ns, _cached_checked_at
+    now = time.monotonic()
+    with _cache_lock:
+        if _cached_checked_at and now - _cached_checked_at < _STAT_INTERVAL_SECONDS:
+            return list(_cached_rules)
     try:
-        mtime = ALERTS_FILE.stat().st_mtime_ns
-        with _cache_lock:
-            if _cached_mtime_ns == mtime:
-                return list(_cached_rules)
+        exists = ALERTS_FILE.exists()
+        mtime = ALERTS_FILE.stat().st_mtime_ns if exists else None
+    except OSError:
+        exists, mtime = False, None
+    with _cache_lock:
+        _cached_checked_at = now
+        if not exists:
+            _cached_rules, _cached_mtime_ns = [], None
+            return []
+        if _cached_mtime_ns == mtime:
+            return list(_cached_rules)
+    try:
         with open(ALERTS_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
             rules = [AlertRule.from_dict(d) for d in data if isinstance(d, dict) and d.get("name")]

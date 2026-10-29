@@ -84,6 +84,12 @@ def main() -> int:
     args = parser.parse_args()
     one_shot = bool(args.analyze or args.block or args.unblock or args.list_blocked)
     gui_mode = not args.no_gui and not one_shot
+    try:
+        from config import get_language
+        from i18n import set_language as _set_lang
+        _set_lang(get_language())
+    except Exception:
+        pass
     _require_admin()
     _activate_store()
     lock = SingleInstanceLock()
