@@ -914,8 +914,8 @@ class AnalysisTab(QWidget):
         conn_html = "".join(
             f"<div style='margin-bottom:8px;padding:10px 12px;background:{C['bg2']};border:1px solid {C['border']};border-radius:7px;'>"
             f"<b style='color:{C['warning']};'>{escape(str(c.get('ip','')))}:{escape(str(c.get('port','')))}</b>"
-            + t(f"<span style='color:{C['text3']};'> &nbsp; {escape(str(c.get('process','') or t('Bilinmeyen süreç')))}</span></div>") for c in conns
-        ) or t(f"<p style='color:{C['success']};'>✓ Şüpheli akış tespit edilmedi.</p>")
+            + f"<span style='color:{C['text3']};'> &nbsp; {escape(str(c.get('process','') or t('Bilinmeyen süreç')))}</span></div>" for c in conns
+        ) or ("<p style='color:" + C['success'] + ";'>✓ " + t("Şüpheli akış tespit edilmedi.") + "</p>")
         source_rows = []
         for source in r.get("intel_sources", []) or []:
             source_rows.append(
@@ -933,7 +933,7 @@ class AnalysisTab(QWidget):
                 f" <span style='color:{C['text3']};'>{escape(str(source.get('checked_at',''))[:19])}"
                 f"{' · cache' if source.get('cached') else ''}</span>"
                 f"<div style='color:{C['text2']};margin-top:3px;'>{escape(str(source.get('snippet','')))}</div></div>")
-        sources_html = "".join(source_rows) or t(f"<p style='color:{C['text3']};'>Güncel dış kaynak kullanılmadı.</p>")
+        sources_html = "".join(source_rows) or ("<p style='color:" + C['text3'] + ";'>" + t("Güncel dış kaynak kullanılmadı.") + "</p>")
         card=f"background:{C['bg3']};border:1px solid {C['border']};border-radius:8px;padding:14px 16px;margin-bottom:12px;"
         html = f'''<html><body style="background:{C['bg2']};color:{C['text']};font-family:'Segoe UI';font-size:13px;padding:12px;">
         <div style="{card}border-left:4px solid {color};"><b style="color:{C['accent']};">KISA SONUÇ</b><div style="margin-top:10px;">{paras(summary_lines)}</div></div>
@@ -1083,8 +1083,130 @@ class MainWindow(QMainWindow):
 
     # ── Topbar ─────────────────────────────────────────────────────────
     def refresh_ui_language(self):
-        """Dil degisiminde yasayan metinleri yeniler (DOLDURULACAK)."""
-        pass
+        """Dil degisiminde yasayan metinleri durum/analiz kaybetmeden yeniler."""
+        from PyQt6.QtWidgets import QLineEdit, QTextEdit, QComboBox, QCheckBox
+        # 1) Cerceve: navigasyon + topbar + statusbar (her zaman guvenli).
+        nav_items = [
+            (t("Panel"), t("Canlı görünüm: trafik, akış, rapor özeti")),
+            (t("Analiz"), t("AI analiz sonucu ve rapor geçmişi")),
+            (t("Kurallar"), t("Engellenen ve güvenli IP listeleri")),
+            (t("Anahtarlar"), t("AI sağlayıcı erişimi ve kotalar")),
+            (t("Ayarlar"), t("Zamanlama, güvenlik, sistem, güncelleme")),
+        ]
+        for i, (txt, tip) in enumerate(nav_items):
+            try:
+                btn = self._navigation._buttons[i]
+                btn.setText(txt)
+                btn.setToolTip(tip)
+            except (IndexError, AttributeError):
+                pass
+        try:
+            self._sensor_pill.setText(t("● SENSÖR AKTİF"))
+        except AttributeError:
+            pass
+        try:
+            self._status_label.setText(t("İzleme aktif"))
+            self._sb_iface.setText(t("Arayüz: -"))
+        except AttributeError:
+            pass
+        # 2) Analiz calisiyorsa sekmelere dokunma (is kaybi yok, cerceve guncel).
+        busy = False
+        for attr in ("_worker", "_dash_worker", "_stats_worker"):
+            w = getattr(self, attr, None)
+            try:
+                if w is not None and w.isRunning():
+                    busy = True
+                    break
+            except RuntimeError:
+                pass
+        if busy:
+            return
+        # 3) Kurulu sekmeleri giris durumunu koruyarak yeniden kur.
+        # _on_tab_changed zaten lazy-kur + replace + refresh yapar.
+        tabs = [
+            ("_analysis_tab", 1), ("_data_tab", 2),
+            ("_rules_tab", 3), ("_keys_tab", 4), ("_settings_tab", 5),
+        ]
+        cur_idx = self._tabs.currentIndex()
+        for attr, idx in tabs:
+            old = getattr(self, attr, None)
+            if old is None:
+                continue
+            snap = []
+            for w in old.findChildren((QLineEdit, QTextEdit)):
+                try:
+                    snap.append(w.toPlainText() if isinstance(w, QTextEdit) else w.text())
+                except RuntimeError:
+                    snap.append("")
+            combos = []
+            for w in old.findChildren(QComboBox):
+                try:
+                    combos.append((w.objectName(), w.currentIndex()))
+                except RuntimeError:
+                    pass
+            checks = []
+            for w in old.findChildren(QCheckBox):
+                try:
+                    checks.append((w.objectName(), w.isChecked()))
+                except RuntimeError:
+                    pass
+            setattr(self, attr, None)
+            try:
+                self._on_tab_changed(idx)
+            except (RuntimeError, AttributeError):
+                continue
+            new = getattr(self, attr, None)
+            if new is None:
+                continue
+            for val, w_new in zip(snap, new.findChildren((QLineEdit, QTextEdit))):
+                try:
+                    if isinstance(w_new, QTextEdit):
+                        w_new.setPlainText(val)
+                    else:
+                        w_new.setText(val)
+                except RuntimeError:
+                    pass
+            for w in new.findChildren(QComboBox):
+                for name, ci in combos:
+                    if name and w.objectName() == name:
+                        try:
+                            w.setCurrentIndex(ci)
+                        except RuntimeError:
+                            pass
+                        break
+            for w in new.findChildren(QCheckBox):
+                for name, ck in checks:
+                    if name and w.objectName() == name:
+                        try:
+                            w.setChecked(ck)
+                        except RuntimeError:
+                            pass
+                        break
+        # Dashboard her zaman kurulu: yeniden kur (metinler + DB refresh).
+        try:
+            old_dash = self._dashboard_tab
+            snap_d = [w.text() for w in old_dash.findChildren(QLineEdit)]
+            self._tabs.removeWidget(old_dash)
+            old_dash.deleteLater()
+            self._analysis_buttons = [b for b in self._analysis_buttons
+                                      if b is not getattr(old_dash, "analyze_button", None)]
+            self._dashboard_tab = DashboardTab(self.db, self.engine)
+            self._dashboard_tab.request_block.connect(self._block_ip)
+            self._dashboard_tab.request_analyze.connect(self._run_quick_analysis)
+            self._register_analysis_button(self._dashboard_tab.analyze_button)
+            self._tabs.insertWidget(0, self._dashboard_tab)
+            for val, w_new in zip(snap_d, self._dashboard_tab.findChildren(QLineEdit)):
+                try:
+                    w_new.setText(val)
+                except RuntimeError:
+                    pass
+            self._dashboard_tab.refresh()
+        except (RuntimeError, AttributeError):
+            pass
+        try:
+            self._tabs.setCurrentIndex(cur_idx)
+        except RuntimeError:
+            pass
 
     def _build_topbar(self):
         bar = QFrame()
@@ -1119,7 +1241,8 @@ class MainWindow(QMainWindow):
         title_box.addWidget(subtitle)
         lay.addLayout(title_box)
 
-        lay.addWidget(StatusPill(t("● SENSÖR AKTİF"), "success"))
+        self._sensor_pill = StatusPill(t("● SENSÖR AKTİF"), "success")
+        lay.addWidget(self._sensor_pill)
 
         self._analysis_progress = AnalysisProgressWidget()
         lay.addWidget(self._analysis_progress)
@@ -2799,9 +2922,6 @@ class SettingsTab(QWidget):
             cfg_set_language(code)
             i18n_set(code)
             self.refresh_ui_language()
-            QMessageBox.information(
-                self, t("Arayüz Dili"),
-                t("Dil değiştirildi. Bazı ekranlar tam yenilenme için yeniden başlatma isteyebilir."))
         self._lang_combo.currentIndexChanged.connect(_on_lang)
         lang_card.body_layout().addWidget(self._lang_combo)
         body.addWidget(lang_card)
