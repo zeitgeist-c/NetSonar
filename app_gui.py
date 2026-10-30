@@ -1423,6 +1423,11 @@ class MainWindow(QMainWindow):
                 dash.refresh()
         except Exception as e:
             log.error("Stats update error: %s", e)
+        # Ertelenmis dil yenileme: istatistik bitti, sayfalari guncelle.
+        # Hizli analiz done() ile ayni bayrak; ilk tuketen kazanir.
+        if getattr(self, "_pending_lang_refresh", False):
+            self._pending_lang_refresh = False
+            self.refresh_ui_language()
 
     def _register_analysis_button(self, button):
         """Analiz butonlarını ortak busy durumuna kaydet."""
