@@ -145,4 +145,6 @@ NL4 = {
     'Son 1 Saat': 'Afgelopen uur',
     'IP Engelle': 'IP blokkeren',
     '<b>{ip}</b> adresini engellemek istiyor musunuz': '<b>{ip}</b> blokkeren?',
+    'TOPLAM {total} · BUGÜN {today}': 'TOTAAL {total} · VANDAAG {today}',
+    'TOPLAM {total}': 'TOTAAL {total}',
 }

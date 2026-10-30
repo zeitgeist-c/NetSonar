@@ -145,4 +145,6 @@ PL4 = {
     'Son 1 Saat': 'Ostatnia godzina',
     'IP Engelle': 'Zablokuj IP',
     '<b>{ip}</b> adresini engellemek istiyor musunuz': 'Zablokować <b>{ip}</b>?',
+    'TOPLAM {total} · BUGÜN {today}': 'RAZEM {total} · DZIŚ {today}',
+    'TOPLAM {total}': 'RAZEM {total}',
 }

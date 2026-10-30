@@ -145,4 +145,6 @@ KO4 = {
     'Son 1 Saat': '최근 1시간',
     'IP Engelle': 'IP 차단',
     '<b>{ip}</b> adresini engellemek istiyor musunuz': '<b>{ip}</b>를 차단하시겠습니까?',
+    'TOPLAM {total} · BUGÜN {today}': '합계 {total} · 오늘 {today}',
+    'TOPLAM {total}': '합계 {total}',
 }

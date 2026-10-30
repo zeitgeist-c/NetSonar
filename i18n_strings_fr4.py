@@ -145,4 +145,6 @@ FR4 = {
     'Son 1 Saat': 'Dernière heure',
     'IP Engelle': 'Bloquer l’IP',
     '<b>{ip}</b> adresini engellemek istiyor musunuz': 'Bloquer <b>{ip}</b> ?',
+    'TOPLAM {total} · BUGÜN {today}': 'TOTAL {total} · AUJOURD’HUI {today}',
+    'TOPLAM {total}': 'TOTAL {total}',
 }

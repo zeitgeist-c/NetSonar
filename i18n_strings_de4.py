@@ -145,4 +145,6 @@ DE4 = {
     'Son 1 Saat': 'Letzte 1 Stunde',
     'IP Engelle': 'IP blockieren',
     '<b>{ip}</b> adresini engellemek istiyor musunuz': '<b>{ip}</b> blockieren?',
+    'TOPLAM {total} · BUGÜN {today}': 'GESAMT {total} · HEUTE {today}',
+    'TOPLAM {total}': 'GESAMT {total}',
 }

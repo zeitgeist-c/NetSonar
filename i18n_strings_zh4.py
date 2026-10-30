@@ -145,4 +145,6 @@ ZH4 = {
     'Son 1 Saat': '过去 1 小时',
     'IP Engelle': '阻止 IP',
     '<b>{ip}</b> adresini engellemek istiyor musunuz': '要阻止 <b>{ip}</b> 吗？',
+    'TOPLAM {total} · BUGÜN {today}': '总计 {total} · 今日 {today}',
+    'TOPLAM {total}': '总计 {total}',
 }

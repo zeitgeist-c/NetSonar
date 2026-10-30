@@ -145,4 +145,6 @@ JA4 = {
     'Son 1 Saat': '過去1時間',
     'IP Engelle': 'IP をブロック',
     '<b>{ip}</b> adresini engellemek istiyor musunuz': '<b>{ip}</b> をブロックしますか?',
+    'TOPLAM {total} · BUGÜN {today}': '合計 {total} · 今日 {today}',
+    'TOPLAM {total}': '合計 {total}',
 }
