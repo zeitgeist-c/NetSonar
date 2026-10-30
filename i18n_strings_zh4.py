@@ -123,7 +123,6 @@ ZH4 = {
     'Depoya kopyalanamadı: {exc}': '无法复制到存储：{exc}',
     'Şüpheli bağlantı tespit edilmedi.': '未检测到可疑连接。',
     '   Süreç: {proc}': '   进程：{proc}',
-    'Şüpheli akış tespit edilmedi.': '未检测到可疑流量。',
     'Güncel dış kaynak kullanılmadı.': '未使用最新外部来源。',
     'Kurallar': '规则',
     'Anahtarlar': '密钥',
@@ -142,4 +141,8 @@ ZH4 = {
     'Sonraki analiz: -': '下次分析：-',
     'son 24 saat': '过去 24 小时',
     'son 4 saat': '过去 4 小时',
+    'Bu Hafta': '本周',
+    'Son 1 Saat': '过去 1 小时',
+    'IP Engelle': '阻止 IP',
+    '<b>{ip}</b> adresini engellemek istiyor musunuz': '要阻止 <b>{ip}</b> 吗？',
 }

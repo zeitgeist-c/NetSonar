@@ -110,4 +110,8 @@ EN_EXTRA = {
     'Sonraki analiz: -': 'Next analysis: -',
     'son 24 saat': 'last 24 hours',
     'son 4 saat': 'last 4 hours',
+    'Bu Hafta': 'This Week',
+    'Son 1 Saat': 'Last 1 Hour',
+    'IP Engelle': 'Block IP',
+    '<b>{ip}</b> adresini engellemek istiyor musunuz': 'Block <b>{ip}</b>?',
 }

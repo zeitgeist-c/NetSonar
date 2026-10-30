@@ -120,13 +120,14 @@ STYLESHEET = PREMIUM_STYLESHEET
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 class AnalysisWorker(QThread):
-    finished = pyqtSignal(dict)
+    done = pyqtSignal(dict)
     error = pyqtSignal(str)
     stage = pyqtSignal(str, int)
-    thread_finished = pyqtSignal()
+
     def __init__(self, analyzer):
         super().__init__()
         self.analyzer = analyzer
+        self._result = None
 
     def run(self):
         def stage_cb(name, prog):
@@ -136,14 +137,13 @@ class AnalysisWorker(QThread):
                 result = self.analyzer.analyze_pending(stage_callback=stage_cb)
             else:
                 result = self.analyzer.analyze(hours=1, force_full=True, stage_callback=stage_cb)
-            self.finished.emit(result)
+            self._result = result
+            self.done.emit(result)
         except Exception as exc:
+            self._result = {"status": "error", "message": str(exc)}
             self.error.emit(str(exc))
-        finally:
-            # run() dondu: QThread sonlaniyor. Bitis sirasini bekleyen
-            # erteleme tuketimi icin ayri sinyal (custom finished run
-            # icinden geldigi icin isRunning yarisi surer).
-            self.thread_finished.emit()
+        # Bitis: QThread.finished run SONRASI otomatik emit edilir
+        # (custom sinyal golgelemesi kaldirildi; isRunning yarisi yok).
 
 
 class AnalysisProgressWidget(QWidget):
@@ -1437,8 +1437,16 @@ class MainWindow(QMainWindow):
         denenir (kilitleme/poll yok; worker bitisi finished yolundan
         da tetiklenir, hangisi once guvenli noktaya ulasirsa).
         Yeni is baslatilmaz. Tum QThread cocuklari taranir; ayrica
-        kayitli worker attr'lari da kontrol edilir.
+        kayitli worker attr'lari ve sekme worker'lari da kontrol edilir.
         """
+        try:
+            import sip
+            if sip.isdeleted(self):
+                return
+        except Exception:
+            pass
+        if not getattr(self, "_pending_lang_refresh", False):
+            return
         try:
             threads = self.findChildren(QThread)
         except RuntimeError:
@@ -1448,6 +1456,16 @@ class MainWindow(QMainWindow):
         for attr in attrs:
             try:
                 w = getattr(self, attr, None)
+                if w is not None and w not in threads:
+                    threads = list(threads) + [w]
+            except RuntimeError:
+                pass
+        for tab_attr, w_attr in (("_dashboard_tab", "_dash_worker"),
+                                 ("_analysis_tab", "_history_worker"),
+                                 ("_analysis_tab", "_worker")):
+            try:
+                tab = getattr(self, tab_attr, None)
+                w = getattr(tab, w_attr, None) if tab is not None else None
                 if w is not None and w not in threads:
                     threads = list(threads) + [w]
             except RuntimeError:
@@ -1550,16 +1568,16 @@ class MainWindow(QMainWindow):
 
         self._worker = AnalysisWorker(self.analyzer)
         self._worker.stage.connect(self._analysis_progress.set_stage)
-        self._worker.finished.connect(done)
-        self._worker.thread_finished.connect(self._consume_pending_refresh)
+        self._worker.done.connect(done)
+        self._worker.finished.connect(self._consume_pending_refresh)
         self._worker.error.connect(failed)
         self._worker.start()
 
 
     def _block_ip(self, ip):
         reply = QMessageBox.question(
-            self, "IP Engelle",
-            f"<b>{ip}</b> adresini engellemek istiyor musunuz",
+            self, t("IP Engelle"),
+            t("<b>{ip}</b> adresini engellemek istiyor musunuz", ip=ip),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
         if reply != QMessageBox.StandardButton.Yes:
@@ -2162,8 +2180,8 @@ class DataTab(QWidget):
     # ── Eylemler ──────────────────────────────────────────────────────
     def _block_ip(self, ip):
         reply = QMessageBox.question(
-            self, "IP Engelle",
-            f"<b>{ip}</b> adresini engellemek istiyor musunuz",
+            self, t("IP Engelle"),
+            t("<b>{ip}</b> adresini engellemek istiyor musunuz", ip=ip),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
         if reply != QMessageBox.StandardButton.Yes:

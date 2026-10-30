@@ -485,9 +485,9 @@ class Database:
 
     def get_traffic_stats(self) -> list[dict]:
         with self._lock:
-            return [{"label":"Son 1 Saat","short":t("Saat"),**self._traffic_totals(self._cutoff(1))},
+            return [{"label":t("Son 1 Saat"),"short":t("Saat"),**self._traffic_totals(self._cutoff(1))},
                     {"label":t("Bugün"),"short":t("Bugün"),**self._traffic_totals(self._cutoff(24))},
-                    {"label":"Bu Hafta","short":"Hafta",**self._traffic_totals(self._cutoff(168))},
+                    {"label":t("Bu Hafta"),"short":t("Hafta"),**self._traffic_totals(self._cutoff(168))},
                     {"label":t("Son 30 Gün"),"short":t("30 Gün"),**self._traffic_totals(self._cutoff(720))}]
 
     def get_stats(self) -> dict:

@@ -123,7 +123,6 @@ ES4 = {
     'Depoya kopyalanamadı: {exc}': 'No se pudo copiar al almacén: {exc}',
     'Şüpheli bağlantı tespit edilmedi.': 'No se detectó ninguna conexión sospechosa.',
     '   Süreç: {proc}': '   Proceso: {proc}',
-    'Şüpheli akış tespit edilmedi.': 'No se detectó flujo sospechoso.',
     'Güncel dış kaynak kullanılmadı.': 'No se usó ninguna fuente externa actual.',
     'Kurallar': 'Reglas',
     'Anahtarlar': 'Claves',
@@ -142,4 +141,8 @@ ES4 = {
     'Sonraki analiz: -': 'Próximo análisis: -',
     'son 24 saat': 'últimas 24 horas',
     'son 4 saat': 'últimas 4 horas',
+    'Bu Hafta': 'Esta semana',
+    'Son 1 Saat': 'Última 1 hora',
+    'IP Engelle': 'Bloquear IP',
+    '<b>{ip}</b> adresini engellemek istiyor musunuz': '¿Bloquear <b>{ip}</b>?',
 }

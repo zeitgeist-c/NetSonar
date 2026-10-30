@@ -123,7 +123,6 @@ DE4 = {
     'Depoya kopyalanamadı: {exc}': 'Konnte nicht in Speicher kopieren: {exc}',
     'Şüpheli bağlantı tespit edilmedi.': 'Keine verdächtige Verbindung erkannt.',
     '   Süreç: {proc}': '   Prozess: {proc}',
-    'Şüpheli akış tespit edilmedi.': 'Kein verdächtiger Datenfluss erkannt.',
     'Güncel dış kaynak kullanılmadı.': 'Keine aktuelle externe Quelle verwendet.',
     'Kurallar': 'Regeln',
     'Anahtarlar': 'Schlüssel',
@@ -142,4 +141,8 @@ DE4 = {
     'Sonraki analiz: -': 'Nächste Analyse: -',
     'son 24 saat': 'letzte 24 Stunden',
     'son 4 saat': 'letzte 4 Stunden',
+    'Bu Hafta': 'Diese Woche',
+    'Son 1 Saat': 'Letzte 1 Stunde',
+    'IP Engelle': 'IP blockieren',
+    '<b>{ip}</b> adresini engellemek istiyor musunuz': '<b>{ip}</b> blockieren?',
 }

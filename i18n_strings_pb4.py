@@ -124,7 +124,6 @@ PB4 = {
     'Depoya kopyalanamadı: {exc}': 'Não foi possível copiar para o repositório: {exc}',
     'Şüpheli bağlantı tespit edilmedi.': 'Nenhuma conexão suspeita detectada.',
     '   Süreç: {proc}': '   Processo: {proc}',
-    'Şüpheli akış tespit edilmedi.': 'Nenhum fluxo suspeito detectado.',
     'Güncel dış kaynak kullanılmadı.': 'Nenhuma fonte externa atual usada.',
     'Kurallar': 'Regras',
     'Anahtarlar': 'Chaves',
@@ -143,4 +142,8 @@ PB4 = {
     'Sonraki analiz: -': 'Próxima análise: -',
     'son 24 saat': 'últimas 24 horas',
     'son 4 saat': 'últimas 4 horas',
+    'Bu Hafta': 'Esta semana',
+    'Son 1 Saat': 'Última 1 hora',
+    'IP Engelle': 'Bloquear IP',
+    '<b>{ip}</b> adresini engellemek istiyor musunuz': 'Bloquear <b>{ip}</b>?',
 }

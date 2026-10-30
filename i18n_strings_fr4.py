@@ -123,7 +123,6 @@ FR4 = {
     'Depoya kopyalanamadı: {exc}': 'Copie vers le dépôt impossible : {exc}',
     'Şüpheli bağlantı tespit edilmedi.': 'Aucune connexion suspecte détectée.',
     '   Süreç: {proc}': '   Processus : {proc}',
-    'Şüpheli akış tespit edilmedi.': 'Aucun flux suspect détecté.',
     'Güncel dış kaynak kullanılmadı.': 'Aucune source externe actuelle utilisée.',
     'Kurallar': 'Règles',
     'Anahtarlar': 'Clés',
@@ -142,4 +141,8 @@ FR4 = {
     'Sonraki analiz: -': 'Prochaine analyse : -',
     'son 24 saat': 'dernières 24 heures',
     'son 4 saat': 'dernières 4 heures',
+    'Bu Hafta': 'Cette semaine',
+    'Son 1 Saat': 'Dernière heure',
+    'IP Engelle': 'Bloquer l’IP',
+    '<b>{ip}</b> adresini engellemek istiyor musunuz': 'Bloquer <b>{ip}</b> ?',
 }
