@@ -145,4 +145,6 @@ RU4 = {
     'Son 1 Saat': 'Последний час',
     'IP Engelle': 'Заблокировать IP',
     '<b>{ip}</b> adresini engellemek istiyor musunuz': 'Заблокировать <b>{ip}</b>?',
+    'TOPLAM {total} · BUGÜN {today}': 'ВСЕГО {total} · СЕГОДНЯ {today}',
+    'TOPLAM {total}': 'ВСЕГО {total}',
 }

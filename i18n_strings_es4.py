@@ -145,4 +145,6 @@ ES4 = {
     'Son 1 Saat': 'Última 1 hora',
     'IP Engelle': 'Bloquear IP',
     '<b>{ip}</b> adresini engellemek istiyor musunuz': '¿Bloquear <b>{ip}</b>?',
+    'TOPLAM {total} · BUGÜN {today}': 'TOTAL {total} · HOY {today}',
+    'TOPLAM {total}': 'TOTAL {total}',
 }

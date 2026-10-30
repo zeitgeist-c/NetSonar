@@ -114,4 +114,6 @@ EN_EXTRA = {
     'Son 1 Saat': 'Last 1 Hour',
     'IP Engelle': 'Block IP',
     '<b>{ip}</b> adresini engellemek istiyor musunuz': 'Block <b>{ip}</b>?',
+    'TOPLAM {total} · BUGÜN {today}': 'TOTAL {total} · TODAY {today}',
+    'TOPLAM {total}': 'TOTAL {total}',
 }

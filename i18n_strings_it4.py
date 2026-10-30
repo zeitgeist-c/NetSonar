@@ -145,4 +145,6 @@ IT4 = {
     'Son 1 Saat': 'Ultima ora',
     'IP Engelle': 'Blocca IP',
     '<b>{ip}</b> adresini engellemek istiyor musunuz': 'Bloccare <b>{ip}</b>?',
+    'TOPLAM {total} · BUGÜN {today}': 'TOTALE {total} · OGGI {today}',
+    'TOPLAM {total}': 'TOTALE {total}',
 }

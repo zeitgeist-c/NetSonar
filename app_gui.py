@@ -1349,6 +1349,10 @@ class MainWindow(QMainWindow):
         elif idx == 2:
             if self._data_tab is None:
                 self._data_tab = DataTab(self.db)
+                try:
+                    self._data_tab.tab_finished.connect(self._consume_pending_refresh)
+                except AttributeError:
+                    pass
                 old=self._tabs.widget(2)
                 self._tabs.removeWidget(old); old.deleteLater()
                 self._tabs.insertWidget(2, self._data_tab)
@@ -1358,6 +1362,10 @@ class MainWindow(QMainWindow):
         elif idx == 3:
             if self._rules_tab is None:
                 self._rules_tab = RulesTab(self.db)
+                try:
+                    self._rules_tab.tab_finished.connect(self._consume_pending_refresh)
+                except AttributeError:
+                    pass
                 old=self._tabs.widget(3)
                 self._tabs.removeWidget(old); old.deleteLater()
                 self._tabs.insertWidget(3, self._rules_tab)
@@ -1440,8 +1448,8 @@ class MainWindow(QMainWindow):
         kayitli worker attr'lari ve sekme worker'lari da kontrol edilir.
         """
         try:
-            import sip
-            if sip.isdeleted(self):
+            from PyQt6 import sip as _sip
+            if _sip.isdeleted(self):
                 return
         except Exception:
             pass
@@ -1462,7 +1470,9 @@ class MainWindow(QMainWindow):
                 pass
         for tab_attr, w_attr in (("_dashboard_tab", "_dash_worker"),
                                  ("_analysis_tab", "_history_worker"),
-                                 ("_analysis_tab", "_worker")):
+                                 ("_analysis_tab", "_worker"),
+                                 ("_data_tab", "_worker"),
+                                 ("_rules_tab", "_worker")):
             try:
                 tab = getattr(self, tab_attr, None)
                 w = getattr(tab, w_attr, None) if tab is not None else None
@@ -1924,6 +1934,8 @@ class DataTabWorker(QThread):
 class DataTab(QWidget):
     """Akışlar (F2 — Tek Tablo): tam genişlik tablo, seçim alttan şeride düşer."""
 
+    tab_finished = pyqtSignal()
+
     def __init__(self, db):
         super().__init__()
         self.db = db
@@ -2063,6 +2075,7 @@ class DataTab(QWidget):
         self._stats_lbl.setText(t("Veriler yükleniyor..."))
         self._worker = DataTabWorker(self.db)
         self._worker.done.connect(self._on_data_loaded)
+        self._worker.finished.connect(self.tab_finished.emit)
         self._worker.start()
 
     def _on_data_loaded(self, rows, since_label):
@@ -2075,6 +2088,7 @@ class DataTab(QWidget):
         self._visible_rows = rows
         self._page = 0
         self._populate_table(rows)
+        self.tab_finished.emit()
 
     def _populate_table(self, rows):
         self.table.setUpdatesEnabled(False)
@@ -2261,6 +2275,8 @@ class RulesTab(QWidget):
     alanı paylaşır, böylece arama/dışa aktarma bir kez yazılır.
     """
 
+    tab_finished = pyqtSignal()
+
     VIEW_BLOCKED = 0
     VIEW_TRUSTED = 1
 
@@ -2380,6 +2396,7 @@ class RulesTab(QWidget):
         worker_cls = BlockedTabWorker if self._view == self.VIEW_BLOCKED else TrustedTabWorker
         self._worker = worker_cls(self.db)
         self._worker.done.connect(self._on_loaded)
+        self._worker.finished.connect(self.tab_finished.emit)
         self._worker.start()
 
     def _on_loaded(self, rows):
@@ -2390,9 +2407,10 @@ class RulesTab(QWidget):
             today_count = sum(1 for r in self._rows if str(r.get("blocked_at", "")).startswith(today))
             self._stats_lbl.set_status("danger", t("TOPLAM {total} · BUGÜN {today}", total=len(self._rows), today=today_count))
         else:
-            self._stats_lbl.set_status("success", f"TOPLAM {len(self._rows)}")
+            self._stats_lbl.set_status("success", t("TOPLAM {total}", total=len(self._rows)))
         self._page = 0
         self._populate()
+        self.tab_finished.emit()
 
     def _filtered_rows(self):
         query = self._search.text().strip().lower()
