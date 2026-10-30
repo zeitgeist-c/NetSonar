@@ -150,6 +150,36 @@ def test_singleshot_retry_applies_after_worker_ends(qt_app):
     assert host.calls == [1]
 
 
+def test_qthread_finished_fires_after_run_with_not_running(qt_app):
+    """Bulgu 2 regresyonu: QThread.finished run SONRASI gelir;
+    o sirada isRunning False'tur (custom sinyal golgelemesi yok)."""
+    from PyQt6.QtTest import QTest
+    from PyQt6.QtCore import QObject
+
+    class FakeAnalyzer:
+        def analyze_pending(self, stage_callback=None):
+            if stage_callback:
+                stage_callback("x", 1)
+            return {"status": "ok"}
+
+    fired = {}
+
+    class Recv(QObject):
+        def on_fin(self):
+            fired["running"] = worker.isRunning()
+            fired["finished"] = worker.isFinished()
+
+    worker = app_gui.AnalysisWorker(FakeAnalyzer())
+    recv = Recv()
+    worker.finished.connect(recv.on_fin)
+    worker.start()
+    assert worker.wait(5000)
+    QTest.qWait(300)
+    qt_app.processEvents()
+    assert fired.get("finished") is True
+    assert fired.get("running") is False
+
+
 def test_done_before_finished_keeps_pending_until_thread_end(qt_app):
     """done callback'i isRunning true iken gelse bile pending yasanir;
     gercek bitis (finished yolu) tuketir."""
