@@ -123,7 +123,6 @@ JA4 = {
     'Depoya kopyalanamadı: {exc}': 'ストレージにコピーできません: {exc}',
     'Şüpheli bağlantı tespit edilmedi.': '不審な接続は検出されませんでした。',
     '   Süreç: {proc}': '   プロセス: {proc}',
-    'Şüpheli akış tespit edilmedi.': '不審なフローは検出されませんでした。',
     'Güncel dış kaynak kullanılmadı.': '最新の外部ソースは使用されませんでした。',
     'Kurallar': 'ルール',
     'Anahtarlar': 'キー',
@@ -142,4 +141,8 @@ JA4 = {
     'Sonraki analiz: -': '次回分析: -',
     'son 24 saat': '過去24時間',
     'son 4 saat': '過去4時間',
+    'Bu Hafta': '今週',
+    'Son 1 Saat': '過去1時間',
+    'IP Engelle': 'IP をブロック',
+    '<b>{ip}</b> adresini engellemek istiyor musunuz': '<b>{ip}</b> をブロックしますか?',
 }

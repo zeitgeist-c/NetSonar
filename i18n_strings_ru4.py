@@ -123,7 +123,6 @@ RU4 = {
     'Depoya kopyalanamadı: {exc}': 'Не удалось скопировать в хранилище: {exc}',
     'Şüpheli bağlantı tespit edilmedi.': 'Подозрительных подключений не обнаружено.',
     '   Süreç: {proc}': '   Процесс: {proc}',
-    'Şüpheli akış tespit edilmedi.': 'Подозрительный поток не обнаружен.',
     'Güncel dış kaynak kullanılmadı.': 'Актуальный внешний источник не использовался.',
     'Kurallar': 'Правила',
     'Anahtarlar': 'Ключи',
@@ -142,4 +141,8 @@ RU4 = {
     'Sonraki analiz: -': 'Следующий анализ: -',
     'son 24 saat': 'последние 24 часа',
     'son 4 saat': 'последние 4 часа',
+    'Bu Hafta': 'Эта неделя',
+    'Son 1 Saat': 'Последний час',
+    'IP Engelle': 'Заблокировать IP',
+    '<b>{ip}</b> adresini engellemek istiyor musunuz': 'Заблокировать <b>{ip}</b>?',
 }

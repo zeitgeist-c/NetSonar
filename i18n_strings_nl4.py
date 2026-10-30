@@ -123,7 +123,6 @@ NL4 = {
     'Depoya kopyalanamadı: {exc}': 'Kopiëren naar opslag mislukt: {exc}',
     'Şüpheli bağlantı tespit edilmedi.': 'Geen verdachte verbinding gedetecteerd.',
     '   Süreç: {proc}': '   Proces: {proc}',
-    'Şüpheli akış tespit edilmedi.': 'Geen verdachte stroom gedetecteerd.',
     'Güncel dış kaynak kullanılmadı.': 'Geen actuele externe bron gebruikt.',
     'Kurallar': 'Regels',
     'Anahtarlar': 'Sleutels',
@@ -142,4 +141,8 @@ NL4 = {
     'Sonraki analiz: -': 'Volgende analyse: -',
     'son 24 saat': 'laatste 24 uur',
     'son 4 saat': 'laatste 4 uur',
+    'Bu Hafta': 'Deze week',
+    'Son 1 Saat': 'Afgelopen uur',
+    'IP Engelle': 'IP blokkeren',
+    '<b>{ip}</b> adresini engellemek istiyor musunuz': '<b>{ip}</b> blokkeren?',
 }

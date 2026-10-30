@@ -123,7 +123,6 @@ IT4 = {
     'Depoya kopyalanamadı: {exc}': 'Impossibile copiare nell archivio: {exc}',
     'Şüpheli bağlantı tespit edilmedi.': 'Nessuna connessione sospetta rilevata.',
     '   Süreç: {proc}': '   Processo: {proc}',
-    'Şüpheli akış tespit edilmedi.': 'Nessun flusso sospetto rilevato.',
     'Güncel dış kaynak kullanılmadı.': 'Nessuna fonte esterna recente usata.',
     'Kurallar': 'Regole',
     'Anahtarlar': 'Chiavi',
@@ -142,4 +141,8 @@ IT4 = {
     'Sonraki analiz: -': 'Prossima analisi: -',
     'son 24 saat': 'ultime 24 ore',
     'son 4 saat': 'ultime 4 ore',
+    'Bu Hafta': 'Questa settimana',
+    'Son 1 Saat': 'Ultima ora',
+    'IP Engelle': 'Blocca IP',
+    '<b>{ip}</b> adresini engellemek istiyor musunuz': 'Bloccare <b>{ip}</b>?',
 }

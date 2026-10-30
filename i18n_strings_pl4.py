@@ -123,7 +123,6 @@ PL4 = {
     'Depoya kopyalanamadı: {exc}': 'Nie można skopiować do magazynu: {exc}',
     'Şüpheli bağlantı tespit edilmedi.': 'Nie wykryto podejrzanych połączeń.',
     '   Süreç: {proc}': '   Proces: {proc}',
-    'Şüpheli akış tespit edilmedi.': 'Nie wykryto podejrzanego przepływu.',
     'Güncel dış kaynak kullanılmadı.': 'Nie użyto bieżącego źródła zewnętrznego.',
     'Kurallar': 'Reguły',
     'Anahtarlar': 'Klucze',
@@ -142,4 +141,8 @@ PL4 = {
     'Sonraki analiz: -': 'Następna analiza: -',
     'son 24 saat': 'ostatnie 24 godziny',
     'son 4 saat': 'ostatnie 4 godziny',
+    'Bu Hafta': 'Ten tydzień',
+    'Son 1 Saat': 'Ostatnia godzina',
+    'IP Engelle': 'Zablokuj IP',
+    '<b>{ip}</b> adresini engellemek istiyor musunuz': 'Zablokować <b>{ip}</b>?',
 }

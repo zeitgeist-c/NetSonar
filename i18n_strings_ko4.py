@@ -123,7 +123,6 @@ KO4 = {
     'Depoya kopyalanamadı: {exc}': '저장소에 복사하지 못했습니다: {exc}',
     'Şüpheli bağlantı tespit edilmedi.': '의심스러운 연결이 감지되지 않았습니다.',
     '   Süreç: {proc}': '   프로세스: {proc}',
-    'Şüpheli akış tespit edilmedi.': '의심스러운 흐름이 감지되지 않았습니다.',
     'Güncel dış kaynak kullanılmadı.': '최신 외부 소스를 사용하지 않았습니다.',
     'Kurallar': '규칙',
     'Anahtarlar': '키',
@@ -142,4 +141,8 @@ KO4 = {
     'Sonraki analiz: -': '다음 분석: -',
     'son 24 saat': '최근 24시간',
     'son 4 saat': '최근 4시간',
+    'Bu Hafta': '이번 주',
+    'Son 1 Saat': '최근 1시간',
+    'IP Engelle': 'IP 차단',
+    '<b>{ip}</b> adresini engellemek istiyor musunuz': '<b>{ip}</b>를 차단하시겠습니까?',
 }
