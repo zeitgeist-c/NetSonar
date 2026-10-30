@@ -48,7 +48,18 @@ class StubTabs:
 
 
 def make_host():
+    from PyQt6.QtCore import QObject
     host = types.SimpleNamespace()
+    host._qobj = QObject()
+    real_consume = app_gui.MainWindow._consume_pending_refresh
+
+    class _Bound:
+        def __call__(self):
+            real_consume(host)
+
+    host._consume_pending_refresh = _Bound()
+    # singleShot icin guclu referans: gercek MainWindow QObject'tur.
+    # (__self__ atanmaz; sip weakref SimpleNamespace'e takilir.)
     host._navigation = types.SimpleNamespace(_buttons=[])
     host._status_label = types.SimpleNamespace(setText=lambda s: None)
     host._sb_iface = types.SimpleNamespace(setText=lambda s: None)
@@ -69,8 +80,7 @@ def make_host():
     host.refresh_ui_language = spy
     host._on_stats_ready = types.MethodType(
         app_gui.MainWindow._on_stats_ready, host)
-    host._consume_pending_refresh = types.MethodType(
-        app_gui.MainWindow._consume_pending_refresh, host)
+    # _consume_pending_refresh: yukaridaki _Bound (singleShot uyumlu).
     return host
 
 
@@ -117,6 +127,27 @@ def test_repeated_language_change_single_refresh(qt_app):
     assert host._pending_lang_refresh is False
 
 
+def test_singleshot_retry_applies_after_worker_ends(qt_app):
+    """Yedek yol: consume mesgulken erteler, worker bitince UI
+    boslugunda refresh uygulanir."""
+    from PyQt6.QtTest import QTest
+    host = make_host()
+    host._stats_worker = BusyWorker()
+    host._worker = None
+    host._dash_worker = None
+    lang_change(host)
+    assert host._pending_lang_refresh is True
+    # mesgulken cagri -> singleShot ile yeniden planlar, uygulamaz
+    host._consume_pending_refresh()
+    assert host._pending_lang_refresh is True
+    assert host.calls == []
+    host._stats_worker.finish()
+    QTest.qWait(600)
+    qt_app.processEvents()
+    assert host._pending_lang_refresh is False
+    assert host.calls == [1]
+
+
 def test_done_before_finished_keeps_pending_until_thread_end(qt_app):
     """done callback'i isRunning true iken gelse bile pending yasanir;
     gercek bitis (finished yolu) tuketir."""
@@ -156,8 +187,12 @@ def test_done_before_finished_keeps_pending_until_thread_end(qt_app):
     qt_app.processEvents()
     # done run() icinden emit edildigi icin worker o anda aktifti.
     assert seen_running.get("running_at_done") is True
-    # thread bitti; finished yolu (kaynakta bagli) ile ayni tuketim.
+    # thread bitti (finished); kaynak koddaki finished baglantisi ile
+    # ayni tuketim yolu calisir. singleShot yedegi test disi birakilir.
     assert worker.isFinished() or not worker.isRunning()
     host._consume_pending_refresh()
+    # singleShot yedegi UI boslugunda da sorunsuz calismali; kisa bekle.
+    from PyQt6.QtTest import QTest
+    QTest.qWait(600)
     assert host._pending_lang_refresh is False
     assert host.calls == [1]
