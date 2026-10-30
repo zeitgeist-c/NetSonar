@@ -69,6 +69,8 @@ def make_host():
     host.refresh_ui_language = spy
     host._on_stats_ready = types.MethodType(
         app_gui.MainWindow._on_stats_ready, host)
+    host._consume_pending_refresh = types.MethodType(
+        app_gui.MainWindow._consume_pending_refresh, host)
     return host
 
 
@@ -113,3 +115,49 @@ def test_repeated_language_change_single_refresh(qt_app):
     host._on_stats_ready({})
     assert host.calls == [1]
     assert host._pending_lang_refresh is False
+
+
+def test_done_before_finished_keeps_pending_until_thread_end(qt_app):
+    """done callback'i isRunning true iken gelse bile pending yasanir;
+    gercek bitis (finished yolu) tuketir."""
+    import threading
+    from PyQt6.QtCore import QThread
+    from PyQt6.QtTest import QSignalSpy
+    import app_gui
+
+    release = threading.Event()
+
+    class SlowDb:
+        def get_stats(self):
+            release.wait(5)
+            return {}
+
+    host = make_host()
+    worker = app_gui.StatsWorker(SlowDb())
+    seen_running = {}
+    from PyQt6.QtCore import Qt
+    worker.done.connect(lambda stats: seen_running.setdefault(
+        "running_at_done", worker.isRunning()), Qt.ConnectionType.DirectConnection)
+    worker.done.connect(lambda stats: host.__dict__.setdefault(
+        "_stats_worker", worker))
+    host._stats_worker = worker
+    host._worker = None
+    host._dash_worker = None
+    # finished baglantisi kaynak kodda (_refresh_all); burada finished'i
+    # bekleyip ayni yolu manuel tetikliyoruz (slot QObject degil).
+    from PyQt6.QtTest import QTest
+    worker.start()
+    assert release.wait(0) is False
+    # done henuz gelmedi; dil degisimi -> ertele
+    lang_change(host)
+    assert host._pending_lang_refresh is True
+    release.set()
+    worker.wait(5000)
+    qt_app.processEvents()
+    # done run() icinden emit edildigi icin worker o anda aktifti.
+    assert seen_running.get("running_at_done") is True
+    # thread bitti; finished yolu (kaynakta bagli) ile ayni tuketim.
+    assert worker.isFinished() or not worker.isRunning()
+    host._consume_pending_refresh()
+    assert host._pending_lang_refresh is False
+    assert host.calls == [1]
