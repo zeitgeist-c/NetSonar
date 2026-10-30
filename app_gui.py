@@ -557,7 +557,7 @@ class DashboardTab(QWidget):
                 )
         else:
             self._feed_empty.setVisible(True)
-        self._consume_pending_refresh()
+        self.dash_finished.emit()
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1461,7 +1461,10 @@ class MainWindow(QMainWindow):
                 pass
         if getattr(self, "_pending_lang_refresh", False):
             self._pending_lang_refresh = False
-            self.refresh_ui_language()
+            try:
+                self.refresh_ui_language()
+            except Exception:
+                pass
 
     def _on_stats_ready(self, stats):
         try:
