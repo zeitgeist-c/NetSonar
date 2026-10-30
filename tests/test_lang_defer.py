@@ -60,6 +60,8 @@ def make_host():
     host._consume_pending_refresh = _Bound()
     # singleShot icin guclu referans: gercek MainWindow QObject'tur.
     # (__self__ atanmaz; sip weakref SimpleNamespace'e takilir.)
+    # findChildren: gercek MainWindow'da QObject'ten gelir.
+    host.findChildren = lambda *a, **k: []
     host._navigation = types.SimpleNamespace(_buttons=[])
     host._status_label = types.SimpleNamespace(setText=lambda s: None)
     host._sb_iface = types.SimpleNamespace(setText=lambda s: None)
