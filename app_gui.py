@@ -435,7 +435,7 @@ class DashboardTab(QWidget):
 
         left_col.addWidget(self._traffic_card, 3)
 
-        self._topip_card = NeoCard(t("En Yüksek Trafik"), "son 24 saat")
+        self._topip_card = NeoCard(t("En Yüksek Trafik"), t("son 24 saat"))
         top_body = self._topip_card.body_layout()
         top_body.setContentsMargins(16, 12, 16, 14)
         top_body.setSpacing(8)
@@ -450,7 +450,7 @@ class DashboardTab(QWidget):
         splitter.addWidget(left)
 
         # ── Sağ: canlı akış ──
-        self._feed_card = NeoCard(t("Canlı Akış"), "son 4 saat")
+        self._feed_card = NeoCard(t("Canlı Akış"), t("son 4 saat"))
         self._active_pill = StatusPill(t("0 AKTİF IP"), "accent")
         self._feed_card.add_header_widget(self._active_pill)
         feed_body = self._feed_card.body_layout()
@@ -1312,7 +1312,7 @@ class MainWindow(QMainWindow):
         lay.addWidget(self._sb_iface)
         self._sb_ai = sb_item("AI: Gemini")
         lay.addWidget(self._sb_ai)
-        self._sb_next = sb_item("Sonraki analiz: -")
+        self._sb_next = sb_item(t("Sonraki analiz: -"))
         lay.addWidget(self._sb_next)
         lay.addStretch()
         self._sb_db = sb_item("DB: -")

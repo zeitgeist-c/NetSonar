@@ -139,4 +139,7 @@ ZH4 = {
     'Trafik — son saat': '流量 — 过去一小时',
     '12 nokta': '12 个点',
     'Hafta': '周',
+    'Sonraki analiz: -': '下次分析：-',
+    'son 24 saat': '过去 24 小时',
+    'son 4 saat': '过去 4 小时',
 }

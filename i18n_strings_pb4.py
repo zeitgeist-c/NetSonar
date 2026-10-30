@@ -140,4 +140,7 @@ PB4 = {
     'Trafik — son saat': 'Tráfego — última hora',
     '12 nokta': '12 pontos',
     'Hafta': 'Semana',
+    'Sonraki analiz: -': 'Próxima análise: -',
+    'son 24 saat': 'últimas 24 horas',
+    'son 4 saat': 'últimas 4 horas',
 }
