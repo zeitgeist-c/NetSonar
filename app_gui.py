@@ -344,6 +344,7 @@ class DashboardTab(QWidget):
 
     request_block = pyqtSignal(str)
     request_analyze = pyqtSignal()
+    dash_finished = pyqtSignal()
 
     def __init__(self, db, engine=None):
         super().__init__()
@@ -485,7 +486,7 @@ class DashboardTab(QWidget):
             self._capture_health.set_status(status[0], status[1])
         self._dash_worker = DashboardWorker(self.db)
         self._dash_worker.done.connect(self._on_data_ready)
-        self._dash_worker.finished.connect(self._consume_pending_refresh)
+        self._dash_worker.finished.connect(self.dash_finished)
         self._dash_worker.start()
 
     def _on_data_ready(self, data):
@@ -655,6 +656,7 @@ class AnalysisTab(QWidget):
     """Analiz (A1 — Analiz Konsolu): solda çalışma alanı, sağda rapor geçmişi."""
 
     request_analyze = pyqtSignal()
+    tab_finished = pyqtSignal()
 
     def __init__(self, db, analyzer):
         super().__init__()
@@ -986,6 +988,7 @@ class AnalysisTab(QWidget):
         self._loading = True
         self._history_worker = AnalysisTabWorker(self.db)
         self._history_worker.done.connect(self._on_history_loaded)
+        self._history_worker.finished.connect(self.tab_finished)
         self._history_worker.start()
 
     def _on_history_loaded(self, reports):
@@ -1203,6 +1206,7 @@ class MainWindow(QMainWindow):
             self._dashboard_tab = DashboardTab(self.db, self.engine)
             self._dashboard_tab.request_block.connect(self._block_ip)
             self._dashboard_tab.request_analyze.connect(self._run_quick_analysis)
+            self._dashboard_tab.dash_finished.connect(self._consume_pending_refresh)
             self._register_analysis_button(self._dashboard_tab.analyze_button)
             self._tabs.insertWidget(0, self._dashboard_tab)
             for val, w_new in zip(snap_d, self._dashboard_tab.findChildren(QLineEdit)):
@@ -1278,6 +1282,7 @@ class MainWindow(QMainWindow):
         self._dashboard_tab=DashboardTab(self.db, self.engine)
         self._dashboard_tab.request_block.connect(self._block_ip)
         self._dashboard_tab.request_analyze.connect(self._run_quick_analysis)
+        self._dashboard_tab.dash_finished.connect(self._consume_pending_refresh)
         self._register_analysis_button(self._dashboard_tab.analyze_button)
         self._analysis_tab=self._data_tab=self._rules_tab=self._keys_tab=self._settings_tab=None
         def _placeholder():
@@ -1329,6 +1334,10 @@ class MainWindow(QMainWindow):
         elif idx == 1:
             if self._analysis_tab is None:
                 self._analysis_tab = AnalysisTab(self.db, self.analyzer)
+                try:
+                    self._analysis_tab.tab_finished.connect(self._consume_pending_refresh)
+                except AttributeError:
+                    pass
                 self._analysis_tab.request_analyze.connect(self._run_quick_analysis)
                 self._register_analysis_button(self._analysis_tab.analyze_button)
                 old=self._tabs.widget(1)
@@ -1427,11 +1436,24 @@ class MainWindow(QMainWindow):
         bayrak durur ve kisa sure sonra UI-thread bosligunda tekrar
         denenir (kilitleme/poll yok; worker bitisi finished yolundan
         da tetiklenir, hangisi once guvenli noktaya ulasirsa).
-        Yeni is baslatilmaz.
+        Yeni is baslatilmaz. Tum QThread cocuklari taranir; ayrica
+        kayitli worker attr'lari da kontrol edilir.
         """
-        for attr in ("_worker", "_dash_worker", "_stats_worker"):
+        try:
+            threads = self.findChildren(QThread)
+        except RuntimeError:
+            threads = []
+        attrs = ("_worker", "_dash_worker", "_stats_worker",
+                 "_history_worker", "_update_worker")
+        for attr in attrs:
             try:
                 w = getattr(self, attr, None)
+                if w is not None and w not in threads:
+                    threads = list(threads) + [w]
+            except RuntimeError:
+                pass
+        for w in threads:
+            try:
                 if w is not None and w.isRunning():
                     QTimer.singleShot(250, self._consume_pending_refresh)
                     return
