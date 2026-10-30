@@ -123,6 +123,7 @@ class AnalysisWorker(QThread):
     finished = pyqtSignal(dict)
     error = pyqtSignal(str)
     stage = pyqtSignal(str, int)
+    thread_finished = pyqtSignal()
     def __init__(self, analyzer):
         super().__init__()
         self.analyzer = analyzer
@@ -138,6 +139,11 @@ class AnalysisWorker(QThread):
             self.finished.emit(result)
         except Exception as exc:
             self.error.emit(str(exc))
+        finally:
+            # run() dondu: QThread sonlaniyor. Bitis sirasini bekleyen
+            # erteleme tuketimi icin ayri sinyal (custom finished run
+            # icinden geldigi icin isRunning yarisi surer).
+            self.thread_finished.emit()
 
 
 class AnalysisProgressWidget(QWidget):
@@ -479,6 +485,7 @@ class DashboardTab(QWidget):
             self._capture_health.set_status(status[0], status[1])
         self._dash_worker = DashboardWorker(self.db)
         self._dash_worker.done.connect(self._on_data_ready)
+        self._dash_worker.finished.connect(self._consume_pending_refresh)
         self._dash_worker.start()
 
     def _on_data_ready(self, data):
@@ -549,6 +556,7 @@ class DashboardTab(QWidget):
                 )
         else:
             self._feed_empty.setVisible(True)
+        self._consume_pending_refresh()
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1409,7 +1417,26 @@ class MainWindow(QMainWindow):
             return
         self._stats_worker = StatsWorker(self.db)
         self._stats_worker.done.connect(self._on_stats_ready)
+        self._stats_worker.finished.connect(self._consume_pending_refresh)
         self._stats_worker.start()
+
+    def _consume_pending_refresh(self):
+        """Ertelenmis dil yenilemeyi guvenli noktada tuket.
+
+        Hicbir izlenen worker calismiyorsa refresh uygulanir; yoksa
+        bayrak durur, son biten worker'in finished yolu tekrar dener.
+        UI thread kilitleme / sleep / poll yok; yeni is baslatilmaz.
+        """
+        for attr in ("_worker", "_dash_worker", "_stats_worker"):
+            try:
+                w = getattr(self, attr, None)
+                if w is not None and w.isRunning():
+                    return
+            except RuntimeError:
+                pass
+        if getattr(self, "_pending_lang_refresh", False):
+            self._pending_lang_refresh = False
+            self.refresh_ui_language()
 
     def _on_stats_ready(self, stats):
         try:
@@ -1424,10 +1451,9 @@ class MainWindow(QMainWindow):
         except Exception as e:
             log.error("Stats update error: %s", e)
         # Ertelenmis dil yenileme: istatistik bitti, sayfalari guncelle.
-        # Hizli analiz done() ile ayni bayrak; ilk tuketen kazanir.
-        if getattr(self, "_pending_lang_refresh", False):
-            self._pending_lang_refresh = False
-            self.refresh_ui_language()
+        # done run() icinden gelebilir (isRunning yarisi); gercek bitis
+        # finished yolundan da tuketilir. Merkezi tuketim guvenli noktada.
+        self._consume_pending_refresh()
 
     def _register_analysis_button(self, button):
         """Analiz butonlarını ortak busy durumuna kaydet."""
@@ -1458,9 +1484,7 @@ class MainWindow(QMainWindow):
             if getattr(self, "_worker", None):
                 self._worker.deleteLater()
                 self._worker = None
-            if getattr(self, "_pending_lang_refresh", False):
-                self._pending_lang_refresh = False
-                self.refresh_ui_language()
+            self._consume_pending_refresh()
             risk_score = result.get("risk_score", 0)
             status = result.get("status", "")
 
@@ -1499,6 +1523,7 @@ class MainWindow(QMainWindow):
         self._worker = AnalysisWorker(self.analyzer)
         self._worker.stage.connect(self._analysis_progress.set_stage)
         self._worker.finished.connect(done)
+        self._worker.thread_finished.connect(self._consume_pending_refresh)
         self._worker.error.connect(failed)
         self._worker.start()
 
