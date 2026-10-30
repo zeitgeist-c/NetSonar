@@ -107,4 +107,7 @@ EN_EXTRA = {
     'Trafik — son saat': 'Traffic — last hour',
     '12 nokta': '12 points',
     'Hafta': 'Week',
+    'Sonraki analiz: -': 'Next analysis: -',
+    'son 24 saat': 'last 24 hours',
+    'son 4 saat': 'last 4 hours',
 }

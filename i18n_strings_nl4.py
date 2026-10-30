@@ -139,4 +139,7 @@ NL4 = {
     'Trafik — son saat': 'Verkeer — afgelopen uur',
     '12 nokta': '12 punten',
     'Hafta': 'Week',
+    'Sonraki analiz: -': 'Volgende analyse: -',
+    'son 24 saat': 'laatste 24 uur',
+    'son 4 saat': 'laatste 4 uur',
 }

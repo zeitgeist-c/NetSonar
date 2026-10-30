@@ -139,4 +139,7 @@ ES4 = {
     'Trafik — son saat': 'Tráfico — última hora',
     '12 nokta': '12 puntos',
     'Hafta': 'Semana',
+    'Sonraki analiz: -': 'Próximo análisis: -',
+    'son 24 saat': 'últimas 24 horas',
+    'son 4 saat': 'últimas 4 horas',
 }

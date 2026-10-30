@@ -139,4 +139,7 @@ JA4 = {
     'Trafik — son saat': 'トラフィック — 過去1時間',
     '12 nokta': '12 ポイント',
     'Hafta': '週',
+    'Sonraki analiz: -': '次回分析: -',
+    'son 24 saat': '過去24時間',
+    'son 4 saat': '過去4時間',
 }

@@ -139,4 +139,7 @@ KO4 = {
     'Trafik — son saat': '트래픽 — 최근 1시간',
     '12 nokta': '12개 지점',
     'Hafta': '주',
+    'Sonraki analiz: -': '다음 분석: -',
+    'son 24 saat': '최근 24시간',
+    'son 4 saat': '최근 4시간',
 }

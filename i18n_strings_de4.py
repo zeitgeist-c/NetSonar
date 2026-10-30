@@ -139,4 +139,7 @@ DE4 = {
     'Trafik — son saat': 'Datenverkehr — letzte Stunde',
     '12 nokta': '12 Punkte',
     'Hafta': 'Woche',
+    'Sonraki analiz: -': 'Nächste Analyse: -',
+    'son 24 saat': 'letzte 24 Stunden',
+    'son 4 saat': 'letzte 4 Stunden',
 }

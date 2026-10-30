@@ -139,4 +139,7 @@ FR4 = {
     'Trafik — son saat': 'Trafic — dernière heure',
     '12 nokta': '12 points',
     'Hafta': 'Semaine',
+    'Sonraki analiz: -': 'Prochaine analyse : -',
+    'son 24 saat': 'dernières 24 heures',
+    'son 4 saat': 'dernières 4 heures',
 }

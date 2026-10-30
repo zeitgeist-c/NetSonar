@@ -139,4 +139,7 @@ PL4 = {
     'Trafik — son saat': 'Ruch — ostatnia godzina',
     '12 nokta': '12 punktów',
     'Hafta': 'Tydzień',
+    'Sonraki analiz: -': 'Następna analiza: -',
+    'son 24 saat': 'ostatnie 24 godziny',
+    'son 4 saat': 'ostatnie 4 godziny',
 }

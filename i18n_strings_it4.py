@@ -139,4 +139,7 @@ IT4 = {
     'Trafik — son saat': 'Traffico — ultima ora',
     '12 nokta': '12 punti',
     'Hafta': 'Settimana',
+    'Sonraki analiz: -': 'Prossima analisi: -',
+    'son 24 saat': 'ultime 24 ore',
+    'son 4 saat': 'ultime 4 ore',
 }
