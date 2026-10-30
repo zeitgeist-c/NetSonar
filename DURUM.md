@@ -1,7 +1,7 @@
 # NetSonar — DURUM (ortak — Desktop + Telegram okur)
 
 **Güncelleme:** 2026-10-30
-**Versiyon:** v0.6.4 (tag: bu commit; dağıtım: zeitgeist-c/NetSonar v0.6.4)
+**Versiyon:** v0.6.5 (tag: bu commit; dağıtım: zeitgeist-c/NetSonar v0.6.4)
 **Branch:** main (push edildi: main + v0.6.4; dagitim: NetSonar v0.6.4 yayinda)
 **Son commit:** bu commit (ortak masaüstü seçenekleri modülü)
 **Ağaç:** kapsam içi dosyalar commit'lendi; `ui-kesif/` keşif çıktıları ve `.hermes/`, `AGENTS.md` untracked.
