@@ -1424,13 +1424,16 @@ class MainWindow(QMainWindow):
         """Ertelenmis dil yenilemeyi guvenli noktada tuket.
 
         Hicbir izlenen worker calismiyorsa refresh uygulanir; yoksa
-        bayrak durur, son biten worker'in finished yolu tekrar dener.
-        UI thread kilitleme / sleep / poll yok; yeni is baslatilmaz.
+        bayrak durur ve kisa sure sonra UI-thread bosligunda tekrar
+        denenir (kilitleme/poll yok; worker bitisi finished yolundan
+        da tetiklenir, hangisi once guvenli noktaya ulasirsa).
+        Yeni is baslatilmaz.
         """
         for attr in ("_worker", "_dash_worker", "_stats_worker"):
             try:
                 w = getattr(self, attr, None)
                 if w is not None and w.isRunning():
+                    QTimer.singleShot(250, self._consume_pending_refresh)
                     return
             except RuntimeError:
                 pass
