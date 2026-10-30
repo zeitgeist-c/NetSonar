@@ -363,11 +363,11 @@ class DashboardTab(QWidget):
         root.setSpacing(14)
 
         page_header = PageHeader(
-            "Operasyon Merkezi",
+            t("Operasyon Merkezi"),
             t("Canlı ağ görünümü, güvenlik sinyalleri ve AI raporları tek komuta alanında."),
             t("NETSONAR / CANLI GÖRÜNÜM"),
         )
-        self._capture_health = StatusPill("● YAKALAMA KAPALI", "danger")
+        self._capture_health = StatusPill(t("● YAKALAMA KAPALI"), "danger")
         page_header.add_action(self._capture_health)
         analyze_btn = AppButton(t("AI Analizi Başlat"), icon="scan", variant="primary", size="lg")
         analyze_btn.clicked.connect(self.request_analyze.emit)
@@ -378,9 +378,9 @@ class DashboardTab(QWidget):
         cards_row = QHBoxLayout()
         cards_row.setSpacing(10)
         self.card_conns = StatCard(t("Bugünkü Akış"), "0", "blue", t("canlı izleme"), icon="connections")
-        self.card_threats = StatCard("Tehdit", "0", "red", "toplam", icon="shield")
-        self.card_blocked = StatCard("Engellenen", "0", "amber", "IP adresi", icon="blocked")
-        self.card_reports = StatCard("AI Raporu", "0", "green", t("kayıtlı"), icon="ai")
+        self.card_threats = StatCard(t("Tehdit"), "0", "red", t("toplam"), icon="shield")
+        self.card_blocked = StatCard(t("Engellenen"), "0", "amber", t("IP adresi"), icon="blocked")
+        self.card_reports = StatCard(t("AI Raporu"), "0", "green", t("kayıtlı"), icon="ai")
         for card in (self.card_conns, self.card_threats, self.card_blocked, self.card_reports):
             card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
             cards_row.addWidget(card)
@@ -396,7 +396,7 @@ class DashboardTab(QWidget):
         left_col.setContentsMargins(0, 0, 0, 0)
         left_col.setSpacing(12)
 
-        self._traffic_card = NeoCard("Trafik — son saat", "12 nokta")
+        self._traffic_card = NeoCard(t("Trafik — son saat"), t("12 nokta"))
         traffic_body = self._traffic_card.body_layout()
         traffic_body.setContentsMargins(16, 12, 16, 14)
         traffic_body.setSpacing(10)
@@ -420,7 +420,7 @@ class DashboardTab(QWidget):
         period_row = QHBoxLayout()
         period_row.setSpacing(8)
         self._period_labels = {}
-        for short in (t("Saat"), t("Bugün"), "Hafta", t("30 Gün")):
+        for short in (t("Saat"), t("Bugün"), t("Hafta"), t("30 Gün")):
             chip = QLabel(f"{short} —")
             chip.setStyleSheet(
                 f"color:{C['text3']}; background:{C['bg3']}; border:1px solid {C['border']}; "
@@ -480,8 +480,8 @@ class DashboardTab(QWidget):
             health = self.engine.health_snapshot()
             status = {"active": ("success", t("● YAKALAMA AKTİF")),
                       "partial": ("warning", t("● YAKALAMA KISMİ")),
-                      "error": ("danger", "● YAKALAMA HATASI"),
-                      "stopped": ("danger", "● YAKALAMA KAPALI")}[health.state]
+                      "error": ("danger", t("● YAKALAMA HATASI")),
+                      "stopped": ("danger", t("● YAKALAMA KAPALI"))}[health.state]
             self._capture_health.set_status(status[0], status[1])
         self._dash_worker = DashboardWorker(self.db)
         self._dash_worker.done.connect(self._on_data_ready)
