@@ -26,33 +26,42 @@ def _host():
 
 def test_data_tab_worker_defers_and_applies(qt_app):
     """Data is yuklenirken refresh ertelenir; bitince (tab_finished)
-    son secili dille uygulanir."""
+    son secili dille uygulanir. Gercek DataTab + gercek sinyal."""
+    from PyQt6.QtCore import QEventLoop
     host = _host()
 
     class FakeDB:
+        def get_last_analysis_time(self):
+            return None
+
         def get_flows(self, *a, **k):
             import time
             time.sleep(0.6)
             return []
 
-    worker = app_gui.DataTabWorker(FakeDB())
-    host._data_tab = types.SimpleNamespace(_worker=worker)
+    tab = app_gui.DataTab(FakeDB())
+    fired = []
+    tab.tab_finished.connect(lambda: fired.append(1))
+    host._data_tab = tab
     host._pending_lang_refresh = True
-    worker.start()
-    # mesgulken tuketim bekler
+    tab.refresh()
+    assert tab._worker is not None and tab._worker.isRunning()
     app_gui.MainWindow._consume_pending_refresh(host)
     assert host._pending_lang_refresh is True
-    assert worker.wait(5000)
-    QTest.qWait(400)
+    loop = QEventLoop()
+    tab.tab_finished.connect(loop.quit)
+    loop.exec()
     qt_app.processEvents()
-    # finished (tab_finished benzeri) sonrasi tuketim uygulanir
+    assert fired == [1]
     app_gui.MainWindow._consume_pending_refresh(host)
     assert host._pending_lang_refresh is False
     assert host.calls == [1]
 
 
 def test_rules_tab_worker_defers_and_applies(qt_app):
-    """Rules is yuklenirken refresh ertelenir; bitince uygulanir."""
+    """Rules is yuklenirken refresh ertelenir; bitince uygulanir.
+    Gercek RulesTab + gercek sinyal."""
+    from PyQt6.QtCore import QEventLoop
     host = _host()
 
     class FakeDB:
@@ -61,15 +70,20 @@ def test_rules_tab_worker_defers_and_applies(qt_app):
             time.sleep(0.6)
             return []
 
-    worker = app_gui.BlockedTabWorker(FakeDB())
-    host._rules_tab = types.SimpleNamespace(_worker=worker)
+    tab = app_gui.RulesTab(FakeDB())
+    fired = []
+    tab.tab_finished.connect(lambda: fired.append(1))
+    host._rules_tab = tab
     host._pending_lang_refresh = True
-    worker.start()
+    tab.refresh()
+    assert tab._worker is not None and tab._worker.isRunning()
     app_gui.MainWindow._consume_pending_refresh(host)
     assert host._pending_lang_refresh is True
-    assert worker.wait(5000)
-    QTest.qWait(400)
+    loop = QEventLoop()
+    tab.tab_finished.connect(loop.quit)
+    loop.exec()
     qt_app.processEvents()
+    assert fired == [1]
     app_gui.MainWindow._consume_pending_refresh(host)
     assert host._pending_lang_refresh is False
     assert host.calls == [1]
@@ -93,28 +107,55 @@ def test_deleted_widget_consume_returns_safely(qt_app):
     assert host.calls == [1]
 
 
-def test_production_stats_connection_reaches_consume(qt_app, monkeypatch):
+def _connect_targets(method_name):
+    """Uretim metodundaki .connect() cagrilarinin hedeflerini dondurur.
+    Substring degil AST: `if False:` icindeki olu kod ayiklanir."""
+    import ast
+    import inspect
+    import textwrap
+    src = textwrap.dedent(inspect.getsource(getattr(app_gui.MainWindow, method_name)))
+    tree = ast.parse(src)
+    targets = []
+
+    def visit(node, dead=False):
+        if isinstance(node, ast.If) and isinstance(node.test, ast.Constant) and node.test.value is False:
+            dead = True
+        if not dead and isinstance(node, ast.Call):
+            f = node.func
+            if isinstance(f, ast.Attribute) and f.attr == "connect":
+                sig = f.value
+                signame = sig.attr if isinstance(sig, ast.Attribute) else ""
+                for a in node.args:
+                    if isinstance(a, ast.Attribute):
+                        targets.append((signame, a.attr))
+                    elif isinstance(a, ast.Lambda):
+                        targets.append((signame, "lambda"))
+        for child in ast.iter_child_nodes(node):
+            visit(child, dead)
+
+    visit(tree)
+    return targets
+
+
+def test_production_stats_connection_reaches_consume(qt_app):
     """Uretim baglantisi: StatsWorker.finished -> consume yolu.
     Baglanti kaldirilirsa bu test basarisiz olur (M1 regresyonu)."""
-    import inspect
-    src = inspect.getsource(app_gui.MainWindow._refresh_all)
-    assert "_stats_worker.finished.connect" in src
-    assert "_consume_pending_refresh" in src
+    tg = _connect_targets("_refresh_all")
+    assert ("finished", "_consume_pending_refresh") in tg
 
 
 def test_production_analysis_connection_reaches_consume(qt_app):
     """Uretim baglantisi: AnalysisWorker.finished(QThread) -> consume (M2)."""
-    import inspect
-    src = inspect.getsource(app_gui.MainWindow._run_quick_analysis)
-    assert ".finished.connect(self._consume_pending_refresh)" in src
-    assert "thread_finished" not in src
+    tg = _connect_targets("_run_quick_analysis")
+    assert ("finished", "_consume_pending_refresh") in tg
+    assert not any("thread_finished" in s for s, _ in tg)
 
 
 def test_production_tab_connections_reach_consume(qt_app):
     """Uretim baglantilari: dash/data/rules/analysis tab_finished (M3)."""
-    import inspect
-    r1 = inspect.getsource(app_gui.MainWindow.refresh_ui_language)
-    r2 = inspect.getsource(app_gui.MainWindow._build_tabs)
-    r3 = inspect.getsource(app_gui.MainWindow._on_tab_changed)
-    assert "dash_finished.connect" in r1 + r2
-    assert r3.count("tab_finished.connect") >= 3  # analysis+data+rules
+    r1 = _connect_targets("refresh_ui_language")
+    r2 = _connect_targets("_build_tabs")
+    r3 = _connect_targets("_on_tab_changed")
+    assert ("dash_finished", "_consume_pending_refresh") in r1 + r2
+    tablinks = [t for t in r3 if t[0] == "tab_finished" and t[1] == "_consume_pending_refresh"]
+    assert len(tablinks) >= 3  # analysis+data+rules

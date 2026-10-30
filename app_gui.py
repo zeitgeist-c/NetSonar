@@ -1123,7 +1123,8 @@ class MainWindow(QMainWindow):
             pass
         # 2) Analiz calisiyorsa sekmelere dokunma (is kaybi yok, cerceve guncel).
         busy = False
-        for attr in ("_worker", "_dash_worker", "_stats_worker"):
+        for attr in ("_worker", "_dash_worker", "_stats_worker",
+                     "_history_worker", "_update_worker"):
             w = getattr(self, attr, None)
             try:
                 if w is not None and w.isRunning():
@@ -1131,6 +1132,19 @@ class MainWindow(QMainWindow):
                     break
             except RuntimeError:
                 pass
+        if not busy:
+            for tab_attr, w_attr in (("_dashboard_tab", "_dash_worker"),
+                                     ("_analysis_tab", "_history_worker"),
+                                     ("_data_tab", "_worker"),
+                                     ("_rules_tab", "_worker")):
+                try:
+                    tab = getattr(self, tab_attr, None)
+                    w = getattr(tab, w_attr, None) if tab is not None else None
+                    if w is not None and w.isRunning():
+                        busy = True
+                        break
+                except RuntimeError:
+                    pass
         if busy:
             self._pending_lang_refresh = True
             return
@@ -1334,10 +1348,7 @@ class MainWindow(QMainWindow):
         elif idx == 1:
             if self._analysis_tab is None:
                 self._analysis_tab = AnalysisTab(self.db, self.analyzer)
-                try:
-                    self._analysis_tab.tab_finished.connect(self._consume_pending_refresh)
-                except AttributeError:
-                    pass
+                self._analysis_tab.tab_finished.connect(self._consume_pending_refresh)
                 self._analysis_tab.request_analyze.connect(self._run_quick_analysis)
                 self._register_analysis_button(self._analysis_tab.analyze_button)
                 old=self._tabs.widget(1)
@@ -1349,10 +1360,7 @@ class MainWindow(QMainWindow):
         elif idx == 2:
             if self._data_tab is None:
                 self._data_tab = DataTab(self.db)
-                try:
-                    self._data_tab.tab_finished.connect(self._consume_pending_refresh)
-                except AttributeError:
-                    pass
+                self._data_tab.tab_finished.connect(self._consume_pending_refresh)
                 old=self._tabs.widget(2)
                 self._tabs.removeWidget(old); old.deleteLater()
                 self._tabs.insertWidget(2, self._data_tab)
@@ -1362,10 +1370,7 @@ class MainWindow(QMainWindow):
         elif idx == 3:
             if self._rules_tab is None:
                 self._rules_tab = RulesTab(self.db)
-                try:
-                    self._rules_tab.tab_finished.connect(self._consume_pending_refresh)
-                except AttributeError:
-                    pass
+                self._rules_tab.tab_finished.connect(self._consume_pending_refresh)
                 old=self._tabs.widget(3)
                 self._tabs.removeWidget(old); old.deleteLater()
                 self._tabs.insertWidget(3, self._rules_tab)
@@ -1470,7 +1475,6 @@ class MainWindow(QMainWindow):
                 pass
         for tab_attr, w_attr in (("_dashboard_tab", "_dash_worker"),
                                  ("_analysis_tab", "_history_worker"),
-                                 ("_analysis_tab", "_worker"),
                                  ("_data_tab", "_worker"),
                                  ("_rules_tab", "_worker")):
             try:
@@ -1893,10 +1897,22 @@ class MainWindow(QMainWindow):
         update_worker = getattr(self, "_update_worker", None)
         if update_worker is not None and update_worker.isRunning():
             update_worker.cancel()
-        for name in ("_worker", "_stats_worker", "_dash_worker", "_update_worker"):
+        for name in ("_worker", "_stats_worker", "_dash_worker", "_update_worker",
+                       "_history_worker"):
             worker = getattr(self, name, None)
             if worker and worker.isRunning():
                 worker.wait(1500)
+        for tab_attr, w_attr in (("_dashboard_tab", "_dash_worker"),
+                                 ("_analysis_tab", "_history_worker"),
+                                 ("_data_tab", "_worker"),
+                                 ("_rules_tab", "_worker")):
+            try:
+                tab = getattr(self, tab_attr, None)
+                worker = getattr(tab, w_attr, None) if tab is not None else None
+                if worker is not None and worker.isRunning():
+                    worker.wait(1500)
+            except RuntimeError:
+                pass
         self.tray.hide()
         QApplication.quit()
 
@@ -2075,7 +2091,7 @@ class DataTab(QWidget):
         self._stats_lbl.setText(t("Veriler yükleniyor..."))
         self._worker = DataTabWorker(self.db)
         self._worker.done.connect(self._on_data_loaded)
-        self._worker.finished.connect(self.tab_finished.emit)
+        self._worker.finished.connect(self.tab_finished)
         self._worker.start()
 
     def _on_data_loaded(self, rows, since_label):
@@ -2088,7 +2104,6 @@ class DataTab(QWidget):
         self._visible_rows = rows
         self._page = 0
         self._populate_table(rows)
-        self.tab_finished.emit()
 
     def _populate_table(self, rows):
         self.table.setUpdatesEnabled(False)
@@ -2396,7 +2411,7 @@ class RulesTab(QWidget):
         worker_cls = BlockedTabWorker if self._view == self.VIEW_BLOCKED else TrustedTabWorker
         self._worker = worker_cls(self.db)
         self._worker.done.connect(self._on_loaded)
-        self._worker.finished.connect(self.tab_finished.emit)
+        self._worker.finished.connect(self.tab_finished)
         self._worker.start()
 
     def _on_loaded(self, rows):
@@ -2410,7 +2425,6 @@ class RulesTab(QWidget):
             self._stats_lbl.set_status("success", t("TOPLAM {total}", total=len(self._rows)))
         self._page = 0
         self._populate()
-        self.tab_finished.emit()
 
     def _filtered_rows(self):
         query = self._search.text().strip().lower()
