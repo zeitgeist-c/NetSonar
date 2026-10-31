@@ -1,18 +1,18 @@
-"""NetSonar — Kalıcı model ve ek kütüphane deposu (store).
+"""NetSonar - persistent model and extra-library store.
 
-Kurulum ve güncelleme bu klasöre ASLA dokunmaz. Depo program klasörünün
-dışındadır: %LOCALAPPDATA%\\NetSonar\\store. Kurulumcu yalnız kendi hedef
-klasörüne yazar; kullanıcı verisi (ayarlar, veritabanı, log) ve store aynı
-üst klasörde tutulur ama kurulumcunun yazma hedefi değildir.
+Install and update NEVER touch this folder. The store lives outside the
+program folder: %LOCALAPPDATA%\\NetSonar\\store. The installer only writes to
+its own target folder; user data (settings, database, logs) and the store share
+the same parent folder but are not the installer's write target.
 
-Amacı: bir kez indirilen yerel model veya ek kütüphane, program sürümü
-güncellendiğinde yeniden indirilmez. Yalnızca yeni kurulum dosyası indirilir;
-store içeriği olduğu gibi kalır.
+Purpose: a local model or extra library downloaded once is not downloaded
+again when the program version is updated. Only the new installer is fetched;
+the store contents stay as they are.
 
-Düzen:
-    store/store.json      — manifest (sürüm, sha256, boyut, tarih)
-    store/models/<ad>/    — yerel model dosyaları
-    store/lib/<ad>/       — ek Python kütüphaneleri (import edilebilir)
+Layout:
+    store/store.json      - manifest (version, sha256, size, date)
+    store/models/<name>/  - local model files
+    store/lib/<name>/     - extra Python libraries (importable)
 """
 
 from __future__ import annotations
@@ -38,13 +38,13 @@ KIND_LIB = "lib"
 
 
 class StoreError(Exception):
-    """Depo işlemi kullanıcıya anlamlı bir hata mesajıyla dönmeli."""
+    """A store operation must surface a message the user can act on."""
 
 
 # ─── Konumlar ──────────────────────────────────────────────────────
 
 def store_dir() -> Path:
-    """Depo kökü. Program klasöründen bağımsız, kullanıcı yazılabilir."""
+    """Store root. Independent of the program folder, user-writable."""
     from config import user_data_path
     return Path(user_data_path("store"))
 
@@ -70,16 +70,16 @@ def _kind_dir(kind: str) -> Path:
 
 
 def item_path(name: str, kind: str = KIND_MODEL) -> Path:
-    """Bir depo öğesinin tam yolu (klasör veya dosya olabilir)."""
+    """Full path of a store entry (may be a folder or a file)."""
     safe = _safe_name(name)
     return _kind_dir(kind) / safe
 
 
 def _safe_name(name: str) -> str:
-    """Depo öğesi adı: yol ayırıcı ve göreli yol kaçışı engellenir.
+    """Store entry name: path separators and relative-path escapes are rejected.
 
-    Sessizce temizlemek yerine hata verilir: kullanıcı "a/b" yazdıysa
-    beklenmedik bir ad üretmek, sonra yanlış öğeyi silmekten iyidir.
+    This raises instead of silently cleaning up: if the user typed "a/b",
+    producing an unexpected name and then deleting the wrong entry is worse.
     """
     raw = str(name or "").strip()
     if not raw:
@@ -96,7 +96,7 @@ def _safe_name(name: str) -> str:
 # ─── Manifest ──────────────────────────────────────────────────────
 
 def load_manifest() -> dict:
-    """Manifesti okur; bozuk dosyada veri kaybı olmaz, boş manifest döner."""
+    """Read the manifest; a corrupt file loses no data, an empty manifest is returned."""
     path = manifest_path()
     if not path.exists():
         return {"version": MANIFEST_VERSION, "items": []}
@@ -114,7 +114,7 @@ def load_manifest() -> dict:
 
 
 def save_manifest(manifest: dict) -> Path:
-    """Manifesti atomik olarak yazar (yarım yazılmış manifest olmaz)."""
+    """Write the manifest atomically (no half-written manifest)."""
     path = manifest_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
@@ -128,7 +128,7 @@ def save_manifest(manifest: dict) -> Path:
 
 
 def list_items(kind: str = "") -> list[dict]:
-    """Manifest girdileri; kind verilirse yalnız o tür."""
+    """Manifest entries; when kind is given, only that kind."""
     items = load_manifest().get("items", [])
     if kind:
         items = [i for i in items if i.get("kind") == kind]
@@ -143,7 +143,7 @@ def find_item(name: str) -> dict | None:
     return None
 
 
-# ─── Öğe kurulumu / kaldırma ───────────────────────────────────────
+# ─── Entry install / removal ───────────────────────────────────────
 
 def _sha256_of(path: Path) -> str:
     digest = hashlib.sha256()
@@ -154,7 +154,7 @@ def _sha256_of(path: Path) -> str:
 
 
 def _hash_tree(root: Path) -> str:
-    """Klasör için kararlı içerik özeti (dosya yolları + hash'leri)."""
+    """Stable content digest for a folder (file paths + their hashes)."""
     digest = hashlib.sha256()
     if root.is_file():
         digest.update(root.name.encode("utf-8"))
@@ -174,10 +174,10 @@ def _tree_size(root: Path) -> int:
 
 def install_item(name: str, source: str | os.PathLike, kind: str = KIND_MODEL,
                  version: str = "") -> dict:
-    """Depoya yeni bir model/kütüphane kopyalar ve manifesti günceller.
+    """Copy a new model/library into the store and update the manifest.
 
-    Kaynak dışarıdan gelen bir dosya ya da klasör olabilir. Mevcut bir öğeyi
-    değiştirir; kurulum ve güncelleme sırasında store içeriği korunur.
+    The source may be an external file or folder. It replaces an existing
+    entry; the store contents survive install and update.
     """
     source_path = Path(source)
     if not source_path.exists():
@@ -224,7 +224,7 @@ def install_item(name: str, source: str | os.PathLike, kind: str = KIND_MODEL,
 
 
 def remove_item(name: str, kind: str = KIND_MODEL) -> bool:
-    """Depodan bir öğeyi siler. Bulunamazsa False döner."""
+    """Delete an entry from the store. Returns False when it is not found."""
     safe = _safe_name(name)
     target = item_path(safe, kind)
     manifest = load_manifest()
@@ -240,13 +240,13 @@ def remove_item(name: str, kind: str = KIND_MODEL) -> bool:
     return existed
 
 
-# ─── Çalışma zamanı ────────────────────────────────────────────────
+# ─── Runtime ───────────────────────────────────────────────────────
 
 def activate() -> list[str]:
-    """Ek kütüphanelerin import edilebilmesi için lib dizinini yola ekler.
+    """Append the lib directory to the path so extra libraries can be imported.
 
-    Paketlenmiş kütüphaneler önceliklidir: store lib dizini sys.path'un sonuna
-    eklenir, böylece ad çakışmasında paket içi sürüm kazanır.
+    Bundled libraries take precedence: the store lib directory is appended to
+    the end of sys.path, so on a name clash the bundled version wins.
     """
     added: list[str] = []
     for candidate in (lib_dir(), models_dir()):
@@ -263,7 +263,7 @@ def activate() -> list[str]:
 
 
 def is_store_path(path: str | os.PathLike) -> bool:
-    """Verilen yol depo içinde mi? Kurulum/güncelleme koruması için."""
+    """Is the given path inside the store? Used for install/update protection."""
     try:
         target = Path(path).resolve()
         root = store_dir().resolve()
@@ -277,7 +277,7 @@ def is_store_path(path: str | os.PathLike) -> bool:
 
 
 def store_size() -> int:
-    """Depodaki toplam bayt (Ayarlar'da göstermek için)."""
+    """Total bytes in the store (shown in Settings)."""
     root = store_dir()
     if not root.exists():
         return 0
@@ -285,7 +285,7 @@ def store_size() -> int:
 
 
 def summary() -> dict:
-    """Kısa durum özeti: model sayısı, kütüphane sayısı, toplam boyut."""
+    """Short status summary: model count, library count, total size."""
     items = list_items()
     return {
         "path": str(store_dir()),

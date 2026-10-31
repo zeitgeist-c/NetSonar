@@ -1,7 +1,7 @@
-"""Regresyon: paket yolundaki iki pahalı adım.
+"""Regression: the two expensive steps on the packet path.
 
-1) `orient_flow` her pakette yerel IP kümesini yeniden normalize ediyordu.
-2) `load_alerts` her pakette ALERTS_FILE.exists()+stat() çağırıyordu.
+1) `orient_flow` re-normalized the local IP set on every packet.
+2) `load_alerts` called ALERTS_FILE.exists()+stat() on every packet.
 """
 
 import json
@@ -46,7 +46,8 @@ class OrientFlowCacheTests(unittest.TestCase):
         self.assertLessEqual(len(flow_utils._LOCAL_CACHE), flow_utils._CACHE_LIMIT)
 
     def test_changed_local_set_is_reflected_immediately(self):
-        """Ağ değişince (yeni IP) eski önbellek yanlış sonuç vermemeli."""
+        """When the network changes (new IP), the stale cache must not yield
+        a wrong result."""
         first = {"10.0.0.1"}
         self.assertIsNone(orient_flow("10.0.0.2", 1, "8.8.8.8", 443, first))
         second = {"10.0.0.1", "10.0.0.2"}
@@ -80,9 +81,9 @@ class AlertStatThrottleTests(unittest.TestCase):
             with mock.patch.object(custom_alerts, "ALERTS_FILE", path), \
                  mock.patch.object(custom_alerts, "_STAT_INTERVAL_SECONDS", 0.0):
                 self.assertEqual([], custom_alerts.load_alerts())
-                path.write_text(json.dumps([{"name": "yeni", "port": 22}]), encoding="utf-8")
+                path.write_text(json.dumps([{"name": "new", "port": 22}]), encoding="utf-8")
                 names = [rule.name for rule in custom_alerts.load_alerts()]
-                self.assertEqual(["yeni"], names)
+                self.assertEqual(["new"], names)
 
 
 if __name__ == "__main__":

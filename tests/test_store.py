@@ -1,7 +1,7 @@
-"""Store (kalıcı model/kütüphane deposu) sözleşmeleri.
+"""Store (persistent model/library store) contracts.
 
-Depo kurulum ve güncellemeden bağımsız yaşar: sürüm değişse de indirilmiş
-içerik silinmez, yeniden indirilmez.
+The store lives independently of install and update: downloaded content is
+never deleted or re-downloaded when the version changes.
 """
 
 import json
@@ -16,7 +16,7 @@ import store
 
 class StoreLocationTests(unittest.TestCase):
     def test_store_lives_outside_the_program_folder(self):
-        """Depo program klasorunun disinda olmali; kurulum onu silmesin."""
+        """The store must live outside the program folder; setup must not delete it."""
         with mock.patch("config.user_data_path",
                         side_effect=lambda *parts: str(Path("C:/data").joinpath(*parts))):
             resolved = store.store_dir()
@@ -43,7 +43,7 @@ class StoreLocationTests(unittest.TestCase):
                     self.assertTrue(added)
                     for path in added:
                         self.assertIn(path, os.sys.path)
-                    # Eklenen yollar sona eklenir: paket ici kutuphane oncelikli.
+                    # Added paths go to the end: the bundled library wins.
                     self.assertGreater(os.sys.path.index(added[0]), len(before) - 1)
             for path in added:
                 if path in os.sys.path:
@@ -84,7 +84,7 @@ class StoreItemTests(unittest.TestCase):
 
     def test_install_item_rejects_missing_source(self):
         with self.assertRaises(store.StoreError):
-            store.install_item("M", Path(self._tmp.name) / "yok.bin")
+            store.install_item("M", Path(self._tmp.name) / "missing.bin")
 
     def test_remove_item_deletes_content_and_manifest_entry(self):
         source = Path(self._tmp.name) / "model.bin"
@@ -98,8 +98,8 @@ class StoreItemTests(unittest.TestCase):
         source = Path(self._tmp.name) / "model.bin"
         source.write_bytes(b"x")
         store.install_item("M", source, kind=store.KIND_MODEL)
-        (self.root / "store.json").write_text("{bozuk", encoding="utf-8")
-        # Bozuk manifest okunur, veri dosyalari yerinde kalir.
+        (self.root / "store.json").write_text("{corrupt", encoding="utf-8")
+        # A corrupt manifest is tolerated; the data files stay in place.
         self.assertEqual(store.list_items(), [])
         self.assertTrue((self.root / "models" / "M").exists())
 

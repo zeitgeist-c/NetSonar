@@ -9,6 +9,6 @@
 ## Expected
 
 ## Environment
-- WordArc version:
+- NetSonar version:
 - Windows version:
 - Install type (exe / source):

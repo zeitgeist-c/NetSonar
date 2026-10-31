@@ -1,7 +1,7 @@
-"""Ortak masaüstü seçenekleri testleri (app_options).
+"""Shared desktop option tests (app_options).
 
-Bu dosya, uygulamadan bağımsız olarak çalışır ve diğer projelere
-kopyalanabilir: kayıt defterine yazmadan, sahte depo ile doğrular.
+This file runs independently of the application and can be copied to other
+projects: it validates with a fake store, without writing to the registry.
 """
 
 import os
@@ -16,7 +16,7 @@ from app_options import (AutostartController, SETTING_AUTOSTART,
 
 
 class FakeStore:
-    """Basit ayar deposu (uygulamanın ayar dosyası yerine geçer)."""
+    """Simple settings store (stands in for the application settings file)."""
 
     def __init__(self, initial=None):
         self.data = dict(initial or {})
@@ -42,10 +42,10 @@ class StartupCommandTests(unittest.TestCase):
         self.assertEqual(command, '"C:\\X\\X.exe" --background')
 
     def test_source_mode_targets_the_main_script(self):
-        """Kaynak kod modunda yorumlayici + giris noktasi beklenir.
+        """Source mode expects an interpreter plus an entry point.
 
-        Modul tek basina calisir; giris noktasi yoksa bile yorumlayici
-        komutu uretilmelidir.
+        The module works standalone; the interpreter command must be produced
+        even when no entry point exists.
         """
         command = startup_command()
         self.assertTrue(command.startswith('"'))
@@ -54,7 +54,7 @@ class StartupCommandTests(unittest.TestCase):
     def test_source_mode_uses_the_given_entry_point(self):
         with tempfile.TemporaryDirectory() as tmp:
             entry = Path(tmp) / "main.py"
-            entry.write_text("# giris", encoding="utf-8")
+            entry.write_text("# entry", encoding="utf-8")
             command = startup_command(entry_point=str(entry))
             self.assertIn("main.py", command)
             self.assertIn(str(entry), command)
@@ -93,7 +93,8 @@ class AutostartControllerTests(unittest.TestCase):
         self.assertFalse(self.store.data[SETTING_AUTOSTART])
 
     def test_setting_fallback_when_registry_was_removed_manually(self):
-        """Kayit elle silindiyse ayar dosyasindaki tercih gecerli sayilir."""
+        """If the registry entry was deleted by hand, the preference in the
+        settings file is treated as valid."""
         self.store.set(SETTING_AUTOSTART, True)
         with mock.patch.object(self.controller, "_read_registry", return_value=None):
             self.assertTrue(self.controller.is_enabled())
@@ -131,7 +132,7 @@ class TrayOptionTests(unittest.TestCase):
         self.assertFalse(self.tray.is_enabled())
 
     def test_should_minimize_requires_tray_available(self):
-        """Tepsi simgesi yoksa kucultme uygulanamaz."""
+        """Tray icon missing means minimize cannot be applied."""
         self.tray.set_enabled(True)
         self.assertFalse(self.tray.should_minimize(tray_available=False))
         self.assertTrue(self.tray.should_minimize(tray_available=True))
@@ -147,18 +148,18 @@ class TrayOptionTests(unittest.TestCase):
 
 class ModuleContractTests(unittest.TestCase):
     def test_shared_setting_keys_are_stable(self):
-        """Bu anahtar isimleri projeler arasi sozlesmedir; degistirilemez."""
+        """These key names are a cross-project contract; they cannot change."""
         self.assertEqual(SETTING_AUTOSTART, "AUTOSTART_ENABLED")
         self.assertEqual(SETTING_MINIMIZE_TO_TRAY, "MINIMIZE_TO_TRAY")
 
     def test_run_key_is_user_scope(self):
-        """Yonetici yetkisi gerektirmemeli: HKCU kullanilir."""
+        """Must not require admin rights: HKCU is used."""
         self.assertIn("HKEY_CURRENT_USER", app_options.RUN_KEY + "HKEY_CURRENT_USER"
                       if False else "HKEY_CURRENT_USER")
         self.assertNotIn("HKEY_LOCAL_MACHINE", app_options.RUN_KEY)
 
     def test_module_has_no_hard_dependency_on_qt(self):
-        """PyQt6 yoksa da import edilebilmeli."""
+        """Must be importable even when PyQt6 is absent."""
         import importlib
         module = importlib.reload(app_options)
         self.assertTrue(hasattr(module, "AutostartController"))

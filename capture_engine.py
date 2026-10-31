@@ -58,8 +58,9 @@ _ip_byte_counter: dict[str, int] = {}
 _ip_notified: dict[str, bool] = {}
 _counter_lock = threading.Lock()
 _COUNTER_RESET_SECONDS = 60
-# HIGH_TRAFFIC eşiği paket yolunda diskten okunmaz; kısa ömürlü önbellek
-# kullanılır. TTL dolmadan ayar değişirse en geç 60 sn içinde görülür.
+# The HIGH_TRAFFIC threshold is not read from disk on the packet path; a
+# short-lived cache is used. A setting changed before the TTL expires is seen
+# within 60 s at the latest.
 _THRESHOLD_CACHE_SECONDS = 60
 _DEFAULT_THRESHOLD_BYTES = 50 * 1024 * 1024
 _threshold_cache: dict[str, float] = {"value": _DEFAULT_THRESHOLD_BYTES, "at": 0.0}

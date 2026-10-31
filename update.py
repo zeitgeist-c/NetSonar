@@ -45,7 +45,7 @@ INSTALL_DIR = Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "NetSo
 APP_EXE_NAME = "NetSonar.exe"
 INSTALLER_TIMEOUT_SECONDS = 900
 # Windows'un kendi timeout komutu. Git-Bash/MSYS kurulu sistemlerde PATH'te
-# GNU "timeout" araci onceliklidir ve "/t 1" parametresini hata verir;
+# GNU "timeout" takes precedence and rejects the "/t 1" parameter;
 # mutlak yol kullanmak bu cakismayi ortadan kaldirir.
 WINDOWS_TIMEOUT = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32" / "timeout.exe"
 
@@ -76,12 +76,12 @@ VERSION_PATTERN = re.compile(r"^\d{1,6}\.\d{1,6}\.\d{1,6}$")
 
 
 def clean_version(text: str) -> str:
-    """Sürümü yol/dosya adı olarak güvenli biçime indirger.
+    """Reduce a version to a safe form usable as a path/file name.
 
-    `parse_version` etiketin içinden sayıları çeker; ``1.2.3/../../evil`` gibi
-    bir etiket de eşleşir ve ham hâliyle `installer_asset_name`'e girerse
-    indirme yolu önbellek klasörünün dışına çıkar. Bu yüzden sürüm yalnız
-    ``X.Y.Z`` biçiminde kabul edilir.
+    `parse_version` pulls numbers out of the tag; a tag such as
+    ``1.2.3/../../evil`` matches too, and if it reaches `installer_asset_name`
+    raw the download path escapes the cache folder. So the version is only
+    accepted in ``X.Y.Z`` form.
     """
     value = str(text or "").strip()
     if value.startswith("v"):
@@ -234,11 +234,11 @@ def is_installed() -> bool:
 
 
 def installed_version() -> str:
-    """Kurulu sürümü dosyadan okur (kurulum sonrası doğrulama için).
+    """Read the installed version from the file (for post-install verification).
 
-    Uygulamanın kendi bildirdiği sürüm ile diskteki sürüm ayrışabilir:
-    kurulum yarım kalmışsa exe eski kalır. Bu yüzden gerçek doğrulama
-    exe'nin kendisinden yapılır, bellekten okunan sürümden değil.
+    The version the application reports and the version on disk can diverge:
+    if the install was interrupted the exe stays old. So the real check reads
+    the exe itself, not the version cached in memory.
     """
     if not getattr(sys, "frozen", False):
         from config import get_app_version
@@ -253,7 +253,7 @@ def installed_version() -> str:
         buffer = ctypes.create_string_buffer(size.value)
         if not ctypes.windll.version.GetFileVersionInfoW(str(exe), 0, size.value, buffer):
             return ""
-        # VS_FIXEDFILEINFO yapısının içinde FileVersion (MS+LS) alanı var.
+        # The VS_FIXEDFILEINFO structure holds the FileVersion (MS+LS) fields.
         address = ctypes.c_void_p()
         length = ctypes.c_uint()
         ok = ctypes.windll.version.VerQueryValueW(
@@ -305,15 +305,15 @@ def run_installer_and_wait(installer: Path,
 
 def install_outcome(installer: Path, previous_version: str,
                      timeout: float = INSTALLER_TIMEOUT_SECONDS) -> dict:
-    """Kurulumu çalıştırır ve sonucunu doğrular.
+    """Run the installer and verify the result.
 
-    Kurulum bitince diskteki sürüm okunur:
-      - sürüm yükseldiyse  → başarılı
-      - sürüm aynıysa     → kurulum çalışmadı (dosya kilitliydi gibi)
-      - sürüm okunamadıysa → bilinmiyor
+    When the install finishes, the version on disk is read:
+      - version increased  -> success
+      - version unchanged  -> the install did not run (file was locked, say)
+      - version unreadable -> unknown
 
-    `installer` sessizce çalıştırılır; çağıran bu sırada programı
-    kapatmış olmalıdır.
+    `installer` runs silently; the caller must have closed the program by
+    then.
     """
     code = run_installer_and_wait(installer, timeout=timeout)
     current = installed_version()
@@ -325,7 +325,7 @@ def install_outcome(installer: Path, previous_version: str,
         "succeeded": False,
     }
     if not current:
-        # Sürüm okunamadı: exe değiştiyse en azından bir şey oldu demektir.
+        # Version unreadable: if the exe changed, at least something happened.
         result["succeeded"] = code == 0
         return result
     try:
@@ -393,29 +393,29 @@ def cleanup_old_installers(keep: Path | None = None) -> int:
 
 
 def write_install_baton(installer: Path, old_pid: int) -> Path:
-    """Kurulum için bekleyen betik: program kapanınca installer'ı çalıştırır.
+    """Run the pending install script: starts the installer once the program exits.
 
-    Sıra kritik: installer çalışan exe'nin dosyalarını değiştiremez
-    ("Access denied"). Bu yüzden önce program kapanır, betik PID'in düşmesini
-    bekler, sonra installer'ı sessizce başlatır.
+    Order matters: the installer cannot replace the files of a running exe
+    ("Access denied"). So the program exits first, the script waits for the
+    PID to disappear, then starts the installer silently.
 
-    PID kontrolü PowerShell ile yapılır: `tasklist /FI "PID eq X"` filtresi
-    bazı Windows sürümlerinde uygulanmaz (yanlış PID'yi "bulur" veya hiç
-    bulmaz), bu yüzden güvenilir olmayan yöntem kullanılmaz.
+    The PID check uses PowerShell: the `tasklist /FI "PID eq X"` filter is not
+    applied on some Windows builds (it "finds" the wrong PID or none at all),
+    so that unreliable method is not used.
 
-    Bekleme aracı Windows'un kendi "timeout" komutudur ve mutlak yolla
-    çağrılır: Git-Bash/MSYS kurulu sistemlerde "timeout" GNU aracına
-    çözünür ve "/t 1" parametresini hata verir (döngü hiç bitmez).
+    The wait tool is Windows' own "timeout" command, called by absolute path:
+    on systems with Git-Bash/MSYS "timeout" resolves to the GNU tool, which
+    rejects the "/t 1" parameter (the loop never ends).
 
-    Kurulum bittikten sonra program yeniden başlatılır; eski exe yerinde
-    durduğu için aynı yol geçerlidir. Kaynak kod modunda yeniden başlatma
-    yapılmaz (orada zaten program Python yorumlayıcısıdır).
+    After the install the program is restarted; the same path still applies
+    because the exe stayed in place. Source mode is not restarted (there the
+    program is the Python interpreter anyway).
 
-    Kodlama: betik konsolun OEM kod sayfasıyla yazılır (bu makinede cp857).
-    Sabit ASCII kodlama Türkçe kullanıcı adlarında (C:\\Users\\Şükrü\\...)
-    UnicodeEncodeError verip güncellemeyi tamamen durduruyordu; UTF-8 ise
-    cmd.exe tarafından yanlış okunur. OEM kod sayfası ikisini de çözer,
-    sığmayan karakter için 8.3 kısa yol kullanılır.
+    Encoding: the script is written in the console OEM code page (cp857 on
+    this machine). Fixed ASCII encoding raised UnicodeEncodeError on Turkish
+    user names (C:\\Users\\Şükrü\\...) and stopped the update entirely; UTF-8
+    is mis-read by cmd.exe. The OEM code page solves both, and characters it
+    cannot represent fall back to the 8.3 short path.
     """
     script = installer.parent / "netsonar-install.bat"
     restart = ""
@@ -432,9 +432,9 @@ def write_install_baton(installer: Path, old_pid: int) -> Path:
         "{ exit 0 } else { exit 1 }\"\r\n"
         "if not errorlevel 1 ("
         f'"{_ascii_safe_path(WINDOWS_TIMEOUT)}" /t 1 /nobreak >NUL & goto wait)\r\n'
-        # Installer calistirilir ve BITENE KADAR beklenir. NSIS kurulumcusu
-        # admin ister; "runas" ile baslatilir. Program zaten yonetici
-        # oldugu icin ek onay penceresi acilmaz.
+        # The installer runs and is waited on until it FINISHES. The NSIS
+        # installer requires admin and is started with "runas". The program
+        # is already elevated, so no extra consent dialog appears.
         "powershell -NoProfile -Command \""
         f"Start-Process -FilePath '{_ascii_safe_path(installer, escape_quote=True)}' "
         "-ArgumentList '/S' "
@@ -446,16 +446,16 @@ def write_install_baton(installer: Path, old_pid: int) -> Path:
 
 
 def spawn_install_baton(installer: Path, old_pid: int) -> None:
-    """Bekleyen kurulum betiğini arka planda başlatır.
+    """Start the pending install script in the background.
 
-    Program kapanır → betik PID düşünü bekler → installer çalışır → program
-    yeniden başlar. Kurulum bitmeden program açılmaz.
+    Program exits -> script waits for the PID to disappear -> installer runs ->
+    program restarts. The program does not come back before the install ends.
 
-    YETKİ: NSIS kurulumcusu "RequestExecutionLevel admin" ister. Yetkisiz bir
-    bağlamda çalıştırılırsa installer UAC'a takılır ve "start /wait" sonsuza
-    kadar bekler — kurulum sessizce hiç gerçekleşmez. Bu yüzden batondaki
-    installer, ShellExecute "runas" ile yönetici yetkisiyle başlatılır
-    (UAC onayı ister). Zaten yönetici olan bir bağlamda ek onay gelmez.
+    PRIVILEGE: the NSIS installer asks for "RequestExecutionLevel admin". Run
+    from an unelevated context it stalls on UAC and "start /wait" waits
+    forever - the install silently never happens. So the installer in the
+    batch file is started with ShellExecute "runas", i.e. elevated (UAC
+    prompts). An already elevated context gets no extra prompt.
     """
     script = write_install_baton(installer, old_pid)
     # Yalnizca DETACHED_PROCESS: CREATE_NEW_CONSOLE ile birlikte
@@ -469,19 +469,19 @@ def spawn_install_baton(installer: Path, old_pid: int) -> None:
 
 
 def run_installer_elevated(installer: Path) -> int:
-    """Installer'ı yönetici yetkisiyle çalıştırır (UAC onayı ister).
+    """Run the installer elevated (UAC prompts).
 
-    NSIS kurulumcusu yönetici gerektirir. Doğrudan Popen ile çağrılırsa
-    yetkisiz bağlamda UAC'a takılır ve kurulum hiç gerçekleşmez.
-    ShellExecute "runas" bunu çözer.
+    The NSIS installer requires administrator rights. Called directly through
+    Popen from an unelevated context it stalls on UAC and the install never
+    happens. ShellExecute "runas" solves that.
     """
     if not installer.exists():
         raise UpdateError(t("Kurulum dosyası bulunamadı."))
     import ctypes
-    # SW_HIDE: kurulum arka planda çalışır, pencere açılmaz.
+    # SW_HIDE: the install runs in the background, no window appears.
     result = ctypes.windll.shell32.ShellExecuteW(
         None, "runas", str(installer), "/S", None, 0)
-    # 32 = başarıyla başlatıldı; 5 = shell başlatılamadı; >32 = hata kodu.
+    # 32 = started successfully; 5 = shell could not start; >32 = error code.
     if result <= 32:
         raise UpdateError(t("Kurulum yetki isteği reddedildi veya başlatılamadı."))
     log.info("elevated installer started: %s (hwnd=%s)", installer, result)

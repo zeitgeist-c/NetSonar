@@ -1,4 +1,4 @@
-"""Scheduler bildirimi: gercek bulgu sayisi ve saglayici adi kullanilmali."""
+"""Scheduler notification: the real finding count and provider name must be used."""
 
 import sys
 import unittest

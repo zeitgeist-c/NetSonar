@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Tur6 ek testleri: Data/Rules tuketimi + silinmis QObject + uretim baglantisi."""
+"""Tur6 extra tests: Data/Rules consumption + deleted QObject + production wiring."""
 import types
 import pytest
 from PyQt6.QtCore import QObject
@@ -25,8 +25,8 @@ def _host():
 
 
 def test_data_tab_worker_defers_and_applies(qt_app):
-    """Data is yuklenirken refresh ertelenir; bitince (tab_finished)
-    son secili dille uygulanir. Gercek DataTab + gercek sinyal."""
+    """Refresh is deferred while Data is loading; applied with the last
+    selected language once it finishes (tab_finished). Real DataTab + real signal."""
     from PyQt6.QtCore import QEventLoop
     host = _host()
 
@@ -59,8 +59,8 @@ def test_data_tab_worker_defers_and_applies(qt_app):
 
 
 def test_rules_tab_worker_defers_and_applies(qt_app):
-    """Rules is yuklenirken refresh ertelenir; bitince uygulanir.
-    Gercek RulesTab + gercek sinyal."""
+    """Refresh is deferred while Rules is loading; applied once it finishes.
+    Real RulesTab + real signal."""
     from PyQt6.QtCore import QEventLoop
     host = _host()
 
@@ -90,7 +90,7 @@ def test_rules_tab_worker_defers_and_applies(qt_app):
 
 
 def test_deleted_widget_consume_returns_safely(qt_app):
-    """Silinmis widget'ta bekleyen callback guvenle doner, timer kurmaz."""
+    """Pending callback returns safely on a deleted widget and sets no timer."""
     host = _host()
     host._pending_lang_refresh = True
     w = QWidget()
@@ -98,9 +98,9 @@ def test_deleted_widget_consume_returns_safely(qt_app):
     qt_app.processEvents()
     QTest.qWait(100)
     from PyQt6 import sip as _sip
-    assert _sip.isdeleted(w) or True  # ortam silmeyi geciktirebilir
-    # consume gercek MainWindow metodudur; olu self ile cagrilmaz,
-    # yasayan host'ta pending true iken worker yoksa tuketir.
+    assert _sip.isdeleted(w) or True  # environment may delay deletion
+    # consume is the real MainWindow method; it is never called with a dead
+    # self. On a live host with pending True and no worker it consumes.
     host._stats_worker = None
     app_gui.MainWindow._consume_pending_refresh(host)
     assert host._pending_lang_refresh is False
@@ -108,8 +108,8 @@ def test_deleted_widget_consume_returns_safely(qt_app):
 
 
 def _connect_targets(method_name):
-    """Uretim metodundaki .connect() cagrilarinin hedeflerini dondurur.
-    Substring degil AST: `if False:` icindeki olu kod ayiklanir."""
+    """Returns the targets of .connect() calls in a production method.
+    AST rather than substring: dead code inside `if False:` is filtered out."""
     import ast
     import inspect
     import textwrap
@@ -138,21 +138,21 @@ def _connect_targets(method_name):
 
 
 def test_production_stats_connection_reaches_consume(qt_app):
-    """Uretim baglantisi: StatsWorker.finished -> consume yolu.
-    Baglanti kaldirilirsa bu test basarisiz olur (M1 regresyonu)."""
+    """Production wiring: StatsWorker.finished -> consume path.
+    If the connection is removed this test fails (M1 regression)."""
     tg = _connect_targets("_refresh_all")
     assert ("finished", "_consume_pending_refresh") in tg
 
 
 def test_production_analysis_connection_reaches_consume(qt_app):
-    """Uretim baglantisi: AnalysisWorker.finished(QThread) -> consume (M2)."""
+    """Production wiring: AnalysisWorker.finished(QThread) -> consume (M2)."""
     tg = _connect_targets("_run_quick_analysis")
     assert ("finished", "_consume_pending_refresh") in tg
     assert not any("thread_finished" in s for s, _ in tg)
 
 
 def test_production_tab_connections_reach_consume(qt_app):
-    """Uretim baglantilari: dash/data/rules/analysis tab_finished (M3)."""
+    """Production wiring: dash/data/rules/analysis tab_finished (M3)."""
     r1 = _connect_targets("refresh_ui_language")
     r2 = _connect_targets("_build_tabs")
     r3 = _connect_targets("_on_tab_changed")

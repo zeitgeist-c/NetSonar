@@ -1,10 +1,10 @@
 """
-NetSonar — Windows Otomatik Başlatma
-Bilgisayar açılınca NetSonar'yı otomatik başlatır.
+NetSonar - Windows autostart
+Starts NetSonar automatically when the computer boots.
 
-İş mantığı ortak modülde: app_options.AutostartController.
-Bu dosya NetSonar'a özel komutu (exe yolu) tanımlar ve eski fonksiyon
-adlarını korur.
+The business logic lives in the shared module: app_options.AutostartController.
+This file defines the NetSonar-specific command (exe path) and keeps the old
+function names.
 """
 
 from i18n import t
@@ -12,7 +12,7 @@ import logging
 import os
 import sys
 
-from app_options import (  # noqa: F401  (yeniden dışa aktarım)
+from app_options import (  # noqa: F401  (re-export)
     SETTING_AUTOSTART,
     AutostartController,
 )
@@ -23,10 +23,11 @@ APP_NAME = "NetSonar"
 
 
 def _default_command() -> str:
-    """Otomatik başlatma komutu.
+    """Autostart command.
 
-    Kurulu sürüm sabit yerde durur (C:\\Program Files\\NetSonar\\NetSonar.exe),
-    bu yüzden güncellemede komut değişmez — sürüm adı exe adında yok.
+    The installed build has a fixed location (C:\\Program Files\\NetSonar\\NetSonar.exe),
+    so the command does not change on update - the version is not part of the
+    exe name.
     """
     if getattr(sys, 'frozen', False):
         return f'"{sys.executable}"'
@@ -39,22 +40,22 @@ REG_VALUE = _default_command()
 
 
 def _controller() -> AutostartController:
-    """NetSonar'a özel otomatik başlatma denetleyicisi."""
+    """Autostart controller specific to NetSonar."""
     return AutostartController(app_name=APP_NAME, exe_path=_default_command())
 
 
 def is_autostart_enabled() -> bool:
-    """Otomatik başlatma etkin mi?"""
+    """Is autostart enabled?"""
     return _controller().is_enabled()
 
 
 def enable_autostart() -> bool:
-    """Otomatik başlatmayı etkinleştir."""
+    """Enable autostart."""
     return _controller().set_enabled(True)
 
 
 def disable_autostart() -> bool:
-    """Otomatik başlatmayı devre dışı bırak."""
+    """Disable autostart."""
     return _controller().set_enabled(False)
 
 

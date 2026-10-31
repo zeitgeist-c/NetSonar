@@ -82,15 +82,15 @@ def _gemini_error_message(status_code: int, body: str) -> str:
         detail = body.strip()
     if status_code == 429:
         if "free_tier" in detail.lower() or "quota" in detail.lower():
-            return ("Gemini kotasi doldu (HTTP 429). API anahtari gecerli, ancak "
-                    "Google hesabi/model kotasi analizi reddetti. Kota yenilenince "
-                    "bekleyen veriler yeniden denenecek.")
-        return "Gemini istek siniri asildi (HTTP 429); analiz daha sonra yeniden denenecek."
+            return t("Gemini kotasi doldu (HTTP 429). API anahtari gecerli, ancak "
+                     "Google hesabi/model kotasi analizi reddetti. Kota yenilenince "
+                     "bekleyen veriler yeniden denenecek.")
+        return t("Gemini istek siniri asildi (HTTP 429); analiz daha sonra yeniden denenecek.")
     if status_code == 403:
-        return ("Gemini erisimi reddetti (HTTP 403). Anahtarin Gemini API yetkisini, "
-                "proje kisitlarini ve faturalandirmayi kontrol edin.")
+        return t("Gemini erisimi reddetti (HTTP 403). Anahtarin Gemini API yetkisini, "
+                 "proje kisitlarini ve faturalandirmayi kontrol edin.")
     if status_code == 503:
-        return "Gemini servisi gecici olarak kullanilamiyor (HTTP 503); analiz yeniden denenecek."
+        return t("Gemini servisi gecici olarak kullanilamiyor (HTTP 503); analiz yeniden denenecek.")
     return f"Gemini HTTP {status_code}: {detail[:300]}"
 
 
@@ -208,8 +208,8 @@ def _analyze_gemini(user_msg: str) -> dict:
         if response.status_code == 400:
             if "api_key_invalid" in body.lower() or "api key not valid" in body.lower():
                 _mark_gemini_key_cooldown(api_key, 400)
-                last_error = ("Gemini API anahtari gecersiz veya bu proje icin yetkisiz. "
-                              "Siradaki anahtar deneniyor.")
+                last_error = t("Gemini API anahtari gecersiz veya bu proje icin yetkisiz. "
+                               "Siradaki anahtar deneniyor.")
                 continue
             raise ValueError(f"Gecersiz Gemini istegi: {_gemini_error_message(400, body)}")
         raise ValueError(_gemini_error_message(response.status_code, body))

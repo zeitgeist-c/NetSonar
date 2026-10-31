@@ -32,7 +32,7 @@ class FlowAccumulator:
         with self._lock:
             pending, self._buckets = self._buckets, {}
         try:
-            # Tüm bucket'lar tek transaction'da yazılır (bucket başına commit ~85x yavaştı).
+            # All buckets are written in one transaction (per-bucket commit was ~85x slower).
             for bucket in pending.values():
                 self.db.upsert_flow_bucket(bucket, commit=False)
             self.db.flush()

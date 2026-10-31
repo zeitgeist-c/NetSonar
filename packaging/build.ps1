@@ -7,7 +7,7 @@ $PackagingDir = $PSScriptRoot
 $ProjectRoot = Split-Path -Parent $PackagingDir
 $ConfigText = Get-Content -LiteralPath (Join-Path $ProjectRoot "config.py") -Raw
 $VersionMatch = [regex]::Match($ConfigText, '(?m)^APP_VERSION\s*=\s*"v(?<version>\d+\.\d+\.\d+)"')
-if (-not $VersionMatch.Success) { throw "config.py icinde APP_VERSION bulunamadi." }
+if (-not $VersionMatch.Success) { throw "APP_VERSION not found in config.py." }
 $Version = $VersionMatch.Groups["version"].Value
 $VersionedStem = "NetSonar-$Version"
 $BuildVenv = Join-Path $PackagingDir ".build-venv"
@@ -24,11 +24,11 @@ if (-not $PythonPath) {
     else { $PythonPath = (Get-Command python -ErrorAction Stop).Source }
 }
 if (-not (Test-Path -LiteralPath $BuildPython)) {
-    Write-Host "Paketleme ortami olusturuluyor..."
+    Write-Host "Creating packaging environment..."
     & $PythonPath -m venv $BuildVenv
 }
 if (-not $SkipDependencyInstall) {
-    Write-Host "Sabitlenmis paketleme bagimliliklari kuruluyor..."
+    Write-Host "Installing pinned packaging dependencies..."
     & $BuildPython -m pip install --disable-pip-version-check --upgrade pip
     & $BuildPython -m pip install --disable-pip-version-check -r (Join-Path $PackagingDir "requirements-build.txt")
 }
@@ -36,7 +36,7 @@ foreach ($path in @($BuildDir, $AppDistDir)) {
     $resolvedPackaging = [IO.Path]::GetFullPath($PackagingDir)
     $resolvedPath = [IO.Path]::GetFullPath($path)
     if (-not $resolvedPath.StartsWith($resolvedPackaging, [StringComparison]::OrdinalIgnoreCase)) {
-        throw "Guvenli olmayan temizleme yolu: $resolvedPath"
+        throw "Unsafe cleanup path: $resolvedPath"
     }
     if (Test-Path -LiteralPath $resolvedPath) { Remove-Item -LiteralPath $resolvedPath -Recurse -Force }
 }
@@ -45,33 +45,33 @@ Get-ChildItem -LiteralPath $ReleaseDir -File | Where-Object {
     $_.Name -match '^NetSonar-(v\d+\.\d+\.\d+(-Setup)?|\d+\.\d+\.\d+)\.(exe|bat)$'
 } | Remove-Item -Force
 
-Write-Host "Klasorlu (onedir) surum paketleniyor..."
+Write-Host "Building the folder (onedir) release..."
 $PyInstallerArgs = @("-m", "PyInstaller", "--noconfirm", "--clean", "--workpath", $BuildDir, "--distpath", $AppDistDir, (Join-Path $PackagingDir "NetSonar.spec"))
 & $BuildPython @PyInstallerArgs
-if ($LASTEXITCODE -ne 0) { throw "PyInstaller derlemesi basarisiz oldu." }
+if ($LASTEXITCODE -ne 0) { throw "PyInstaller build failed." }
 
 $BuiltDir = Join-Path $AppDistDir "NetSonar"
 $BuiltExe = Join-Path $BuiltDir "NetSonar.exe"
-if (-not (Test-Path -LiteralPath $BuiltExe)) { throw "EXE uretilmedi: $BuiltExe" }
+if (-not (Test-Path -LiteralPath $BuiltExe)) { throw "EXE was not produced: $BuiltExe" }
 
 $ForbiddenFiles = Get-ChildItem -LiteralPath $AppDistDir -Recurse -File | Where-Object {
     $_.Extension -in @(".py", ".db", ".log") -or $_.Name -eq "settings.json"
 }
 if ($ForbiddenFiles) {
     $Names = ($ForbiddenFiles.FullName -join [Environment]::NewLine)
-    throw ("Paketlenmemesi gereken dosyalar bulundu:" + [Environment]::NewLine + $Names)
+    throw ("Files that must not be packaged were found:" + [Environment]::NewLine + $Names)
 }
 
 if (-not $SkipInstaller) {
     if (-not (Test-Path -LiteralPath $Makensis)) {
-        throw "NSIS bulunamadi: $Makensis"
+        throw "NSIS not found: $Makensis"
     }
-    Write-Host "Kurulumcu paketleniyor..."
+    Write-Host "Building the installer..."
     & $Makensis "/DAPP_VERSION=$Version" (Join-Path $PackagingDir "NetSonar.nsi")
-    if ($LASTEXITCODE -ne 0) { throw "NSIS kurulumcu derlemesi basarisiz oldu." }
-    if (-not (Test-Path -LiteralPath $Installer)) { throw "Kurulumcu uretilmedi: $Installer" }
+    if ($LASTEXITCODE -ne 0) { throw "NSIS installer build failed." }
+    if (-not (Test-Path -LiteralPath $Installer)) { throw "Installer was not produced: $Installer" }
     $InstallerHash = (Get-FileHash -LiteralPath $Installer -Algorithm SHA256).Hash.ToLower()
-    Write-Host "Kurulumcu hazir: $Installer"
+    Write-Host "Installer ready: $Installer"
     Write-Host "SHA256: $InstallerHash"
 }
 
@@ -80,4 +80,4 @@ foreach ($temporaryPath in @($BuildDir, $AppDistDir)) {
         Remove-Item -LiteralPath $temporaryPath -Recurse -Force
     }
 }
-Write-Host "Klasorlu surum hazir: $BuiltExe"
+Write-Host "Folder release ready: $BuiltExe"

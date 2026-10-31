@@ -174,7 +174,7 @@ class AppButtonContractTests(QtSmokeTestCase):
             for variant in ("primary", "secondary", "ghost", "success", "danger"):
                 for size in ("sm", "md", "lg"):
                     with self.subTest(variant=variant, size=size):
-                        button = AppButton("Eylem", variant=variant, size=size, parent=host)
+                        button = AppButton("Action", variant=variant, size=size, parent=host)
                         self.assertEqual(variant, button.property("variant"))
                         # QWidget already owns a QSize-valued ``size`` Qt
                         # property, so the component's public Python property
@@ -189,7 +189,7 @@ class AppButtonContractTests(QtSmokeTestCase):
     def test_focus_checkable_and_busy_contract(self):
         host = QWidget()
         button = AppButton(
-            "Analizi Başlat",
+            "Start Analysis",
             variant="primary",
             size="lg",
             checkable=True,
@@ -218,7 +218,7 @@ class AppButtonContractTests(QtSmokeTestCase):
             self.assertFalse(button.is_busy())
             self.assertEqual("false", str(button.property("busy")).lower())
             self.assertTrue(button.isEnabled())
-            self.assertEqual("Analizi Başlat", button.text())
+            self.assertEqual("Start Analysis", button.text())
 
             button.setEnabled(False)
             button.set_busy(True)

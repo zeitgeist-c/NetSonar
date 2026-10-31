@@ -1,14 +1,29 @@
-"""NetSonar 13 dil sözleşmesi: TR anahtarlı sözlük, EN default.
+"""NetSonar 13-language contract: Turkish-keyed dictionary, English default.
 
-Mevcut UI metinleri Türkçe yazıldığından anahtar olarak orijinal Türkçe
-metin kullanılır; İngilizce dahil 12 dil TABLES'ta çevrilir.
-- Yeni kurulumda varsayılan İngilizce; OS dili ezmez.
-- Kayıtlı açık tercih (settings.json LANGUAGE) korunur.
-- Bilinmeyen kod emergingilizce'ye düşer (release kapısında eksik = kırmızı).
+Existing UI texts were written in Turkish, so the original Turkish text is
+used as the key; all 12 other languages (including English) are translated
+in TABLES.
+- Fresh installs default to English; the OS locale does not override it.
+- A saved explicit choice (settings.json LANGUAGE) is preserved.
+- Unknown codes fall back to English (missing = red at the release gate).
 """
 
-import json
 import os
+
+from i18n_strings_tables import (
+    DE1, DE2, DE3, DE4,
+    EN, EN_EXTRA,
+    ES1, ES2, ES3, ES4,
+    FR1, FR2, FR3, FR4,
+    IT1, IT2, IT3, IT4,
+    JA1, JA2, JA3, JA4,
+    KO1, KO2, KO3, KO4,
+    NL1, NL2, NL3, NL4,
+    PB1, PB2, PB3, PB4,
+    PL1, PL2, PL3, PL4,
+    RU1, RU2, RU3, RU4,
+    ZH1, ZH2, ZH3, ZH4,
+)
 
 LANGUAGES = [
     ("en", "English"),
@@ -46,6 +61,24 @@ def language():
     return _lang
 
 
+# Analysis statuses travel as ASCII codes through the analyser, the database
+# and the notification layer; they are shown through the catalogue so no
+# internal code reaches the user in any language.
+STATUS_KEYS = {
+    "api hatasi": "API Hatası",
+    "skipped": "Atlandı",
+    "risky": "Riskli",
+    "safe": "Güvenli",
+    "unknown": "Bilinmiyor",
+}
+
+
+def status_text(status):
+    raw = str(status or "").strip()
+    key = STATUS_KEYS.get(raw.lower())
+    return t(key) if key else raw
+
+
 def t(key, _fmt=True, **kwargs):
     text = key
     table = TABLES.get(_lang)
@@ -58,42 +91,30 @@ def t(key, _fmt=True, **kwargs):
         return out
 
 
-TABLES = {}
+def _merge(*parts):
+    merged = {}
+    for part in parts:
+        merged.update(part or {})
+    return merged
 
-# Paketleme denetimi icin: yuklenemeyen katalog modulleri burada gorunur.
-# Sessiz fallback uretimde surer; testler bu listeyi bos assert eder.
+
+TABLES = {
+    "en": _merge(EN, EN_EXTRA),
+    "tr": {},
+    "de": _merge(DE1, DE2, DE3, DE4),
+    "es": _merge(ES1, ES2, ES3, ES4),
+    "fr": _merge(FR1, FR2, FR3, FR4),
+    "it": _merge(IT1, IT2, IT3, IT4),
+    "pt-BR": _merge(PB1, PB2, PB3, PB4),
+    "ru": _merge(RU1, RU2, RU3, RU4),
+    "pl": _merge(PL1, PL2, PL3, PL4),
+    "nl": _merge(NL1, NL2, NL3, NL4),
+    "zh-CN": _merge(ZH1, ZH2, ZH3, ZH4),
+    "ja": _merge(JA1, JA2, JA3, JA4),
+    "ko": _merge(KO1, KO2, KO3, KO4),
+}
+
+# Packaging audit hook: a catalogue module that fails to import is listed here.
+# The tables are now a static import, so a broken catalogue fails loudly at
+# import time; the list stays empty and tests still assert that.
 LOAD_ERRORS = []
-
-
-def _load():
-    global TABLES
-    if TABLES:
-        return
-    try:
-        from i18n_strings_en import EN
-        from i18n_strings_en_extra import EN_EXTRA
-        merged = dict(EN)
-        merged.update(EN_EXTRA)
-        TABLES = {"en": merged, "tr": {}}
-        for _kod, _ad in (("de", "DE"), ("es", "ES"), ("fr", "FR"),
-                             ("it", "IT"), ("pt-BR", "PB"), ("ru", "RU"),
-                             ("pl", "PL"), ("nl", "NL"), ("zh-CN", "ZH"),
-                             ("ja", "JA"), ("ko", "KO")):
-            _bir = {}
-            for _i in (1, 2, 3, 4):
-                _mod = "i18n_strings_%s%d" % (_ad.lower(), _i)
-                try:
-                    _m = __import__(_mod,
-                                     fromlist=["%s%d" % (_ad, _i)])
-                    _parca = getattr(_m, "%s%d" % (_ad, _i), None)
-                    if isinstance(_parca, dict):
-                        _bir.update(_parca)
-                except ImportError:
-                    LOAD_ERRORS.append(_mod)
-            if _bir:
-                TABLES[_kod] = _bir
-    except ImportError:
-        TABLES = {"en": {}, "tr": {}}
-
-
-_load()

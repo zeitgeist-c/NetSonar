@@ -1,6 +1,6 @@
 """
-NetSonar — Merkezi Yapılandırma
-API anahtarlarını ve uygulama ayarlarını buradan düzenle.
+NetSonar - Central configuration
+Edit API keys and application settings here.
 """
 
 import json
@@ -26,22 +26,22 @@ else:
 
 
 def app_path(*parts: str) -> str:
-    """Paketle gelen salt-okunur kaynaklar icin yol dondur."""
+    """Return the path for read-only resources shipped with the package."""
     return os.path.join(APP_DIR, *parts)
 
 
 def user_data_path(*parts: str) -> str:
-    """Ayar, veritabani, log ve raporlar icin yazilabilir yol dondur."""
+    """Return a writable path for settings, database, logs and reports."""
     return os.path.join(USER_DATA_DIR, *parts)
 
 
-# Kalici model/ek kutuphane deposu. Kurulum ve guncelleme bu klasore dokunmaz;
-# program surumu degisince indirilen icerik oldugu gibi kalir.
+# Persistent model/extra-library store. Install and update never touch this
+# folder; downloaded content survives a program version change.
 STORE_DIR = user_data_path("store")
 
 
 def install_language_file() -> str:
-    """Kurulum klasöründeki install-language.txt yolu (NSIS dil devri)."""
+    """Path to install-language.txt in the install folder (NSIS language handoff)."""
     try:
         base = os.path.dirname(os.path.abspath(sys.argv[0]))
     except Exception:
@@ -50,7 +50,7 @@ def install_language_file() -> str:
 
 
 def get_language() -> str:
-    """Kayıtlı açık UI tercihi; yoksa kurulum devri; yoksa İngilizce."""
+    """Saved explicit UI choice; else the install handoff; else English."""
     try:
         from i18n import resolve as _resolve
         code = _settings.get("LANGUAGE")
@@ -70,7 +70,7 @@ def get_language() -> str:
 
 
 def set_language(code: str) -> str:
-    """UI dil tercihini kaydet ve çözülmüş kodu döndür."""
+    """Persist the UI language choice and return the resolved code."""
     try:
         from i18n import resolve as _resolve, set_language as _set
         resolved = _resolve(code)
@@ -85,11 +85,11 @@ def set_language(code: str) -> str:
 
 
 def get_app_version() -> str:
-    """Ürün sürümünü geliştirme Git etiketinden bağımsız döndürür."""
+    """Return the product version independently of the development Git tag."""
     return APP_VERSION
 
 
-# ─── Settings Yükleme (önce dosya, sonra env) ──────────────────────
+# ─── Settings loading (file first, then env) ──────────────────────
 SETTINGS_FILE = user_data_path("config", "settings.json")
 GEMINI_MODEL_OPTIONS = {
     "gemini-3.5-flash-lite": "Gemini 3.5 Flash-Lite",
@@ -98,7 +98,7 @@ GEMINI_MODEL_OPTIONS = {
 SUPPORTED_GEMINI_MODELS = tuple(GEMINI_MODEL_OPTIONS)
 DEFAULT_GEMINI_MODEL = "gemini-3.5-flash-lite"
 GEMINI_MODEL_SELECTION_VERSION = 1
-# Eski dış kullanımlarla uyumluluk için varsayılan model takma adı.
+# Default model alias kept for compatibility with older external callers.
 GEMINI_MODEL_ID = DEFAULT_GEMINI_MODEL
 
 
@@ -154,7 +154,7 @@ def _write_settings(data: dict):
 
 
 def _normalize_model_setting(data: dict) -> tuple[dict, bool]:
-    """Model ayarını doğrula ve eski sabit 3.1 kaydını bir kez 3.5'e taşı."""
+    """Validate the model setting and migrate the old pinned 3.1 entry to 3.5 once."""
     normalized = dict(data)
     changed = False
 
@@ -169,7 +169,7 @@ def _normalize_model_setting(data: dict) -> tuple[dict, bool]:
     return normalized, changed
 
 def load_settings():
-    """Kullanıcı ayarlarını dosyadan yükle."""
+    """Load user settings from disk."""
     if not os.path.exists(SETTINGS_FILE):
         return _default_settings()
 
@@ -177,7 +177,7 @@ def load_settings():
         with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
         if not isinstance(data, dict):
-            raise ValueError("Ayar dosyasının kök değeri nesne olmalı")
+            raise ValueError("Settings file root value must be an object")
     except Exception:
         log.warning("Settings file unreadable; using defaults: %s", SETTINGS_FILE)
         return _default_settings()
@@ -221,13 +221,13 @@ def load_settings():
         try:
             _write_settings(data)
         except OSError:
-            # Salt-okunur bir ayar dosyası API key gibi diğer değerleri geçersiz kılmamalı.
+            # A read-only settings file must not override other values such as the API key.
             pass
     return data
 
 
 def save_settings(data: dict):
-    """Kullanıcı ayarlarını dosyaya kaydet."""
+    """Save user settings to disk."""
     normalized = validate_settings(dict(data), _default_settings())
     if normalized.get("GEMINI_MODEL") not in SUPPORTED_GEMINI_MODELS:
         normalized["GEMINI_MODEL"] = DEFAULT_GEMINI_MODEL
@@ -258,7 +258,7 @@ def split_api_keys(value) -> list[str]:
     """API key listesini settings/env kaynaklarindan normalize et (public alias)."""
     return _split_api_keys(value)
 
-# ─── AI Sağlayıcı Seçimi ────────────────────────────────────────────
+# ─── AI provider selection ──────────────────────────────────────────
 AI_PROVIDER = "gemini"
 
 # ─── Google Gemini ───────────────────────────────────────────────────
@@ -288,11 +288,11 @@ TAVILY_API_KEYS = (
 )
 TAVILY_API_KEY = TAVILY_API_KEYS[0] if TAVILY_API_KEYS else ""
 
-# ─── Zamanlayıcı ────────────────────────────────────────────────────
-# Her kaç dakikada bir AI analizi yapılsın?
+# ─── Scheduler ──────────────────────────────────────────────────────
+# How often, in minutes, the AI analysis runs?
 ANALYSIS_INTERVAL_MINUTES = int(_settings.get("ANALYSIS_INTERVAL_MINUTES", 60))
 
-# Şüpheli bağlantı tespiti için minimum byte eşiği
+# Minimum byte threshold for suspicious-connection detection
 SUSPICIOUS_BYTES_THRESHOLD = int(
     _settings.get("HIGH_TRAFFIC_THRESHOLD_BYTES", 50 * 1024 * 1024)
 )
@@ -300,15 +300,15 @@ SUSPICIOUS_BYTES_THRESHOLD = int(
 # ─── Bilinen Tehlikeli Portlar ───────────────────────────────────────
 SUSPICIOUS_PORTS = {4444, 1337, 31337, 5555, 6666, 6667, 8888, 9999}
 
-# ─── Veritabanı ─────────────────────────────────────────────────────
+# ─── Database ───────────────────────────────────────────────────────
 DB_PATH = user_data_path("netsonar_data", "connections.db")
-DB_RETENTION_HOURS = 2                     # Kaç saatlik ham veri saklansın? 0 = sınırsız
-DB_CLEANUP_INTERVAL_HOURS = 1              # Temizlik kaç saatte bir yapılsın?
+DB_RETENTION_HOURS = 2                     # Hours of raw data to keep; 0 = unlimited
+DB_CLEANUP_INTERVAL_HOURS = 1              # How often cleanup runs, in hours
 
 # ─── AI Limitleri ────────────────────────────────────────────────────
-# Not: Veri kaybını önlemek için yüksek tutuluyor. Sorgu zaten en önemli
-# verileri (şüpheli port, yüksek trafik) öncelikli olarak alıyor.
-MAX_CONNECTIONS_TO_ANALYZE = 200           # AI'a gönderilecek max bağlantı sayısı
+# Note: kept high to avoid data loss. The query already fetches the most
+# important rows first (suspicious port, high traffic).
+MAX_CONNECTIONS_TO_ANALYZE = 200           # Max connections sent to the AI
 VIRUSTOTAL_MAX_LOOKUPS_PER_RUN = 4
 VIRUSTOTAL_DAILY_SOFT_LIMIT = 480
 VIRUSTOTAL_MAX_ANALYSIS_AGE_DAYS = 30
@@ -323,22 +323,22 @@ SUSPICIOUS_PROCESSES = {
 }
 
 # ─── Bildirim Filtresi ───────────────────────────────────────────────
-# True: sadece AI rapor bildirimleri gönderilir (önerilen)
-# False: tüm anlık uyarılar (port, trafik vb.) da bildirim gönderir
+# True: only AI report notifications are sent (recommended)
+# False: all instant alerts (port, traffic, etc.) also send a notification
 NOTIFY_REPORTS_ONLY = True
 
 # ─── Otomatik Engelleme ─────────────────────────────────────────────
-# True: AI "Hemen engelle" dediğinde kullanıcı onayı istemeden firewall'a ekle
-# False: Kullanıcıya sor (GUI'de buton göster)
+# True: when the AI says "block now", add to the firewall without asking
+# False: ask the user (show a button in the GUI)
 AUTO_BLOCK_ENABLED = bool(_settings.get("AUTO_BLOCK_ENABLED", False))
 
-# Otomatik engelleme için minimum risk skoru (0-10)
-# Sadece bu skurun üzerindeki öneriler otomatik engellenir
+# Minimum risk score for auto-blocking (0-10)
+# Only suggestions above this score are blocked automatically
 AUTO_BLOCK_MIN_RISK_SCORE = float(_settings.get("AUTO_BLOCK_MIN_RISK_SCORE", 7.0))
 
 # ─── Sistem ─────────────────────────────────────────────────────────────
-# True: Kapatınca sistem tepsisine küçült
-# False: Kapatınca tamamen çık
+# True: closing the window minimizes to the system tray
+# False: closing the window quits for real
 MINIMIZE_TO_TRAY = True
 
 # ─── AI Prompt ─────────────────────────────────────────────────────────
@@ -636,7 +636,7 @@ PROMPT_FILE = user_data_path("config", "ai_prompt.txt")
 DEFAULT_PROMPT_FILE = app_path("config", "ai_prompt.txt")
 
 def get_ai_prompt():
-    """AI prompt'u dosyadan yükle, yoksa varsayılanı kullan."""
+    """Load the AI prompt from disk, falling back to the built-in default."""
     for prompt_file in (PROMPT_FILE, DEFAULT_PROMPT_FILE):
         if not os.path.exists(prompt_file):
             continue

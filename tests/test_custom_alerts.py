@@ -1,4 +1,4 @@
-"""Custom alerts: eşleşme mantığı + kural doğrulama regresyon koruması."""
+"""Custom alerts: match logic + rule validation regression protection."""
 import unittest
 
 from custom_alerts import AlertRule
@@ -6,7 +6,7 @@ from custom_alerts import AlertRule
 
 class AlertRuleMatchTest(unittest.TestCase):
     def test_disabled_never_matches(self):
-        rule = AlertRule("kapalı", port=80, enabled=False)
+        rule = AlertRule("disabled", port=80, enabled=False)
         self.assertFalse(rule.matches("1.2.3.4", 80, "x"))
 
     def test_wildcard_ip(self):
@@ -20,7 +20,7 @@ class AlertRuleMatchTest(unittest.TestCase):
         self.assertFalse(rule.matches("1.1.1.1", 80, "powershell.exe"))
 
     def test_open_rule_matches_all(self):
-        self.assertTrue(AlertRule("açık").matches("8.8.8.8", 53, "dns"))
+        self.assertTrue(AlertRule("enabled").matches("8.8.8.8", 53, "dns"))
 
 
 class AlertRuleValidationTest(unittest.TestCase):

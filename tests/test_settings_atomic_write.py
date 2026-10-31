@@ -1,4 +1,4 @@
-"""Ayar yazımı atomik olmalı: hedef dosya ya eski ya yeni içeriği taşır, yarım JSON olmaz."""
+"""Settings writes must be atomic: the target file holds either the old or the new content, never half-written JSON."""
 import json
 import os
 import tempfile

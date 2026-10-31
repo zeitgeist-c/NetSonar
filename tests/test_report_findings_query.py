@@ -1,7 +1,7 @@
-"""Rapor geçmişi: bulgular tek sorguda gelmeli (N+1 regresyon koruması).
+"""Report history: findings must arrive in a single query (N+1 regression protection).
 
-Eski kod her rapor satırı için ayrı `SELECT ... WHERE batch_id=?` çalıştırıyordu;
-1200 raporluk geçmişte 1201 sorgu ve 175 ms ölçüldü.
+The old code ran a separate `SELECT ... WHERE batch_id=?` per report row;
+measured 1201 queries and 175 ms on a 1200-report history.
 """
 
 import json

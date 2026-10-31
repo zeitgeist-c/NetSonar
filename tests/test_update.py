@@ -1,4 +1,4 @@
-"""Güncelleme akışı: sürüm karşılaştırma, yayını okuma, indirme güvenliği, swap."""
+"""Update flow: version comparison, release parsing, download safety, swap."""
 
 import os
 import tempfile
@@ -49,7 +49,7 @@ class ReleaseParsingTests(unittest.TestCase):
             update.parse_release(payload)
 
     def test_portable_exe_asset_is_not_accepted(self):
-        """Kurulumcu kanalı: sadece -Setup.exe kabul edilir."""
+        """Installer channel: only -Setup.exe is accepted."""
         payload = dict(REAL_057, assets=[
             {"name": "NetSonar-v0.6.0.exe", "size": 10,
              "browser_download_url": "https://x/exe"},
@@ -107,7 +107,7 @@ class DownloadTests(unittest.TestCase):
 
 class InstallLayoutTests(unittest.TestCase):
     def test_install_path_targets_the_update_cache(self):
-        """Kurulum dosyasi Program Files'a degil, kullanici onbellegine iner."""
+        """The installer lands in the user cache, not in Program Files."""
         dest = update.install_path(Path("C:/tools/NetSonar.exe"), "0.6.0")
         self.assertEqual(dest.name, "NetSonar-v0.6.0-Setup.exe")
         self.assertIn("updates", str(dest).lower())
@@ -117,13 +117,13 @@ class InstallLayoutTests(unittest.TestCase):
         self.assertNotIn(str(update.INSTALL_DIR).lower(), str(dest).lower())
 
     def test_spawn_swap_is_no_longer_a_valid_flow(self):
-        """Sabit kurulum yolunda kopya-degistir akisi kaldirildi."""
+        """The copy-and-swap flow was removed for the fixed install path."""
         with self.assertRaises(update.UpdateError):
             update.spawn_swap(4242, Path("C:/tools/NetSonar-v0.6.0.exe"))
 
     def test_launch_installer_requires_an_existing_file(self):
         with self.assertRaises(update.UpdateError):
-            update.launch_installer(Path("C:/yok/NetSonar-v0.6.0-Setup.exe"))
+            update.launch_installer(Path("C:/missing/NetSonar-v0.6.0-Setup.exe"))
 
     def test_launch_installer_runs_silently(self):
         with tempfile.TemporaryDirectory() as tmp:

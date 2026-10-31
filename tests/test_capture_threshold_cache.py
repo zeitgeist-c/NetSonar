@@ -4,7 +4,7 @@ import unittest
 
 import pytest
 
-scapy = pytest.importorskip("scapy.all", reason="scapy yok (canlı yakalama çevresi)")
+scapy = pytest.importorskip("scapy.all", reason="scapy missing (live capture environment)")
 IP, TCP = scapy.IP, scapy.TCP
 
 import capture_engine

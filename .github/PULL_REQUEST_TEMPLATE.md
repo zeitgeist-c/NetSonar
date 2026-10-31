@@ -1,6 +1,6 @@
 # What changed
 
 ## How it was tested
-- [ ] `.\check.ps1` passes
+- [ ] `.venv/Scripts/python.exe -m pytest tests/ -q` passes
 
 ## Screenshots (if UI)

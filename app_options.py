@@ -1,20 +1,20 @@
-"""Ortak Windows masaüstü seçenekleri — otomatik başlatma + tepsiye küçült.
+"""Shared Windows desktop options - autostart + minimize to tray.
 
-Bu modül, Windows masaüstü uygulamalarının Ayarlar ekranında sunması
-gereken iki standart seçeneği bir arada toplar:
+This module bundles the two standard options a Windows desktop application
+should offer on its Settings screen:
 
-    1. "Windows'ta otomatik başlat"  → HKCU\\...\\Run kaydı
-    2. "Kapatılınca tepsiye küçült"    → kapanış davranışı tercihi
+    1. "Start with Windows"        -> HKCU\\...\\Run entry
+    2. "Minimize to tray on close" -> close-behaviour preference
 
-Tasarım kuralları:
-- Kütüphane bağımsız: yalnız standart kütüphane (winreg, os, sys) ve
-  isteğe bağlı PyQt6. PyQt6 yoksa yalnız iş mantığı çalışır.
-- Uygulamanın kendi ayar deposu kullanılır (callable get/set); modül
-  dosya formatı dayatmaz.
-- Kayıt yeri HKCU (kullanıcı başına) — yönetici yetkisi gerekmez, kurulum
-  gerektirmez, kullanıcı kendi tercihidir.
+Design rules:
+- Library independent: only the standard library (winreg, os, sys) and an
+  optional PyQt6. Without PyQt6 only the business logic works.
+- The application's own settings store is used (callable get/set); the module
+  imposes no file format.
+- The registry location is HKCU (per user) - no administrator rights, no
+  installer, and the choice belongs to the user.
 
-Kullanım (PyQt6 ile):
+Usage (with PyQt6):
 
     from app_options import AutostartController, TrayOption
 
@@ -23,7 +23,7 @@ Kullanım (PyQt6 ile):
         get_setting=lambda k, d=None: settings.get(k, d),
         set_setting=lambda k, v: settings.update({k: v}),
     )
-    box = QCheckBox("Windows'ta otomatik başlat")
+    box = QCheckBox("Start with Windows")
     box.setChecked(controller.is_enabled())
     box.toggled.connect(controller.set_enabled)
 """
@@ -41,15 +41,15 @@ log = logging.getLogger("AppOptions")
 
 RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
 
-# Ayar anahtarı adları — uygulamalar arasında ortak sözleşme.
+# Settings key names - the shared contract between applications.
 SETTING_AUTOSTART = "AUTOSTART_ENABLED"
 SETTING_MINIMIZE_TO_TRAY = "MINIMIZE_TO_TRAY"
 
 
-# ─── Otomatik başlatma (HKCU Run) ──────────────────────────────────
+# ─── Autostart (HKCU Run) ──────────────────────────────────────────
 
 def _winreg():
-    """winreg modülünü döndürür; Windows dışında None."""
+    """Return the winreg module; None off Windows."""
     if os.name != "nt":
         return None
     try:
@@ -61,14 +61,15 @@ def _winreg():
 
 def startup_command(exe_path: str = "", args: str = "",
                     entry_point: str = "") -> str:
-    """Otomatik başlatma komutunu kurar.
+    """Build the autostart command.
 
-    Paketlenmiş uygulama: "<exe>" (veya "<exe> <args>")
-    Kaynak kod modu: "<python> "<main.py>" (veya ek args)
+    Packaged application: "<exe>" (or "<exe> <args>")
+    Source mode: "<python> "<main.py>" (or extra args)
 
-    `entry_point` verilirse kaynak kod modunda o giriş noktası kullanılır;
-    verilmezse `main.py` bulunmaya çalışılır. Bulunamazsa boş string döner
-    (çağıran bunu "başlangıç kaydı oluşturulamadı" saymalıdır).
+    If `entry_point` is given, that entry point is used in source mode;
+    otherwise `main.py` is looked up. When it cannot be found an empty string
+    is returned (the caller must treat that as "could not create the startup
+    entry").
     """
     if getattr(sys, "frozen", False) or exe_path:
         # Paketlenmis uygulama (veya acikca verilen exe): exe yeter.
@@ -78,7 +79,7 @@ def startup_command(exe_path: str = "", args: str = "",
             command += f" {args}"
         return command
 
-    # Kaynak kod modu: yorumlayıcı + giriş noktası
+    # Source mode: interpreter + entry point
     exe = exe_path or sys.executable
     main_py = entry_point or os.path.join(
         os.path.dirname(os.path.abspath(__file__)), "main.py")
@@ -92,11 +93,12 @@ def startup_command(exe_path: str = "", args: str = "",
 
 
 class AutostartController:
-    """HKCU Run kaydını yönetir: etkin mi, aç/kapa.
+    """Manage the HKCU Run entry: is it on, turn it on/off.
 
-    Uygulamanın ayar deposuna da yazar; böylece "kapalı" tercihi hem
-    kayıt defterinde hem ayar dosyasında tutarlıdır. Kayıt defteri
-    elle silinirse bir sonraki açılışta ayardan geri yüklenir.
+    It also writes to the application's settings store, so the "off"
+    preference stays consistent between the registry and the settings file.
+    If the registry entry is deleted by hand, it is restored from the setting
+    on the next start.
     """
 
     def __init__(self, app_name: str,
@@ -113,7 +115,7 @@ class AutostartController:
     def _command(self) -> str:
         return startup_command(self._exe_path, self._args, self._entry_point)
 
-    # -- kayıt defteri ------------------------------------------------
+    # -- registry -----------------------------------------------------
     def _read_registry(self) -> Optional[str]:
         winreg = _winreg()
         if winreg is None:
@@ -169,17 +171,17 @@ class AutostartController:
 
     # -- genel API ----------------------------------------------------
     def is_enabled(self) -> bool:
-        """Otomatik başlatma açık mı?
+        """Is autostart on?
 
-        Kayıt defteri esas kaynaktır; kayıt yoksa ayar deposundaki tercihe
-        bakılır (kayıt elle silinmiş olabilir).
+        The registry is the source of truth; when the entry is missing the
+        stored preference is consulted (the entry may have been deleted).
         """
         if self._read_registry() is not None:
             return True
         return bool(self._get(SETTING_AUTOSTART, False))
 
     def set_enabled(self, enabled: bool) -> bool:
-        """Tercihi uygular ve doğrular. Başarılıysa True."""
+        """Apply and verify the preference. True on success."""
         enabled = bool(enabled)
         if enabled:
             command = self._command()
@@ -196,9 +198,9 @@ class AutostartController:
         return bool(ok and verified)
 
     def refresh(self) -> bool:
-        """Kayıt defterini mevcut komutla tazeler (kurulum/güncelleme sonrası).
+        """Refresh the registry entry with the current command (after install/update).
 
-        Tercih kapalıysa hiçbir şey yapmaz.
+        Does nothing when the preference is off.
         """
         if not self.is_enabled():
             return True
@@ -211,18 +213,18 @@ class AutostartController:
         return self._read_registry()
 
 
-# ─── Tepsiye küçültme ──────────────────────────────────────────────
+# ─── Minimize to tray ──────────────────────────────────────────────
 
 @dataclass
 class TrayOption:
-    """Kapatılınca tepsiye küçült tercihi.
+    """Minimize-to-tray-on-close preference.
 
-    Uygulamanın kapanış davranışı şu sırayı izler:
-      1. Tercih kapalıysa → uygulama gerçekten kapanır.
-      2. Tercih açıksa ve tepsi simgesi varsa → pencere gizlenir, uygulama
-         arka planda çalışmaya devam eder.
-      3. Tercih açıksa ama tepsi simgesi yoksa → kullanıcı uygulamayı
-         kaybeder; bu yüzden geri düşüş olarak uygulama kapanır.
+    The application's close behaviour follows this order:
+      1. Preference off -> the application really quits.
+      2. Preference on and a tray icon exists -> the window hides and the
+         application keeps running in the background.
+      3. Preference on but no tray icon -> the user would lose the
+         application; so the fallback is to quit.
     """
 
     get_setting: Callable[[str, object], object]
@@ -237,7 +239,7 @@ class TrayOption:
         return self.is_enabled() == enabled
 
     def should_minimize(self, tray_available: bool) -> bool:
-        """Kapatma olayında pencereyi gizlemeli miyiz?"""
+        """Should the window be hidden on a close event?"""
         return self.is_enabled() and tray_available
 
     def _get(self, key: str, default=None):
@@ -247,15 +249,15 @@ class TrayOption:
         self.set_setting(key, value)
 
 
-# ─── PyQt6 arayüz yardımcıları ─────────────────────────────────────
+# ─── PyQt6 UI helpers ──────────────────────────────────────────────
 
 def build_settings_widgets(autostart: AutostartController, tray: TrayOption,
                            parent=None):
-    """İki standart seçeneği PyQt6 onay kutuları olarak üretir.
+    """Build the two standard options as PyQt6 check boxes.
 
-    Döner: (autostart_checkbox, tray_checkbox)
+    Returns: (autostart_checkbox, tray_checkbox)
 
-    Kullanım:
+    Usage:
         ac_cb, tray_cb = build_settings_widgets(autostart, tray)
         ac_cb.toggled.connect(autostart.set_enabled)
         tray_cb.toggled.connect(tray.set_enabled)
