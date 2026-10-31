@@ -348,7 +348,6 @@ NeoCard = PremiumNeoCard
 class DashboardTab(QWidget):
     """Panel (P1 - Command Centre): data column left, live flow right."""
 
-    request_block = pyqtSignal(str)
     request_analyze = pyqtSignal()
     dash_finished = pyqtSignal()
 
@@ -1124,7 +1123,7 @@ class MainWindow(QMainWindow):
             pass
         try:
             self._status_label.setText(t("İzleme aktif"))
-            self._sb_iface.setText(t("Arayüz: -"))
+            self._refresh_statusbar()
         except AttributeError:
             pass
         # 2) If an analysis is running, leave the tabs alone (no work lost, frame current).
@@ -1224,7 +1223,6 @@ class MainWindow(QMainWindow):
             self._analysis_buttons = [b for b in self._analysis_buttons
                                       if b is not getattr(old_dash, "analyze_button", None)]
             self._dashboard_tab = DashboardTab(self.db, self.engine)
-            self._dashboard_tab.request_block.connect(self._block_ip)
             self._dashboard_tab.request_analyze.connect(self._run_quick_analysis)
             self._dashboard_tab.dash_finished.connect(self._consume_pending_refresh)
             self._register_analysis_button(self._dashboard_tab.analyze_button)
@@ -1300,7 +1298,6 @@ class MainWindow(QMainWindow):
         self._navigation.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._tabs=QStackedWidget()
         self._dashboard_tab=DashboardTab(self.db, self.engine)
-        self._dashboard_tab.request_block.connect(self._block_ip)
         self._dashboard_tab.request_analyze.connect(self._run_quick_analysis)
         self._dashboard_tab.dash_finished.connect(self._consume_pending_refresh)
         self._register_analysis_button(self._dashboard_tab.analyze_button)
@@ -1436,6 +1433,37 @@ class MainWindow(QMainWindow):
         self._page_animation = animation
         animation.start()
 
+
+    def _refresh_statusbar(self):
+        """Update the status-bar fields with live capture/scheduler/DB state."""
+        try:
+            health = self.engine.health_snapshot() if hasattr(self.engine, "health_snapshot") else None
+        except Exception:
+            health = None
+        if health is None or health.state == "stopped":
+            iface_txt = t("Arayüz: kapalı")
+        else:
+            active = [n for n, s in (health.adapters or {}).items() if s == "active"]
+            names = active or list((health.adapters or {}))
+            iface_txt = t("Arayüz: {names}", names=", ".join(names[:2])) if names else t("Arayüz: -")
+        try:
+            sched = getattr(self, "scheduler", None)
+            inner = getattr(sched, "_scheduler", None)
+            job = inner.get_job("ai_analysis") if inner is not None else None
+            nxt = getattr(job, "next_run_time", None)
+        except Exception:
+            nxt = None
+        next_txt = t("Sonraki analiz: {time}", time=nxt.strftime("%H:%M")) if nxt else t("Sonraki analiz: kapalı")
+        try:
+            size = self.db.path.stat().st_size
+            db_txt = t("DB: {size}", size=_fmt(size))
+        except Exception:
+            db_txt = t("DB: -")
+        for attr, txt in (("_sb_iface", iface_txt), ("_sb_next", next_txt), ("_sb_db", db_txt)):
+            try:
+                getattr(self, attr).setText(txt)
+            except AttributeError:
+                pass
 
     def _refresh_all(self):
         """Fetch stats in the background and update without blocking the UI."""
@@ -1588,23 +1616,6 @@ class MainWindow(QMainWindow):
         self._worker.error.connect(failed)
         self._worker.start()
 
-
-    def _block_ip(self, ip):
-        reply = QMessageBox.question(
-            self, t("IP Engelle"),
-            t("<b>{ip}</b> adresini engellemek istiyor musunuz", ip=ip),
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-        )
-        if reply != QMessageBox.StandardButton.Yes:
-            return
-        from kill_switch import block_ip
-        from notifier import notify_ip_blocked
-        ok = block_ip(ip, reason=t("Dashboard'dan engellendi"), db=self.db)
-        if ok:
-            notify_ip_blocked(ip)
-            self._refresh_all()
-        else:
-            QMessageBox.critical(self, t("Hata"), t("{ip} engellenemedi.\nYönetici yetkisi gerekli.", ip=ip))
 
     # ── System Tray ────────────────────────────────────────────────────
     def _setup_tray(self):
@@ -2009,6 +2020,10 @@ class DataTab(QWidget):
         self._filter_after_hours.setProperty("segment", "true")
         self._filter_after_hours.toggled.connect(lambda _: self._filter())
         tools.addWidget(self._filter_after_hours)
+
+        self._refresh_btn = AppButton(t("Listeyi Yenile"), icon="reset", variant="ghost", size="md")
+        self._refresh_btn.clicked.connect(self.refresh)
+        tools.addWidget(self._refresh_btn)
 
         tools.addStretch()
 
@@ -3374,8 +3389,7 @@ class SettingsTab(QWidget):
             desired_autostart = self._autostart_cb.isChecked()
             if not set_autostart(desired_autostart):
                 self._autostart_cb.setChecked(is_autostart_enabled())
-                raise RuntimeError(t("Windows otomatik başlatma ayarı uygulanamadı"))
-            s["autostart"] = desired_autostart
+                QMessageBox.warning(self, t("Uyarı"), t("Windows otomatik başlatma ayarı uygulanamadı; diğer ayarlar kaydedildi."))
 
             s["GEMINI_MODEL"] = self._model_combo.currentData()
             save_settings(s)
