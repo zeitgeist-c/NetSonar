@@ -15,7 +15,7 @@ $BuildPython = Join-Path $BuildVenv "Scripts\python.exe"
 $BuildDir = Join-Path $PackagingDir "build"
 $AppDistDir = Join-Path $PackagingDir "app-dist"
 $ReleaseDir = Join-Path $ProjectRoot "dist"
-$Installer = Join-Path $ReleaseDir "$VersionedStem.exe"
+$Installer = Join-Path $ReleaseDir "NetSonar-v$Version-Setup.exe"
 $Makensis = "C:\Program Files (x86)\NSIS\makensis.exe"
 
 if (-not $PythonPath) {
