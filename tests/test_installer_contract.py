@@ -126,7 +126,7 @@ class BuildScriptTests(unittest.TestCase):
         self.text = _read(BUILD)
 
     def test_build_produces_the_installer(self):
-        self.assertIn("$VersionedStem.exe", self.text)
+        self.assertIn("NetSonar-v$Version-Setup.exe", self.text)
         self.assertIn("makensis", self.text.lower())
 
     def test_build_passes_the_version_to_nsis(self):
