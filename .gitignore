@@ -19,3 +19,4 @@ packaging/app-dist/
 packaging/.build-venv/
 dist/*.exe
 .agents/
+dist/*.sha256
