@@ -483,7 +483,13 @@ EN_EXTRA = {
 "NETWORK SECURITY OPERATIONS": "NETWORK SECURITY OPERATIONS",
 "NORMAL": "NORMAL",
 "Riskli": "Risky",
-"   Port: {port}": "   Port: {port}",
+"   Port: {port}": "   Port: {port}","Arayüz: kapalı": "Interface: off",
+"Arayüz: {names}": "Interface: {names}",
+"Sonraki analiz: {time}": "Next analysis: {time}",
+"Sonraki analiz: kapalı": "Next analysis: off",
+"DB: {size}": "DB: {size}",
+"Windows otomatik başlatma ayarı uygulanamadı; diğer ayarlar kaydedildi.": "Windows autostart could not be applied; other settings were saved.",
+
 }
 
 # --- German / Deutsch ---
@@ -959,7 +965,13 @@ DE4 = {
 "NETWORK SECURITY OPERATIONS": "NETZWERKSICHERHEIT",
 "NORMAL": "NORMAL",
 "Riskli": "Riskant",
-"   Port: {port}": "   Port: {port}",
+"   Port: {port}": "   Port: {port}","Arayüz: kapalı": "Schnittstelle: aus",
+"Arayüz: {names}": "Schnittstelle: {names}",
+"Sonraki analiz: {time}": "Nächste Analyse: {time}",
+"Sonraki analiz: kapalı": "Nächste Analyse: aus",
+"DB: {size}": "DB: {size}",
+"Windows otomatik başlatma ayarı uygulanamadı; diğer ayarlar kaydedildi.": "Windows-Autostart konnte nicht angewendet werden; andere Einstellungen wurden gespeichert.",
+
 }
 
 # --- Spanish / Espanol ---
@@ -1435,7 +1447,13 @@ ES4 = {
 "NETWORK SECURITY OPERATIONS": "OPERACIONES DE SEGURIDAD DE RED",
 "NORMAL": "NORMAL",
 "Riskli": "Riesgoso",
-"   Port: {port}": "   Puerto: {port}",
+"   Port: {port}": "   Puerto: {port}","Arayüz: kapalı": "Interfaz: desactivada",
+"Arayüz: {names}": "Interfaz: {names}",
+"Sonraki analiz: {time}": "Próximo análisis: {time}",
+"Sonraki analiz: kapalı": "Próximo análisis: desactivado",
+"DB: {size}": "DB: {size}",
+"Windows otomatik başlatma ayarı uygulanamadı; diğer ayarlar kaydedildi.": "No se pudo aplicar el inicio automático de Windows; el resto de ajustes se guardó.",
+
 }
 
 # --- French / Francais ---
@@ -1911,7 +1929,13 @@ FR4 = {
 "NETWORK SECURITY OPERATIONS": "OPÉRATIONS DE SÉCURITÉ RÉSEAU",
 "NORMAL": "NORMAL",
 "Riskli": "À risque",
-"   Port: {port}": "   Port : {port}",
+"   Port: {port}": "   Port : {port}","Arayüz: kapalı": "Interface : désactivée",
+"Arayüz: {names}": "Interface : {names}",
+"Sonraki analiz: {time}": "Prochaine analyse : {time}",
+"Sonraki analiz: kapalı": "Prochaine analyse : désactivée",
+"DB: {size}": "DB : {size}",
+"Windows otomatik başlatma ayarı uygulanamadı; diğer ayarlar kaydedildi.": "Le démarrage automatique Windows n’a pas pu être appliqué ; les autres paramètres ont été enregistrés.",
+
 }
 
 # --- Italian / Italiano ---
@@ -2387,7 +2411,13 @@ IT4 = {
 "NETWORK SECURITY OPERATIONS": "OPERAZIONI DI SICUREZZA DI RETE",
 "NORMAL": "NORMALE",
 "Riskli": "Rischioso",
-"   Port: {port}": "   Porta: {port}",
+"   Port: {port}": "   Porta: {port}","Arayüz: kapalı": "Interfaccia: disattivata",
+"Arayüz: {names}": "Interfaccia: {names}",
+"Sonraki analiz: {time}": "Prossima analisi: {time}",
+"Sonraki analiz: kapalı": "Prossima analisi: disattivata",
+"DB: {size}": "DB: {size}",
+"Windows otomatik başlatma ayarı uygulanamadı; diğer ayarlar kaydedildi.": "Avvio automatico di Windows non applicato; le altre impostazioni sono state salvate.",
+
 }
 
 # --- Portuguese (Brazil) ---
@@ -2864,7 +2894,13 @@ PB4 = {
 "NETWORK SECURITY OPERATIONS": "OPERAÇÕES DE SEGURANÇA DE REDE",
 "NORMAL": "NORMAL",
 "Riskli": "Arriscado",
-"   Port: {port}": "   Porta: {port}",
+"   Port: {port}": "   Porta: {port}","Arayüz: kapalı": "Interface: desativada",
+"Arayüz: {names}": "Interface: {names}",
+"Sonraki analiz: {time}": "Próxima análise: {time}",
+"Sonraki analiz: kapalı": "Próxima análise: desativada",
+"DB: {size}": "DB: {size}",
+"Windows otomatik başlatma ayarı uygulanamadı; diğer ayarlar kaydedildi.": "Não foi possível aplicar a inicialização automática do Windows; as outras configurações foram salvas.",
+
 }
 
 # --- Russian ---
@@ -3340,7 +3376,13 @@ RU4 = {
 "NETWORK SECURITY OPERATIONS": "СЕТЕВЫЕ ОПЕРАЦИИ БЕЗОПАСНОСТИ",
 "NORMAL": "НОРМА",
 "Riskli": "Рискованно",
-"   Port: {port}": "   Порт: {port}",
+"   Port: {port}": "   Порт: {port}","Arayüz: kapalı": "Интерфейс: выкл",
+"Arayüz: {names}": "Интерфейс: {names}",
+"Sonraki analiz: {time}": "Следующий анализ: {time}",
+"Sonraki analiz: kapalı": "Следующий анализ: выкл",
+"DB: {size}": "БД: {size}",
+"Windows otomatik başlatma ayarı uygulanamadı; diğer ayarlar kaydedildi.": "Не удалось применить автозапуск Windows; остальные настройки сохранены.",
+
 }
 
 # --- Polish ---
@@ -3816,7 +3858,13 @@ PL4 = {
 "NETWORK SECURITY OPERATIONS": "OPERACJE BEZPIECZEŃSTWA SIECI",
 "NORMAL": "NORMALNY",
 "Riskli": "Ryzykowny",
-"   Port: {port}": "   Port: {port}",
+"   Port: {port}": "   Port: {port}","Arayüz: kapalı": "Interfejs: wyłączony",
+"Arayüz: {names}": "Interfejs: {names}",
+"Sonraki analiz: {time}": "Następna analiza: {time}",
+"Sonraki analiz: kapalı": "Następna analiza: wyłączona",
+"DB: {size}": "DB: {size}",
+"Windows otomatik başlatma ayarı uygulanamadı; diğer ayarlar kaydedildi.": "Nie zastosowano autostartu Windows; pozostałe ustawienia zapisano.",
+
 }
 
 # --- Dutch ---
@@ -4292,7 +4340,13 @@ NL4 = {
 "NETWORK SECURITY OPERATIONS": "NETWERKBEVEILIGING",
 "NORMAL": "NORMAAL",
 "Riskli": "Riskant",
-"   Port: {port}": "   Poort: {port}",
+"   Port: {port}": "   Poort: {port}","Arayüz: kapalı": "Interface: uit",
+"Arayüz: {names}": "Interface: {names}",
+"Sonraki analiz: {time}": "Volgende analyse: {time}",
+"Sonraki analiz: kapalı": "Volgende analyse: uit",
+"DB: {size}": "DB: {size}",
+"Windows otomatik başlatma ayarı uygulanamadı; diğer ayarlar kaydedildi.": "Windows autostart kon niet worden toegepast; andere instellingen zijn opgeslagen.",
+
 }
 
 # --- Chinese (Simplified) ---
@@ -4768,7 +4822,13 @@ ZH4 = {
 "NETWORK SECURITY OPERATIONS": "网络安全运营",
 "NORMAL": "正常",
 "Riskli": "有风险",
-"   Port: {port}": "   端口：{port}",
+"   Port: {port}": "   端口：{port}","Arayüz: kapalı": "接口：已关闭",
+"Arayüz: {names}": "接口：{names}",
+"Sonraki analiz: {time}": "下次分析：{time}",
+"Sonraki analiz: kapalı": "下次分析：已关闭",
+"DB: {size}": "数据库：{size}",
+"Windows otomatik başlatma ayarı uygulanamadı; diğer ayarlar kaydedildi.": "无法应用 Windows 自启动；其他设置已保存。",
+
 }
 
 # --- Japanese ---
@@ -5244,7 +5304,13 @@ JA4 = {
 "NETWORK SECURITY OPERATIONS": "ネットワークセキュリティ運用",
 "NORMAL": "正常",
 "Riskli": "リスクあり",
-"   Port: {port}": "   ポート: {port}",
+"   Port: {port}": "   ポート: {port}","Arayüz: kapalı": "インターフェース: オフ",
+"Arayüz: {names}": "インターフェース: {names}",
+"Sonraki analiz: {time}": "次回分析: {time}",
+"Sonraki analiz: kapalı": "次回分析: オフ",
+"DB: {size}": "DB: {size}",
+"Windows otomatik başlatma ayarı uygulanamadı; diğer ayarlar kaydedildi.": "Windows自動起動を適用できませんでした。その他の設定は保存されました。",
+
 }
 
 # --- Korean ---
@@ -5720,6 +5786,12 @@ KO4 = {
 "NETWORK SECURITY OPERATIONS": "네트워크 보안 운영",
 "NORMAL": "정상",
 "Riskli": "위험",
-"   Port: {port}": "   포트: {port}",
+"   Port: {port}": "   포트: {port}","Arayüz: kapalı": "인터페이스: 꺼짐",
+"Arayüz: {names}": "인터페이스: {names}",
+"Sonraki analiz: {time}": "다음 분석: {time}",
+"Sonraki analiz: kapalı": "다음 분석: 꺼짐",
+"DB: {size}": "DB: {size}",
+"Windows otomatik başlatma ayarı uygulanamadı; diğer ayarlar kaydedildi.": "Windows 자동 시작을 적용하지 못했습니다. 다른 설정은 저장되었습니다.",
+
 }
 
