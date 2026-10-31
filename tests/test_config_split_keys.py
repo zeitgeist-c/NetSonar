@@ -1,4 +1,4 @@
-"""split_api_keys canonical davranışı (config ↔ GUI tek kaynak)."""
+"""split_api_keys canonical behavior (config <-> GUI single source)."""
 import unittest
 
 from config import split_api_keys

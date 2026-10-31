@@ -1,9 +1,9 @@
-"""AUD-NET-002 davranis testi: dil degisimi callback'i dogru nesneye ulasir.
+"""AUD-NET-002 behavior test: the language-change callback reaches the right object.
 
-Regresyon: SettingsTab._on_lang eskiden var olmayan
-``self.refresh_ui_language()`` cagiriyordu (AttributeError). Simdi sinyal
-yayar; MainWindow.refresh_ui_language baglanir. Ayrica navigasyon
-6 kayit olmali (Panel/Analiz/Akislar/Kurallar/Anahtarlar/Ayarlar).
+Regression: SettingsTab._on_lang used to call a non-existent
+``self.refresh_ui_language()`` (AttributeError). It now emits a signal;
+MainWindow.refresh_ui_language is connected. Navigation must also have
+6 entries (Dashboard/Analysis/Flows/Rules/Keys/Settings).
 """
 import os
 
@@ -38,7 +38,7 @@ def test_on_lang_emits_signal_without_attribute_error(qt_app, monkeypatch):
     assert idx >= 0 and idx != tab._lang_combo.currentIndex()
     tab._lang_combo.setCurrentIndex(idx)
     qt_app.processEvents()
-    assert received, "language_changed sinyali yayilmadi"
+    assert received, "language_changed signal was not emitted"
 
 
 def test_nav_items_cover_six_pages():
@@ -47,7 +47,7 @@ def test_nav_items_cover_six_pages():
     src = open("app_gui.py", encoding="utf-8").read()
     m = re.search(r"def refresh_ui_language.*?nav_items = \[(.*?)\]\n",
                   src, re.S)
-    assert m, "nav_items bulunamadi"
+    assert m, "nav_items not found"
     pairs = re.findall(r'\(t\("([^"]+)"\), t\("', m.group(1))
     assert pairs == ["Panel", "Analiz", "Akışlar",
                      "Kurallar", "Anahtarlar", "Ayarlar"], pairs

@@ -1,9 +1,9 @@
 """
-NetSonar — Rapor Dışa Aktarma Modülü
-AI raporlarını JSON, CSV veya TXT olarak dışa aktarır.
+NetSonar - Report export module
+Exports AI reports as JSON, CSV or TXT.
 """
 
-from i18n import t
+from i18n import t, status_text as t_status
 import json
 import csv
 from pathlib import Path
@@ -13,7 +13,7 @@ from config import user_data_path
 
 
 def _csv_cell(value) -> str:
-    """CSV formül enjeksiyonuna karşı kaçış (=, +, -, @, tab, CR ile başlayan hücreler)."""
+    """Escape against CSV formula injection (=, +, -, @, tab, CR leading cells)."""
     text = "" if value is None else str(value)
     if text[:1] in ("=", "+", "-", "@", "\t", "\r"):
         return "'" + text
@@ -36,15 +36,15 @@ def _suspicious_rows(report: dict) -> list[dict]:
 
 def export_report(report: dict, format: str = "json", filepath: str = None) -> str:
     """
-    Bir raporu dışa aktarır.
-    
+    Export a single report.
+
     Args:
-        report: Rapor dict'i
-        format: "json", "csv" veya "txt"
-        filepath: Kaydedilecek dosya yolu (None olursa otomatik oluştur)
-    
+        report: report dict
+        format: "json", "csv" or "txt"
+        filepath: target file path (generated automatically when None)
+
     Returns:
-        Kaydedilen dosya yolu
+        The path of the saved file
     """
     if filepath is None:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -74,7 +74,7 @@ def _export_csv(report: dict, filepath: str) -> str:
     
     with open(filepath, "w", encoding="utf-8", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow(["Analysis Time", "IP", t("Port"), "Process", "Reason", "Action", "Risk Score", "Status", "Sources"])
+        writer.writerow([t("Analiz Zamanı"), "IP", t("Port"), t("Süreç"), t("Neden"), t("Eylem"), t("Risk Skoru"), t("Durum"), t("Kaynaklar")])
         
         writer.writerow([
             _csv_cell(report.get("analysis_time", report.get("created_at", ""))),
@@ -84,7 +84,7 @@ def _export_csv(report: dict, filepath: str) -> str:
             "",
             "",
             _csv_cell(report.get("risk_score", "")),
-            _csv_cell(report.get("status", "")),
+            _csv_cell(t_status(report.get("status", ""))),
             "",
         ])
         writer.writerow([])
@@ -101,7 +101,7 @@ def _export_csv(report: dict, filepath: str) -> str:
                 _csv_cell(conn.get("reason", "")),
                 _csv_cell(conn.get("action", "")),
                 _csv_cell(report.get("risk_score", "")),
-                _csv_cell(report.get("status", "")),
+                _csv_cell(t_status(report.get("status", ""))),
                 _csv_cell(" | ".join(source_urls)),
             ])
         
@@ -117,9 +117,9 @@ def _export_txt(report: dict, filepath: str) -> str:
         "=" * 60,
         t("NETSONAR GÜVENLIK RAPORU"),
         "=" * 60,
-        f"Risk Skoru: {report.get('risk_score', '')}/10",
-        f"Durum: {report.get('status', '')}",
-        f"Tarih: {report.get('analysis_time', report.get('created_at', ''))}",
+        t("Risk Skoru: {score}/10", score=report.get('risk_score', '')),
+        t("Durum: {status}", status=t_status(report.get('status', ''))),
+        t("Tarih: {time}", time=report.get('analysis_time', report.get('created_at', ''))),
         "",
         "=" * 60,
         t("ŞÜPHELI BAĞLANTILAR"),
@@ -130,17 +130,17 @@ def _export_txt(report: dict, filepath: str) -> str:
     if conns:
         for i, conn in enumerate(conns, 1):
             lines.append(f"\n{i}. IP: {conn.get('ip', '')}")
-            lines.append(f"   Port: {conn.get('port', '')}")
+            lines.append(t("   Port: {port}", port=conn.get('port', '')))
             lines.append(t("   Süreç: {proc}", proc=conn.get('process', '')))
-            lines.append(f"   Neden: {conn.get('reason', '')}")
-            lines.append(f"   Eylem: {conn.get('action', '')}")
+            lines.append(t("   Neden: {reason}", reason=conn.get('reason', '')))
+            lines.append(t("   Eylem: {action}", action=conn.get('action', '')))
     else:
         lines.append("\n" + t("Şüpheli bağlantı tespit edilmedi."))
     
     lines.extend([
         "",
         "=" * 60,
-        "AI YORUMU",
+        t("AI YORUMU"),
         "=" * 60,
         report.get("summary", ""),
         "",
@@ -161,10 +161,10 @@ def _export_txt(report: dict, filepath: str) -> str:
 
 def export_all_reports(db: Database, format: str = "json", output_dir: str = None) -> list[str]:
     """
-    Tüm raporları dışa aktarır.
-    
+    Export all reports.
+
     Returns:
-        Oluşturulan dosyaların listesi
+        List of the files created
     """
     if output_dir is None:
         output_dir = user_data_path(

@@ -1,11 +1,12 @@
-"""AUD-NET-002: stats-only erteleme testi.
+"""AUD-NET-002: stats-only deferral test.
 
-Senario: yalniz stats worker aktifken dil degisimi -> pending=True,
-sayfalar yenilenmez. Stats bitip _on_stats_ready calisinca pending
-tuketilir ve refresh_ui_language cagrilir. Baska analiz baslatilmaz.
+Scenario: language change while only the stats worker is active -> pending=True,
+pages are not refreshed. Once stats finish and _on_stats_ready runs, pending is
+consumed and refresh_ui_language is called. No other analysis is started.
 
-Izleme: dil degisimi GERCEK metotla (sayilmaz); _on_stats_ready
-icindeki self.refresh_ui_language host uzerinde spy'a cozulur (sayilir).
+Instrumentation: the language change uses the REAL method (not counted);
+self.refresh_ui_language inside _on_stats_ready resolves to a spy on the host
+(counted).
 """
 import os
 import types
@@ -58,9 +59,9 @@ def make_host():
             real_consume(host)
 
     host._consume_pending_refresh = _Bound()
-    # singleShot icin guclu referans: gercek MainWindow QObject'tur.
-    # (__self__ atanmaz; sip weakref SimpleNamespace'e takilir.)
-    # findChildren: gercek MainWindow'da QObject'ten gelir.
+    # strong reference for singleShot: the real MainWindow is a QObject.
+    # (__self__ is never assigned; sip weakref cannot hold a SimpleNamespace.)
+    # findChildren: in the real MainWindow this comes from QObject.
     host.findChildren = lambda *a, **k: []
     host._navigation = types.SimpleNamespace(_buttons=[])
     host._status_label = types.SimpleNamespace(setText=lambda s: None)
@@ -78,16 +79,16 @@ def make_host():
     def spy():
         host.calls.append(1)
 
-    # _on_stats_ready icindeki self.refresh_ui_language buraya cozulur.
+    # self.refresh_ui_language inside _on_stats_ready resolves here.
     host.refresh_ui_language = spy
     host._on_stats_ready = types.MethodType(
         app_gui.MainWindow._on_stats_ready, host)
-    # _consume_pending_refresh: yukaridaki _Bound (singleShot uyumlu).
+    # _consume_pending_refresh: the _Bound above (singleShot compatible).
     return host
 
 
 def lang_change(host):
-    """Dil degisimi: GERCEK metot, sayilmaz."""
+    """Language change: REAL method, not counted."""
     app_gui.MainWindow.refresh_ui_language(host)
 
 
@@ -130,8 +131,8 @@ def test_repeated_language_change_single_refresh(qt_app):
 
 
 def test_singleshot_retry_applies_after_worker_ends(qt_app):
-    """Yedek yol: consume mesgulken erteler, worker bitince UI
-    boslugunda refresh uygulanir."""
+    """Fallback path: consume defers while busy, and the refresh is applied
+    in the UI gap once the worker ends."""
     from PyQt6.QtTest import QTest
     host = make_host()
     host._stats_worker = BusyWorker()
@@ -139,7 +140,7 @@ def test_singleshot_retry_applies_after_worker_ends(qt_app):
     host._dash_worker = None
     lang_change(host)
     assert host._pending_lang_refresh is True
-    # mesgulken cagri -> singleShot ile yeniden planlar, uygulamaz
+    # call while busy -> rescheduled via singleShot, not applied
     host._consume_pending_refresh()
     assert host._pending_lang_refresh is True
     assert host.calls == []
@@ -151,8 +152,8 @@ def test_singleshot_retry_applies_after_worker_ends(qt_app):
 
 
 def test_qthread_finished_fires_after_run_with_not_running(qt_app):
-    """Bulgu 2 regresyonu: QThread.finished run SONRASI gelir;
-    o sirada isRunning False'tur (custom sinyal golgelemesi yok)."""
+    """Finding 2 regression: QThread.finished arrives AFTER run ends;
+    isRunning is False at that point (no custom signal shadowing)."""
     from PyQt6.QtTest import QTest
     from PyQt6.QtCore import QObject
 
@@ -181,8 +182,8 @@ def test_qthread_finished_fires_after_run_with_not_running(qt_app):
 
 
 def test_done_before_finished_keeps_pending_until_thread_end(qt_app):
-    """done callback'i isRunning true iken gelse bile pending yasanir;
-    gercek bitis (finished yolu) tuketir."""
+    """Even when the done callback arrives while isRunning is true, pending
+    stays set; the real end (finished path) consumes it."""
     import threading
     from PyQt6.QtCore import QThread
     from PyQt6.QtTest import QSignalSpy
@@ -206,24 +207,24 @@ def test_done_before_finished_keeps_pending_until_thread_end(qt_app):
     host._stats_worker = worker
     host._worker = None
     host._dash_worker = None
-    # finished baglantisi kaynak kodda (_refresh_all); burada finished'i
-    # bekleyip ayni yolu manuel tetikliyoruz (slot QObject degil).
+    # the finished connection lives in the source (_refresh_all); here we wait
+    # for finished and trigger the same path manually (the slot is not a QObject).
     from PyQt6.QtTest import QTest
     worker.start()
     assert release.wait(0) is False
-    # done henuz gelmedi; dil degisimi -> ertele
+    # done has not arrived yet; language change -> defer
     lang_change(host)
     assert host._pending_lang_refresh is True
     release.set()
     worker.wait(5000)
     qt_app.processEvents()
-    # done run() icinden emit edildigi icin worker o anda aktifti.
+    # done is emitted from inside run(), so the worker was active at that point.
     assert seen_running.get("running_at_done") is True
-    # thread bitti (finished); kaynak koddaki finished baglantisi ile
-    # ayni tuketim yolu calisir. singleShot yedegi test disi birakilir.
+    # the thread ended (finished); the same consumption path as the finished
+    # connection in the source runs. The singleShot fallback is out of scope here.
     assert worker.isFinished() or not worker.isRunning()
     host._consume_pending_refresh()
-    # singleShot yedegi UI boslugunda da sorunsuz calismali; kisa bekle.
+    # the singleShot fallback must also work in the UI gap without error; wait briefly.
     from PyQt6.QtTest import QTest
     QTest.qWait(600)
     assert host._pending_lang_refresh is False

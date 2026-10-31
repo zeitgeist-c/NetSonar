@@ -1,8 +1,8 @@
-"""Güncelleme döngüsü ve denetim görünürlüğü regresyon testleri.
+"""Update loop and audit visibility regression tests.
 
-Bu dosya, "güncelle dedim, hep kendini güncelliyor" hatasının ve
-"güncelleme tarafı kurulmamış gibi görünüyor" şikayetinin regresyon
-korumasıdır.
+This file is the regression protection for the "I said update and it keeps
+updating itself" bug and the "the update side looks like it was never
+installed" complaint.
 """
 
 import os
@@ -17,7 +17,7 @@ import update
 
 
 class SameVersionLoopTests(unittest.TestCase):
-    """Aynı sürümün tekrar tekrar kurulması engellenmeli."""
+    """Installing the same version over and over must be prevented."""
 
     def test_same_version_is_not_newer(self):
         self.assertFalse(update.is_newer("0.6.0", "0.6.0"))
@@ -44,7 +44,7 @@ class SameVersionLoopTests(unittest.TestCase):
 
 
 class InstallBatonTests(unittest.TestCase):
-    """Kurulum sırası: program kapanmadan installer çalışmamalı."""
+    """Install order: the installer must not run before the program exits."""
 
     def test_baton_waits_for_the_process_then_installs(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -52,15 +52,15 @@ class InstallBatonTests(unittest.TestCase):
             installer.write_bytes(b"")
             script = update.write_install_baton(installer, 4242)
             text = script.read_text(encoding="ascii")
-            # Once PID beklenir, sonra installer calisir.
+            # The PID is awaited first, then the installer runs.
             self.assertIn("4242", text)
             self.assertLess(text.index("4242"), text.index("Setup.exe"))
             self.assertIn("/S", text)
 
     def test_baton_uses_powershell_for_the_pid_check(self):
-        """tasklist /FI filtresi bazi Windows surumlerinde uygulanmaz.
+        """The tasklist /FI filter is not honored on some Windows versions.
 
-        Guvenilir yontem PowerShell Get-Process -Id'dir.
+        The reliable method is PowerShell Get-Process -Id.
         """
         with tempfile.TemporaryDirectory() as tmp:
             installer = Path(tmp) / "NetSonar-v0.7.0-Setup.exe"
@@ -71,9 +71,10 @@ class InstallBatonTests(unittest.TestCase):
             self.assertNotIn("tasklist", text)
 
     def test_baton_uses_the_absolute_windows_timeout(self):
-        """Git-Bash/MSYS'te 'timeout' GNU aracina cozunur ve dongu bitmez.
+        """In Git-Bash/MSYS 'timeout' resolves to the GNU tool and the loop
+        never ends.
 
-        Windows timeout komutu mutlak yolla cagrilmalidir.
+        The Windows timeout command must be called via an absolute path.
         """
         with tempfile.TemporaryDirectory() as tmp:
             installer = Path(tmp) / "NetSonar-v0.7.0-Setup.exe"
@@ -82,11 +83,11 @@ class InstallBatonTests(unittest.TestCase):
                 encoding="ascii")
             self.assertIn("timeout.exe", text)
             self.assertIn(str(update.WINDOWS_TIMEOUT), text)
-            # Goreli cagri ("timeout /t") olmamali.
+            # There must be no relative call ("timeout /t").
             self.assertNotIn("(timeout /t", text)
 
     def test_baton_restarts_the_app_only_when_packaged(self):
-        """Paketlenmis modda program yeniden baslatilir; kaynak kodda olmaz."""
+        """In packaged mode the program is restarted; in source mode it is not."""
         with tempfile.TemporaryDirectory() as tmp:
             installer = Path(tmp) / "NetSonar-v0.7.0-Setup.exe"
             installer.write_bytes(b"")
@@ -95,7 +96,7 @@ class InstallBatonTests(unittest.TestCase):
                 script = update.write_install_baton(installer, 4242)
             text = script.read_text(encoding="ascii")
             self.assertIn("NetSonar.exe", text)
-            # Yeniden baslatma kurulumdan SONRA gelir.
+            # The restart comes AFTER the install.
             self.assertLess(text.index("Setup.exe"), text.index("NetSonar.exe"))
 
     def test_baton_in_source_mode_does_not_restart_python(self):
@@ -122,11 +123,11 @@ class InstallBatonTests(unittest.TestCase):
             self.assertEqual(script.name, "netsonar-install.bat")
 
     def test_baton_survives_a_non_ascii_user_profile_path(self):
-        """Türkçe kullanıcı adı güncellemeyi durdurmamalı.
+        """A Turkish user name must not stop the update.
 
-        Kurulum dosyası %LOCALAPPDATA% altına iner; kullanıcı adı ASCII dışı
-        karakter içeriyorsa (C:\\Users\\Şükrü\\...) sabit ASCII yazım
-        UnicodeEncodeError veriyordu ve baton hiç oluşmuyordu.
+        The installer lands under %LOCALAPPDATA%; if the user name contains
+        non-ASCII characters (C:\\Users\\<non-ascii>\\...) the fixed ASCII
+        encoding raised UnicodeEncodeError and the baton was never created.
         """
         with tempfile.TemporaryDirectory() as tmp:
             folder = Path(tmp) / "C_Users_Şükrü_Ğ" / "updates"
@@ -140,7 +141,7 @@ class InstallBatonTests(unittest.TestCase):
             self.assertIn("Setup.exe", text)
 
     def test_spawn_baton_does_not_combine_incompatible_creation_flags(self):
-        """DETACHED_PROCESS + CREATE_NEW_CONSOLE birlikte WinError 87 verir."""
+        """DETACHED_PROCESS + CREATE_NEW_CONSOLE together yields WinError 87."""
         with tempfile.TemporaryDirectory() as tmp:
             installer = Path(tmp) / "NetSonar-v0.7.0-Setup.exe"
             installer.write_bytes(b"")
@@ -154,7 +155,7 @@ class InstallBatonTests(unittest.TestCase):
 
 
 class InstallOutcomeTests(unittest.TestCase):
-    """Kurulum sonrası doğrulama: sürüm gerçekten yükseldi mi?"""
+    """Post-install verification: did the version actually go up?"""
 
     def test_outcome_detects_a_successful_update(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -168,7 +169,8 @@ class InstallOutcomeTests(unittest.TestCase):
             self.assertEqual(result["installed_version"], "0.7.0")
 
     def test_outcome_detects_a_failed_update(self):
-        """Kurulum calismadi: surum ayni kaldi, basarili sayilmamali."""
+        """The install did not run: the version stayed the same and must not
+        be counted as success."""
         with tempfile.TemporaryDirectory() as tmp:
             installer = Path(tmp) / "NetSonar-v0.7.0-Setup.exe"
             installer.write_bytes(b"")
@@ -188,14 +190,14 @@ class InstallOutcomeTests(unittest.TestCase):
             self.assertFalse(result["succeeded"])
 
     def test_installed_version_reads_the_app_version_in_source_mode(self):
-        """Paketlenmemis modda config'ten surum okunur."""
+        """In unpackaged mode the version is read from config."""
         from config import get_app_version
         self.assertEqual(update.installed_version(),
                          get_app_version().lstrip("v"))
 
 
 class UpdateStateTests(unittest.TestCase):
-    """Denetim sonucu kaydedilmeli ve kart her zaman dolu olmali."""
+    """The audit result must be recorded and the card must always be populated."""
 
     def test_settings_carry_the_update_state(self):
         from config import _default_settings
@@ -206,7 +208,7 @@ class UpdateStateTests(unittest.TestCase):
         validated = validate_settings({}, defaults)
         self.assertEqual(validated["UPDATE_LAST_SEEN_VERSION"], "")
         self.assertFalse(validated["UPDATE_AVAILABLE"])
-        # Bozuk girdi normalleştirilir.
+        # Corrupt input is normalized.
         dirty = validate_settings({"UPDATE_AVAILABLE": "yes",
                                    "UPDATE_LAST_SEEN_VERSION": 5}, defaults)
         self.assertIsInstance(dirty["UPDATE_AVAILABLE"], bool)

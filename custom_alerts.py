@@ -1,6 +1,6 @@
 """
-NetSonar — Özel Uyarı Kuralları
-Belirli IP veya portlar için otomatik bildirim oluşturur.
+NetSonar - Custom alert rules
+Creates automatic notifications for specific IPs or ports.
 """
 
 from i18n import t
@@ -24,7 +24,7 @@ class AlertRule:
         self.name = name
         self.ip_pattern = ip_pattern  # None = her IP, "192.168.*" = wildcard
         self.port = port              # None = her port
-        self.process = process        # None = her süreç
+        self.process = process        # None = any process
         self.enabled = enabled
         self.allow_auto_block = bool(allow_auto_block)
 
@@ -32,23 +32,23 @@ class AlertRule:
         if not self.enabled:
             return False
         
-        # IP kontrolü
+        # IP check
         if self.ip_pattern:
             if not self._match_pattern(dst_ip, self.ip_pattern):
                 return False
         
-        # Port kontrolü
+        # Port check
         if self.port is not None and dst_port != self.port:
             return False
         
-        # Süreç kontrolü
+        # Process check
         if self.process and self.process.lower() not in process.lower():
             return False
         
         return True
 
     def _match_pattern(self, ip: str, pattern: str) -> bool:
-        """Wildcard IP eşleştirme (örn. 192.168.*.1)."""
+        """Wildcard IP match (e.g. 192.168.*.1)."""
         parts = ip.split(".")
         pattern_parts = pattern.split(".")
         if len(parts) != len(pattern_parts):
@@ -106,17 +106,17 @@ _cache_lock = threading.Lock()
 _cached_rules: list[AlertRule] = []
 _cached_mtime_ns: int | None = None
 _cached_checked_at: float = 0.0
-# Her paket icin ALERTS_FILE.exists()+stat() cagriliyordu (olcum: ~66k paket/sn
-# tavaninin tamami dosya sistemi cagrisiydi). Kural dosyasi en fazla saniyede
-# bir yoklanir; kullanici kural eklediginde 1 sn icinde etkin olur.
+# ALERTS_FILE.exists()+stat() ran for every packet (measured: the ~66k pkt/s
+# ceiling was entirely file-system calls). The rules file is polled at most
+# once per second, so a rule the user adds takes effect within 1 s.
 _STAT_INTERVAL_SECONDS = 1.0
 
 
 def load_alerts() -> list[AlertRule]:
-    """Kayıtlı uyarı kurallarını yükle.
+    """Load the saved alert rules.
 
-    Paket yolundan çağrılır: dosya sistemi yoklaması saniyede bir ile
-    sınırlıdır, aksi halde her paket `stat()` maliyeti öder.
+    Called from the packet path: file-system polling is capped at once per
+    second, otherwise every packet pays the cost of `stat()`.
     """
     global _cached_rules, _cached_mtime_ns, _cached_checked_at
     now = time.monotonic()
@@ -143,12 +143,12 @@ def load_alerts() -> list[AlertRule]:
             _cached_rules, _cached_mtime_ns = rules, mtime
         return list(rules)
     except Exception:
-        log.warning("Uyarı kuralları yüklenemedi (custom_alerts.json)", exc_info=True)
+        log.warning("Could not load alert rules (custom_alerts.json)", exc_info=True)
         return []
 
 
 def check_connection_alerts(dst_ip: str, dst_port: int, process: str) -> list[AlertRule]:
-    """Bağlantı için eşleşen uyarı kurallarını döndür."""
+    """Return the alert rules that match a connection."""
     rules = load_alerts()
     matches = []
     for rule in rules:

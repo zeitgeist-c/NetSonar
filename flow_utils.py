@@ -2,10 +2,10 @@
 
 import ipaddress
 
-# `orient_flow` her pakette yerel IP kümesini yeniden normalize ediyordu; bu
-# paket yolunun en pahalı adımıydı (ölçüm: 100k çağrıda sürenin %61'i).
-# Kümeler paket başına aynı nesne olduğu için sonuç frozenset anahtarıyla
-# önbelleklenir; anahtar hash'i 4 IP ayrıştırmasından çok daha ucuz.
+# `orient_flow` re-normalized the local IP set on every packet; it was the
+# most expensive step of the packet path (measured: 61% of the time over 100k
+# calls). The sets are the same objects per packet, so the result is cached
+# under a frozenset key; hashing that key is far cheaper than parsing 4 IPs.
 _LOCAL_CACHE: dict[frozenset, frozenset] = {}
 _BROADCAST_CACHE: dict[frozenset, frozenset] = {}
 _CACHE_LIMIT = 64

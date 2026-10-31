@@ -1,10 +1,10 @@
 # -*- mode: python ; coding: utf-8 -*-
-# Klasorlu (onedir) paket. Kurulumcu bu agaci C:\Program Files\NetSonar
-# altina kopyalar; onefile degil, cunku guncelleme program klasorunu yerinde
-# degistirecek ve onedir acilisi aninda olur.
+# Folder (onedir) package. The installer copies this tree to
+# C:\Program Files\NetSonar; it is not onefile, because an update replaces the
+# program folder in place and an onedir start is immediate.
 #
-# EXE adi surumsuz: C:\Program Files\NetSonar\NetSonar.exe
-# (kurulum yolu sabit; guncelleme ayni yere yazar).
+# The EXE name carries no version: C:\Program Files\NetSonar\NetSonar.exe
+# (the install path is fixed; an update writes to the same place).
 from pathlib import Path
 import re
 from PyInstaller.utils.hooks import collect_submodules
@@ -14,7 +14,7 @@ project_root = Path(SPECPATH).parent
 _config_text = (project_root / "config.py").read_text(encoding="utf-8")
 _version_match = re.search(r'(?m)^APP_VERSION\s*=\s*"v(\d+\.\d+\.\d+)"', _config_text)
 if not _version_match:
-    raise SystemExit("config.py icinde APP_VERSION bulunamadi.")
+    raise SystemExit("APP_VERSION not found in config.py.")
 APP_VERSION = _version_match.group(1)
 
 datas = [
@@ -34,9 +34,10 @@ hiddenimports = [
 hiddenimports += collect_submodules("winotify")
 hiddenimports += collect_submodules("apscheduler")
 
-# Dil kataloglari i18n._load() tarafindan dinamik import edilir
-# (i18n_strings_de1, ...); PyInstaller statik analizle bulamaz.
-# Deterministik paket icin proje kokundeki tum katalog modullerini ekle.
+# Language catalogues live in one module (i18n_strings_tables) that i18n.py
+# imports statically, so PyInstaller's analysis finds it on its own. The glob
+# is kept so an extra catalogue module cannot be silently missed if one is ever
+# split out again.
 hiddenimports += sorted(p.stem for p in project_root.glob("i18n_strings_*.py"))
 
 a = Analysis(
@@ -48,8 +49,8 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    # Kullanilmayan Qt modulleri packaging'i sisirmesin; uygulama yalniz
-    # QtCore/QtGui/QtWidgets kullanir.
+    # Unused Qt modules must not bloat the package; the app uses only
+    # QtCore/QtGui/QtWidgets.
     excludes=[
         "PyQt6.QtBluetooth", "PyQt6.QtDesigner", "PyQt6.QtHelp",
         "PyQt6.QtMultimedia", "PyQt6.QtMultimediaWidgets", "PyQt6.QtNfc",

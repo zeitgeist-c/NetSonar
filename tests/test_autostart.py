@@ -7,7 +7,7 @@ from app_options import AutostartController
 
 class AutostartTests(unittest.TestCase):
     def test_failed_or_unverified_change_returns_false(self):
-        """Kayit yazilamazsa veya dogrulanamazsa False doner."""
+        """Returns False when the key cannot be written or verified."""
         controller = AutostartController(app_name="TestApp")
         with patch.object(controller, "_write_registry", return_value=False), \
              patch.object(controller, "_read_registry", return_value=None):
@@ -17,7 +17,7 @@ class AutostartTests(unittest.TestCase):
             self.assertFalse(controller.set_enabled(True))
 
     def test_module_functions_use_the_shared_controller(self):
-        """autostart fonksiyonlari ortak modulu kullanir."""
+        """autostart functions use the shared module."""
         with patch.object(autostart, "_controller") as factory:
             factory.return_value.set_enabled.return_value = True
             self.assertTrue(autostart.set_autostart(True))
@@ -29,7 +29,7 @@ class AutostartTests(unittest.TestCase):
             self.assertTrue(autostart.is_autostart_enabled())
 
     def test_retarget_keeps_disabled_state(self):
-        """Kapali tercih guncellemede acilmaz."""
+        """A disabled preference is not turned on during an update."""
         with patch.object(autostart.AutostartController, "is_enabled",
                           return_value=False):
             self.assertTrue(autostart.retarget_launch(r"C:\X\X.exe"))

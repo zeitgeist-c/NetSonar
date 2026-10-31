@@ -1,8 +1,8 @@
-"""Güvenlik: yayın etiketi ve sürüm dizesi indirme yolunu ele geçirememeli.
+"""Security: the release tag and version string must not hijack the download path.
 
-`parse_version` etiketten sadece sayıları çeker; ham etiket dosya adına
-girerse `1.2.3/../../evil` gibi bir değer indirmeyi önbellek klasörünün
-dışına yönlendirir. `clean_version` sürümü katı X.Y.Z biçimine indirger.
+`parse_version` only extracts numbers from the tag; if the raw tag reaches the
+file name, a value like `1.2.3/../../evil` redirects the download outside the
+cache folder. `clean_version` reduces the version to the strict X.Y.Z form.
 """
 
 import unittest
@@ -41,7 +41,7 @@ class HostileVersionTests(unittest.TestCase):
                     update.installer_asset_name(hostile)
 
     def test_surrounding_whitespace_is_normalized_not_rejected(self):
-        """Kırpma güvenli: ' 1.2.3 ' -> '1.2.3' (yol ayırıcı üretmiyor)."""
+        """Trimming is safe: ' 1.2.3 ' -> '1.2.3' (produces no path separator)."""
         self.assertEqual(update.clean_version(" 1.2.3 "), "1.2.3")
 
     def test_install_path_stays_inside_the_cache(self):
@@ -62,7 +62,7 @@ class HostileVersionTests(unittest.TestCase):
                          "NetSonar-v0.6.1-Setup.exe")
 
     def test_compare_still_accepts_a_prefixed_tag(self):
-        """parse_version gevşek kalır: sürüm karşılaştırması bozulmamalı."""
+        """parse_version stays lenient: version comparison must not break."""
         self.assertTrue(update.is_newer("v0.6.3", "0.6.2"))
 
 

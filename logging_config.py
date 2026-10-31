@@ -1,7 +1,7 @@
 """
-NetSonar — Merkezi Loglama Yapılandırması
-Tüm modüller için ortak loglama ayarları.
-Loglar hem konsola hem de dosyaya yazılır.
+NetSonar - Central logging configuration
+Shared logging settings for all modules.
+Logs go to both the console and a file.
 """
 
 import logging
@@ -31,13 +31,13 @@ def setup_logging(name: str = "NetSonar") -> logging.Logger:
         datefmt="%Y-%m-%d %H:%M:%S",
     )
     
-    # Console handler (INFO ve üstü)
+    # Console handler (INFO and above)
     console = logging.StreamHandler(sys.stdout)
     console.setLevel(logging.INFO)
     console.setFormatter(formatter)
     logger.addHandler(console)
     
-    # File handler (DEBUG ve üstü, rotation ile)
+    # File handler (DEBUG and above, with rotation)
     file_handler = logging.handlers.RotatingFileHandler(
         LOG_FILE,
         maxBytes=MAX_LOG_SIZE,
@@ -52,5 +52,5 @@ def setup_logging(name: str = "NetSonar") -> logging.Logger:
 
 
 def get_logger(name: str) -> logging.Logger:
-    """Alt modüller için logger oluştur."""
+    """Create a logger for a submodule."""
     return logging.getLogger(f"NetSonar.{name}")

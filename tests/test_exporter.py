@@ -1,4 +1,4 @@
-"""Exporter: format yuvarlakliği + CSV formül kaçışı regresyon koruması."""
+"""Exporter: format rounding + CSV formula escaping regression protection."""
 import csv
 import json
 import os
@@ -11,10 +11,10 @@ REPORT = {
     "analysis_time": "2026-09-30T00:00:00",
     "risk_score": 8.5,
     "status": "review",
-    "summary": "özet metni",
+    "summary": "summary text",
     "suspicious_connections": [
         {"ip": "1.2.3.4", "port": 4444, "process": "evil.exe",
-         "reason": "şüpheli port", "action": "İncele"},
+         "reason": "suspicious port", "action": "Inspect"},
     ],
 }
 
@@ -47,7 +47,7 @@ class ExporterTest(unittest.TestCase):
         self.assertEqual(_csv_cell(443), "443")
 
     def test_suspicious_rows_finding_shape(self):
-        report = {"findings": [{"evidence": "kanıt", "recommended_action": "Engelle",
+        report = {"findings": [{"evidence": "evidence", "recommended_action": "Block",
                                 "flow_evidence": [{"remote_ip": "9.9.9.9",
                                                    "remote_port": 53,
                                                    "process": "dns.exe"}]}]}

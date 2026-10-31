@@ -1,18 +1,17 @@
-; NetSonar — Windows kurulumcusu (NSIS)
+; NetSonar - Windows installer (NSIS)
 ;
-; Kurulum sabit yere yapar: C:\Program Files\NetSonar
-; Güncelleme bu kurulumcuyu sessizce (/S) yeniden calistirir; program klasoru
-; yerinde degisir, kullanici verisi ve model deposu (%LOCALAPPDATA%\NetSonar)
-; ASLA dokunulmaz.
+; Installs to a fixed location: C:\Program Files\NetSonar
+; An update re-runs this installer silently (/S); the program folder is
+; replaced in place, and user data plus the model store
+; (%LOCALAPPDATA%\NetSonar) are NEVER touched.
 ;
-; Sürüm build.ps1 tarafindan -DAPP_VERSION ile verilir.
+; The version is supplied by build.ps1 through -DAPP_VERSION.
 Unicode True
 !include "MUI2.nsh"
-!include "FileFunc.nsh"
 !include "LogicLib.nsh"
 
 !ifndef APP_VERSION
-  !error "APP_VERSION build.ps1 tarafindan verilmelidir"
+  !error "APP_VERSION must be supplied by build.ps1"
 !endif
 
 !define APP_NAME "NetSonar"
@@ -22,7 +21,7 @@ Unicode True
 
 Name "${APP_NAME}"
 BrandingText "${APP_NAME}"
-OutFile "..\dist\NetSonar-${APP_VERSION}.exe"
+OutFile "..\dist\NetSonar-v${APP_VERSION}-Setup.exe"
 InstallDir "$PROGRAMFILES64\${APP_NAME}"
 InstallDirRegKey HKLM "Software\${APP_NAME}" "InstallDir"
 RequestExecutionLevel admin
@@ -30,7 +29,7 @@ SetCompressor /SOLID lzma
 Unicode true
 VIProductVersion "${APP_VERSION}.0"
 VIAddVersionKey /LANG=1055 "ProductName" "${APP_NAME}"
-VIAddVersionKey /LANG=1055 "FileDescription" "${APP_NAME} Kurulum"
+VIAddVersionKey /LANG=1055 "FileDescription" "${APP_NAME} Setup"
 VIAddVersionKey /LANG=1055 "FileVersion" "${APP_VERSION}"
 VIAddVersionKey /LANG=1055 "ProductVersion" "${APP_VERSION}"
 VIAddVersionKey /LANG=1055 "CompanyName" "${APP_PUBLISHER}"
@@ -88,38 +87,37 @@ LangString nsRunCheck 1042 "설치 후 ${APP_NAME} 실행"
 !insertmacro MUI_LANGUAGE "Korean"
 
 Var PreviousInstallDir
-Var PreviousUninstaller
-Var RunningApp
 Var AutostartWasEnabled
 
-; ─── Kurulum oncesi kontroller ──────────────────────────────────────
+; --- Pre-install checks ---------------------------------------------
 Function .onInit
-  ; Kayitli kurulumcu dili yoksa varsayilan EN (LCID 1033); OS/sistem
-  ; dili EN varsayilanini ezemez (AUD-INSTALL-001). Secici yine de 13 dili sunar.
+  ; No stored installer language: default to EN (LCID 1033); the OS/system
+  ; language must not override the EN default (AUD-INSTALL-001). The selector
+  ; still offers all 13 languages.
   ReadRegStr $0 HKLM "Software\${APP_NAME}" "Installer Language"
   ${If} $0 == ""
     StrCpy $LANGUAGE 1033
+  ${Else}
+    StrCpy $LANGUAGE $0
   ${EndIf}
   !insertmacro MUI_LANGDLL_DISPLAY
-  ; Bu kurulumcu 64-bit uygulama kurar (Program Files). NSIS 32-bit oldugu
-  ; icin kayit defteri gorunumu acikca 64-bit yapilir; aksi halde anahtarlar
-  ; WOW6432Node altina duser ve Programlar listesinde gorunmez.
+  ; This installer deploys a 64-bit application (Program Files). NSIS itself
+  ; is 32-bit, so the registry view is explicitly switched to 64-bit;
+  ; otherwise keys land under WOW6432Node and stay invisible in Apps & Features.
   SetRegView 64
 
-  ; Onceki surumun kurulum yolunu hatirla: yeni surum ayni yere yazilir.
+  ; Remember the previous install path: the new version writes to the same place.
   ReadRegStr $PreviousInstallDir HKLM "Software\${APP_NAME}" "InstallDir"
-  ReadRegStr $PreviousUninstaller HKLM "${APP_UNINST_KEY}" "UninstallString"
-  StrCpy $RunningApp ""
 
-  ; Otomatik baslatma tercihi: kapaliysa kurulum onu AÇMAZ. Guncelleme
-  ; sonrasi da ayni tercih korunur.
+  ; Autostart preference: if it is off, setup does NOT turn it on. The same
+  ; preference survives an update.
   StrCpy $AutostartWasEnabled "0"
   ReadRegStr $0 HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "${APP_NAME}"
   ${If} $0 != ""
     StrCpy $AutostartWasEnabled "1"
   ${EndIf}
 
-  ; Calisan NetSonar varsa kurulum dosyalari kilitli olur; kapat ve bekle.
+  ; A running NetSonar would lock the install files; close it and wait.
   nsExec::ExecToStack 'cmd /c tasklist /FI "IMAGENAME eq ${APP_EXE}" /NH'
   Pop $0
   Pop $1
@@ -128,39 +126,39 @@ Function .onInit
     nsExec::ExecToStack 'cmd /c taskkill /F /IM ${APP_EXE} /T'
     Pop $0
     Pop $1
-    ; Dosya kilitlerinin release olması için kısa bekleme.
+    ; Short wait so the file locks are released.
     Sleep 1500
   ${EndIf}
 
-  ; Npcap yoksa kurulumu engelleme; uygulama açılışta uyarır.
+  ; Do not block setup when Npcap is missing; the app warns on startup.
 FunctionEnd
 
 Function .onVerifyInstDir
-  ; Program Files altina yazmak icin yonetici gerekir; zaten admin istegi var.
+  ; Writing under Program Files needs elevation; admin is requested already.
   ${If} $INSTDIR == ""
     Abort
   ${EndIf}
 FunctionEnd
 
-; ─── Kurulum ────────────────────────────────────────────────────────
+; --- Installation ---------------------------------------------------
 Section "NetSonar" SEC_APP
   SectionIn RO
   SetShellVarContext all
   SetOutPath "$INSTDIR"
 
-  ; Eski surumden kalan dosyalari temizle: guncellemede "hepsi sil, yenisini
-  ; yaz" davranisi. Kullanici verisi ve store bu klasorun disinda oldugu
-  ; icin etkilenmez.
+  ; Clean leftovers of an older version: on update the behaviour is "delete
+  ; everything, write the new tree". User data and the store live outside this
+  ; folder, so they are unaffected.
   ${If} $PreviousInstallDir != ""
     ${AndIf} $PreviousInstallDir != $INSTDIR
       RMDir /r "$PreviousInstallDir"
   ${EndIf}
   File /r "app-dist\NetSonar\*.*"
 
-  ; Kisa yollar: masaustu ve Baslat menusu.
-  ; Masaustu kisayolu KULLANICIYA OZEL olur (SetShellVarContext current):
-  ; "all" kullanimi OneDrive yonlendirilmis masaustunde Public Desktop'e
-  ; yaziyor ve kullanicinin masaustunde gorunmuyordu.
+  ; Shortcuts: desktop and Start menu.
+  ; The desktop shortcut is PER USER (SetShellVarContext current): using
+  ; "all" wrote to the Public Desktop on a OneDrive-redirected profile, so the
+  ; shortcut never appeared on the user's desktop.
   CreateDirectory "$SMPROGRAMS\${APP_NAME}"
   CreateShortcut "$SMPROGRAMS\${APP_NAME}\${APP_NAME}.lnk" "$INSTDIR\${APP_EXE}"
   CreateShortcut "$SMPROGRAMS\${APP_NAME}\${APP_NAME} kaldır.lnk" "$INSTDIR\Uninstall.exe"
@@ -168,12 +166,12 @@ Section "NetSonar" SEC_APP
   CreateShortcut "$DESKTOP\${APP_NAME}.lnk" "$INSTDIR\${APP_EXE}"
   SetShellVarContext all
 
-  ; Kaldirici
+  ; Uninstaller
   WriteUninstaller "$INSTDIR\Uninstall.exe"
 
-  ; Kayit defteri: kurulum yolu ve kaldirma bilgisi
+  ; Registry: install path and uninstall information
   WriteRegStr HKLM "Software\${APP_NAME}" "InstallDir" "$INSTDIR"
-  ; Kurulumcu dil secimi: sonraki kurulumda varsayilan olur (AUD-INSTALL-001).
+  ; Installer language choice: becomes the default on the next install (AUD-INSTALL-001).
   WriteRegStr HKLM "Software\${APP_NAME}" "Installer Language" "$LANGUAGE"
   WriteRegStr HKLM "${APP_UNINST_KEY}" "DisplayName" "${APP_NAME}"
   WriteRegStr HKLM "${APP_UNINST_KEY}" "DisplayVersion" "${APP_VERSION}"
@@ -184,15 +182,15 @@ Section "NetSonar" SEC_APP
   WriteRegDWORD HKLM "${APP_UNINST_KEY}" "NoModify" 1
   WriteRegDWORD HKLM "${APP_UNINST_KEY}" "NoRepair" 1
 
-  ; Otomatik baslatma kaydi varsa yeni exe'ye yonlendir. Kayit yoksa
-  ; kullanici tercihi degismemeli; o yuzdu yalnizca mevcut kayit guncellenir.
+  ; If an autostart entry exists, point it at the new exe. Without an entry
+  ; the user preference must not change, so only an existing entry is updated.
   ${If} $AutostartWasEnabled == "1"
     WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "${APP_NAME}" \
       "'$INSTDIR\${APP_EXE}'"
   ${EndIf}
 
-; KURULUM DILI DEVRI: secilen dili kurulum klasorune yaz.
-; Uygulama kayitli tercihi yoksa bunu okur; guncelleme tercihi ezmez.
+; INSTALLER LANGUAGE HANDOFF: write the chosen language into the install folder.
+; The app reads it when no stored preference exists; an update does not override one.
   ${If} $LANGUAGE = 1033
   StrCpy $0 "en"
   ${ElseIf} $LANGUAGE = 1055
@@ -229,33 +227,33 @@ Section "NetSonar" SEC_APP
   ${EndIf}
 SectionEnd
 
-; ─── Kaldirma ───────────────────────────────────────────────────────
+; --- Uninstallation -------------------------------------------------
 Section "Uninstall"
-  ; Ayni gorunum: kayit defteri anahtarlari 64-bit view'da duruyor.
+  ; Same view: the registry keys live in the 64-bit view.
   SetRegView 64
   SetShellVarContext all
   Delete "$SMPROGRAMS\${APP_NAME}\${APP_NAME}.lnk"
   Delete "$SMPROGRAMS\${APP_NAME}\${APP_NAME} kaldır.lnk"
   RMDir "$SMPROGRAMS\${APP_NAME}"
-  ; Masaustu kisayolu kurulumda kullaniciya ozel yazildi; ayni yerden silinir.
-  ; (Eski kurulumlar Public Desktop'e yazmisti, o da temizlenir.)
+  ; Setup wrote the desktop shortcut per user; it is removed from the same place.
+  ; (Older installs wrote to the Public Desktop; that copy is cleaned up too.)
   SetShellVarContext current
   Delete "$DESKTOP\${APP_NAME}.lnk"
   SetShellVarContext all
-  ; Eski kurulumlar masaustu kisayolunu "all" baglaminda yazmisti, yani
-  ; Public Desktop'e; $DESKTOP bu baglamda zaten o yeri gosterir.
+  ; Older installs wrote the desktop shortcut in the "all" context, i.e. to the
+  ; Public Desktop; $DESKTOP already points there in that context.
   Delete "$DESKTOP\${APP_NAME}.lnk"
   DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "${APP_NAME}"
   DeleteRegKey HKLM "${APP_UNINST_KEY}"
   DeleteRegKey HKLM "Software\${APP_NAME}"
 
-  ; Program klasorunu sil. Kullanici verisi ve model deposu
-  ; (%LOCALAPPDATA%\NetSonar) SILINMEZ: kullaninin verisi kurulumdan
-  ; bagimsiz yasar.
+  ; Delete the program folder. User data and the model store
+  ; (%LOCALAPPDATA%\NetSonar) are NOT deleted: user data lives independently
+  ; of the installation.
   Delete "$INSTDIR\${APP_EXE}"
   Delete "$INSTDIR\Uninstall.exe"
   RMDir /r "$INSTDIR\_internal"
   RMDir "$INSTDIR"
-  ; Kalan dosya varsa klasor silinir; kullanici verisi etkilenmez.
+  ; If files remain, the folder is removed recursively; user data is unaffected.
   RMDir /r "$INSTDIR"
 SectionEnd

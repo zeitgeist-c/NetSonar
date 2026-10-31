@@ -14,10 +14,10 @@ log = get_logger("Main")
 
 
 def _activate_store():
-    """Ek kutuphanelerin import edilebilmesi icin store yolunu etkinlestir.
+    """Enable the store path so extra libraries can be imported.
 
-    Depo program klasorunun disinda tutulur; kurulum ve guncelleme icerigine
-    dokunmaz, bu yuzden indirilmis model/kutuphaneler yeniden alinmaz.
+    The store lives outside the program folder; install and update never touch
+    its contents, so downloaded models and libraries are not fetched again.
     """
     try:
         import store

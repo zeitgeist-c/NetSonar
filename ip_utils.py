@@ -1,4 +1,4 @@
-"""NetSonar için ortak IP adresi yardımcı fonksiyonları."""
+"""Shared IP address helpers for NetSonar."""
 
 from __future__ import annotations
 from i18n import t
@@ -11,7 +11,7 @@ RULE_SAFE_PREFIX = "b64_"
 
 
 def parse_ip(ip: str):
-    """Bir ipaddress nesnesi döndürür, geçersiz girişte None döner."""
+    """Return an ipaddress object, or None for invalid input."""
     if not ip:
         return None
     try:
