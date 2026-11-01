@@ -1,18 +1,28 @@
-# NetSonar Python dependencies
+# NetSonar Python dependencies — pinned (tested with Python 3.13, 224 tests green).
+# Loose >= ranges removed: every deploy/install must resolve to these exact wheels.
+# Full transitive lock: requirements-lock.txt (pip freeze).
 
-# GUI
-PyQt6>=6.6.0
+# GUI (Qt bundle must stay consistent: PyQt6 + PyQt6-Qt6 + sip together)
+PyQt6==6.12.0
+PyQt6-Qt6==6.12.0
+PyQt6_sip==13.13.0
 
 # Network capture
-scapy>=2.5.0
-psutil>=5.9.0
+scapy==2.8.0
+psutil==7.2.2
 
 # Scheduling
-APScheduler>=3.10.0
+APScheduler==3.11.3
+tzlocal==5.4.5
+pytz==2026.3.post1
 
 # HTTP / Gemini API
-requests>=2.31.0
+requests==2.34.2
+urllib3==2.8.0
+certifi==2026.10.23
+charset-normalizer==3.5.2
+idna==3.20
 
 # Windows notifications
-winotify>=1.1.0
-plyer>=2.1.0
+winotify==1.1.0
+plyer==2.1.0

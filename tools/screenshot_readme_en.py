@@ -13,7 +13,6 @@ import app_gui  # noqa: E402
 import config  # noqa: E402
 from PyQt6.QtWidgets import QApplication  # noqa: E402
 from PyQt6.QtCore import Qt  # noqa: E402
-import tempfile  # noqa: E402
 
 OUT = Path(__file__).resolve().parent.parent / "docs" / "screenshots"
 SHOTS = ["01-panel.png", "02-analiz.png", "03-akislar.png",
@@ -34,7 +33,6 @@ def shoot(which=None):
         stack.enter_context(patch.object(app_gui.MainWindow, "_setup_timer", autospec=True))
         stack.enter_context(patch.object(app_gui.MainWindow, "_refresh_all", autospec=True))
         stack.enter_context(patch.object(app_gui.DashboardTab, "refresh", autospec=True))
-        import sqlite3
         import types
         sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tests"))
         from test_ui_smoke import FakeAnalyzer, FakeDatabase, FakeService

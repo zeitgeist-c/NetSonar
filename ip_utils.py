@@ -1,7 +1,6 @@
 """Shared IP address helpers for NetSonar."""
 
 from __future__ import annotations
-from i18n import t
 
 import base64
 import ipaddress

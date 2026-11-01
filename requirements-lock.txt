@@ -1,0 +1,46 @@
+# NetSonar full transitive lock — Python 3.13.15, .venv pip freeze.
+# Generated from the green test env (224 tests + 35 subtests, PyQt6 6.12.0 verified). Install with:
+#   .venv/Scripts/python -m pip install -r requirements-lock.txt
+# Direct deps are also pinned in requirements.txt; this file freezes everything.
+APScheduler==3.11.3
+boolean.py==5.0
+CacheControl==0.14.4
+certifi==2026.10.23
+charset-normalizer==3.5.2
+colorama==0.4.6
+cyclonedx-python-lib==11.12.0
+defusedxml==0.7.1
+filelock==4.2.4
+idna==3.20
+iniconfig==2.3.1
+license-expression==30.4.4
+markdown-it-py==4.2.0
+mdurl==0.1.2
+msgpack==1.2.4
+packageurl-python==0.17.6
+packaging==26.3
+pip-requirements-parser==32.0.1
+pip_api==0.0.35
+pip_audit==2.10.1
+platformdirs==4.13.5
+pluggy==1.7.0
+plyer==2.1.0
+psutil==7.2.2
+py-serializable==2.1.0
+pyflakes==4.0.3
+Pygments==2.21.0
+pyparsing==3.3.3
+PyQt6==6.12.0
+PyQt6-Qt6==6.12.0
+PyQt6_sip==13.13.0
+pytest==9.1.1
+requests==2.34.2
+rich==15.0.0
+scapy==2.8.0
+sortedcontainers==2.4.0
+tomli==2.5.0
+tomli_w==1.2.0
+tzdata==2026.5
+tzlocal==5.4.5
+urllib3==2.8.0
+winotify==1.1.0

@@ -7,7 +7,6 @@ This file defines the NetSonar-specific command (exe path) and keeps the old
 function names.
 """
 
-from i18n import t
 import logging
 import os
 import sys
