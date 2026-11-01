@@ -3,7 +3,6 @@ NetSonar - Custom alert rules
 Creates automatic notifications for specific IPs or ports.
 """
 
-from i18n import t
 import json
 import logging
 import threading

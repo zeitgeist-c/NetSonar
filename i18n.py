@@ -8,8 +8,6 @@ in TABLES.
 - Unknown codes fall back to English (missing = red at the release gate).
 """
 
-import os
-
 from i18n_strings_tables import (
     DE1, DE2, DE3, DE4,
     EN, EN_EXTRA,

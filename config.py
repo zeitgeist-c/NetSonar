@@ -72,7 +72,7 @@ def get_language() -> str:
 def set_language(code: str) -> str:
     """Persist the UI language choice and return the resolved code."""
     try:
-        from i18n import resolve as _resolve, set_language as _set
+        from i18n import resolve as _resolve
         resolved = _resolve(code)
     except Exception:
         resolved = "en"

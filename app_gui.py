@@ -3,7 +3,7 @@ NetSonar - PyQt6 interface
 Network monitoring and AI analysis panel
 """
 
-from i18n import t, set_language as i18n_set, language as i18n_lang, LANGUAGES
+from i18n import t, set_language as i18n_set, LANGUAGES
 import i18n
 import sys
 import os
