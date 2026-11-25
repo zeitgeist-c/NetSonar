@@ -1,10 +1,11 @@
 """Scheduler notification: the real finding count and provider name must be used."""
 
+import os
 import sys
 import unittest
 from unittest import mock
 
-sys.path.insert(0, r"C:/Users/mahmu/Projeler/NetSonar")
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import scheduler
 

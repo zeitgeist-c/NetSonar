@@ -15,8 +15,8 @@ from PyQt6.QtWidgets import QApplication  # noqa: E402
 from PyQt6.QtCore import Qt  # noqa: E402
 
 OUT = Path(__file__).resolve().parent.parent / "docs" / "screenshots"
-SHOTS = ["01-panel.png", "02-analiz.png", "03-akislar.png",
-         "04-kurallar.png", "05-anahtarlar.png", "06-ayarlar.png"]
+SHOTS = ["01-panel.png", "02-analysis.png", "03-flows.png",
+         "04-rules.png", "05-keys.png", "06-settings.png"]
 
 
 def shoot(which=None):

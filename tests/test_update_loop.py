@@ -85,6 +85,9 @@ class InstallBatonTests(unittest.TestCase):
             self.assertIn(str(update.WINDOWS_TIMEOUT), text)
             # There must be no relative call ("timeout /t").
             self.assertNotIn("(timeout /t", text)
+            self.assertIn("shutdown_timeout", text)
+            self.assertIn("-Wait -PassThru", text)
+            self.assertIn("installer_exit=%errorlevel%", text)
 
     def test_baton_restarts_the_app_only_when_packaged(self):
         """In packaged mode the program is restarted; in source mode it is not."""
@@ -98,6 +101,16 @@ class InstallBatonTests(unittest.TestCase):
             self.assertIn("NetSonar.exe", text)
             # The restart comes AFTER the install.
             self.assertLess(text.index("Setup.exe"), text.index("NetSonar.exe"))
+
+    def test_baton_checks_target_version_before_reopening(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            installer = Path(tmp) / "NetSonar-0.7.0.exe"
+            with mock.patch("update.sys.frozen", True, create=True), \
+                 mock.patch("update.sys.executable", "C:/Program Files/NetSonar/NetSonar.exe"):
+                body = update.write_install_baton(installer, 4242, "0.7.0").read_text(encoding="ascii")
+            self.assertLess(body.index("if errorlevel 1 goto reopen"), body.index("FileMajorPart"))
+            self.assertLess(body.index("version_mismatch"), body.index('start ""'))
+            self.assertIn("echo verified", body)
 
     def test_baton_in_source_mode_does_not_restart_python(self):
         with tempfile.TemporaryDirectory() as tmp:

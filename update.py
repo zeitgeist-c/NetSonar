@@ -112,13 +112,13 @@ def parse_release(payload: dict) -> UpdateInfo:
     tag = str(payload.get("tag_name") or "")
     version = clean_version(tag)
     exe_name = installer_asset_name(version)
-    for asset in payload.get("assets") or []:
-        if asset.get("name") != exe_name:
-            continue
+    assets = {asset.get("name"): asset for asset in payload.get("assets") or []}
+    asset = assets.get(f"NetSonar-{version}.exe") or assets.get(exe_name)
+    if asset is not None:
         digest = str(asset.get("digest") or "")
         return UpdateInfo(
             version=version,
-            asset_name=exe_name,
+            asset_name=asset["name"],
             download_url=str(asset.get("browser_download_url") or ""),
             sha256=digest.split(":", 1)[1] if ":" in digest else digest,
             size=int(asset.get("size") or 0),
@@ -160,6 +160,8 @@ def download(info: UpdateInfo, dest: Path, progress=None, cancel=None) -> Path:
     class Cancelled(Exception):
         pass
 
+    if not re.fullmatch(r"[0-9a-fA-F]{64}", info.sha256):
+        raise UpdateError(t("Güncelleme paketi için geçerli SHA-256 bilgisi bulunamadı."))
     request = urllib.request.Request(info.download_url,
                                      headers={"User-Agent": USER_AGENT})
     dest.parent.mkdir(parents=True, exist_ok=True)
@@ -190,11 +192,10 @@ def download(info: UpdateInfo, dest: Path, progress=None, cancel=None) -> Path:
     if info.size and written != info.size:
         dest.unlink(missing_ok=True)
         raise UpdateError(t("İndirme dosya tamamlanmadan bitti."))
-    if info.sha256:
-        actual = _sha256_of(dest)
-        if actual.lower() != info.sha256.lower():
-            dest.unlink(missing_ok=True)
-            raise UpdateError(t("İndirilen dosyanın sağlama değeri uyuşmuyor."))
+    actual = _sha256_of(dest)
+    if actual.lower() != info.sha256.lower():
+        dest.unlink(missing_ok=True)
+        raise UpdateError(t("İndirilen dosyanın sağlama değeri uyuşmuyor."))
     return dest
 
 
@@ -392,7 +393,7 @@ def cleanup_old_installers(keep: Path | None = None) -> int:
     return removed
 
 
-def write_install_baton(installer: Path, old_pid: int) -> Path:
+def write_install_baton(installer: Path, old_pid: int, version: str = "") -> Path:
     """Run the pending install script: starts the installer once the program exits.
 
     Order matters: the installer cannot replace the files of a running exe
@@ -419,33 +420,55 @@ def write_install_baton(installer: Path, old_pid: int) -> Path:
     """
     script = installer.parent / "netsonar-install.bat"
     restart = ""
+    verify = ""
     if getattr(sys, "frozen", False):
-        restart = f'start "" "{_ascii_safe_path(Path(sys.executable))}"\r\n'
+        executable = Path(sys.executable)
+        restart = f'start "" "{_ascii_safe_path(executable)}"\r\n'
+        if version:
+            expected = clean_version(version)
+            escaped = _ascii_safe_path(executable, escape_quote=True)
+            verify = (
+                "if errorlevel 1 goto reopen\r\n"
+                'powershell -NoProfile -Command "'
+                f"try {{ $v = (Get-Item -LiteralPath '{escaped}' -ErrorAction Stop).VersionInfo; "
+                f"if (('{expected}') -ne ('{{0}}.{{1}}.{{2}}' -f $v.FileMajorPart,$v.FileMinorPart,$v.FileBuildPart)) {{ exit 1 }} "
+                "exit 0 } catch { exit 1 }\"\r\n"
+                'if errorlevel 1 (echo version_mismatch>"%~dp0netsonar-install-result.txt") '
+                'else (echo verified>"%~dp0netsonar-install-result.txt")\r\n'
+                ":reopen\r\n"
+            )
     script.write_text(
         "@echo off\r\n"
         "setlocal\r\n"
+        "set /a TRIES=0\r\n"
         ":wait\r\n"
         # Program kapandi mi? (tasklist /FI filtresi bazi surumlerde
         # uygulanmaz; PowerShell Get-Process guvenilirdir.)
         "powershell -NoProfile -Command \""
         f"if (Get-Process -Id {old_pid} -ErrorAction SilentlyContinue) "
         "{ exit 0 } else { exit 1 }\"\r\n"
-        "if not errorlevel 1 ("
-        f'"{_ascii_safe_path(WINDOWS_TIMEOUT)}" /t 1 /nobreak >NUL & goto wait)\r\n'
+        "if errorlevel 1 goto install\r\n"
+        "set /a TRIES+=1\r\n"
+        'if %TRIES% GEQ 90 (echo shutdown_timeout>"%~dp0netsonar-install-result.txt" & goto cleanup)\r\n'
+        f'"{_ascii_safe_path(WINDOWS_TIMEOUT)}" /t 1 /nobreak >NUL\r\n'
+        "goto wait\r\n"
+        ":install\r\n"
         # The installer runs and is waited on until it FINISHES. The NSIS
         # installer requires admin and is started with "runas". The program
         # is already elevated, so no extra consent dialog appears.
         "powershell -NoProfile -Command \""
-        f"Start-Process -FilePath '{_ascii_safe_path(installer, escape_quote=True)}' "
-        "-ArgumentList '/S' "
-        f"-Verb runas -WindowStyle Hidden -Wait\"\r\n"
-        f"{restart}"
+        f"try {{ $setup = Start-Process -FilePath '{_ascii_safe_path(installer, escape_quote=True)}' "
+        "-ArgumentList '/S' -Verb runas -WindowStyle Hidden -Wait -PassThru -ErrorAction Stop; "
+        "exit $setup.ExitCode } catch { exit 1 }\"\r\n"
+        'echo installer_exit=%errorlevel%>"%~dp0netsonar-install-result.txt"\r\n'
+        f"{verify}{restart}"
+        ":cleanup\r\n"
         'del "%~f0"\r\n',
         encoding=_oem_encoding(), errors="strict")
     return script
 
 
-def spawn_install_baton(installer: Path, old_pid: int) -> None:
+def spawn_install_baton(installer: Path, old_pid: int, version: str = "") -> None:
     """Start the pending install script in the background.
 
     Program exits -> script waits for the PID to disappear -> installer runs ->
@@ -457,7 +480,7 @@ def spawn_install_baton(installer: Path, old_pid: int) -> None:
     batch file is started with ShellExecute "runas", i.e. elevated (UAC
     prompts). An already elevated context gets no extra prompt.
     """
-    script = write_install_baton(installer, old_pid)
+    script = write_install_baton(installer, old_pid, version)
     # Yalnizca DETACHED_PROCESS: CREATE_NEW_CONSOLE ile birlikte
     # gecersiz parametre hatasi verir (WinError 87).
     flags = getattr(subprocess, "DETACHED_PROCESS", 0)

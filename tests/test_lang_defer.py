@@ -185,8 +185,6 @@ def test_done_before_finished_keeps_pending_until_thread_end(qt_app):
     """Even when the done callback arrives while isRunning is true, pending
     stays set; the real end (finished path) consumes it."""
     import threading
-    from PyQt6.QtCore import QThread
-    from PyQt6.QtTest import QSignalSpy
     import app_gui
 
     release = threading.Event()

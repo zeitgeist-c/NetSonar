@@ -72,7 +72,7 @@ The header shows sensor state (`SENSOR ACTIVE`), capture state (`CAPTURE OFF` / 
 
 ### 2. Analysis
 
-![Analysis](./docs/screenshots/02-analiz.png)
+![Analysis](./docs/screenshots/02-analysis.png)
 
 The result of the last AI run.
 
@@ -90,7 +90,7 @@ An empty state is explicit — `No analysis yet` rather than a zeroed chart pret
 
 ### 3. Flows
 
-![Flows](./docs/screenshots/03-akislar.png)
+![Flows](./docs/screenshots/03-flows.png)
 
 Every recorded flow, newest first.
 
@@ -110,7 +110,7 @@ Row actions block an IP directly — that path goes through the same audited fir
 
 ### 4. Rules
 
-![Rules](./docs/screenshots/04-kurallar.png)
+![Rules](./docs/screenshots/04-rules.png)
 
 Two tabs: **Blocked** and **Trusted IPs** (allowlisted).
 
@@ -120,7 +120,7 @@ The counters in the header (`TOTAL`, `TODAY`) and the search box work across bot
 
 ### 5. Keys
 
-![Keys](./docs/screenshots/05-anahtarlar.png)
+![Keys](./docs/screenshots/05-keys.png)
 
 Provider credentials and their quotas, one card per provider:
 
@@ -136,7 +136,7 @@ Keys are stored DPAPI-encrypted for the current Windows user; they are never wri
 
 ### 6. Settings
 
-![Settings](./docs/screenshots/06-ayarlar.png)
+![Settings](./docs/screenshots/06-settings.png)
 
 Five sections down the left:
 
@@ -160,7 +160,7 @@ Five sections down the left:
 
 ## Install
 
-Download `NetSonar-v<version>-Setup.exe` from [Releases](https://github.com/zeitgeist-c/NetSonar/releases/latest) and run it. One installer, one channel: it installs to `C:\Program Files\NetSonar`, asks for administrator approval, creates desktop and Start Menu shortcuts, and registers itself in Apps & Features.
+Download `NetSonar-<version>.exe` from [Releases](https://github.com/zeitgeist-c/NetSonar/releases/latest) and run it. One installer, one channel: it installs to `C:\Program Files\NetSonar`, asks for administrator approval, creates desktop and Start Menu shortcuts, and registers itself in Apps & Features.
 
 Updates run from inside the app: it checks once a day, downloads the new installer, verifies its SHA-256, asks before installing, then closes and replaces the program folder in place, restarting afterwards. User data and the model store live outside the program folder and survive every update. If the released version is not newer than the installed one, the app says so and does nothing.
 

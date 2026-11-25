@@ -14,8 +14,8 @@ $BuildVenv = Join-Path $PackagingDir ".build-venv"
 $BuildPython = Join-Path $BuildVenv "Scripts\python.exe"
 $BuildDir = Join-Path $PackagingDir "build"
 $AppDistDir = Join-Path $PackagingDir "app-dist"
-$ReleaseDir = Join-Path $ProjectRoot "dist"
-$Installer = Join-Path $ReleaseDir "NetSonar-v$Version-Setup.exe"
+$ReleaseDir = Join-Path $ProjectRoot "release"
+$Installer = Join-Path $ReleaseDir "$VersionedStem.exe"
 $Makensis = "C:\Program Files (x86)\NSIS\makensis.exe"
 
 if (-not $PythonPath) {
@@ -41,9 +41,6 @@ foreach ($path in @($BuildDir, $AppDistDir)) {
     if (Test-Path -LiteralPath $resolvedPath) { Remove-Item -LiteralPath $resolvedPath -Recurse -Force }
 }
 New-Item -ItemType Directory -Force -Path $ReleaseDir | Out-Null
-Get-ChildItem -LiteralPath $ReleaseDir -File | Where-Object {
-    $_.Name -match '^NetSonar-(v\d+\.\d+\.\d+(-Setup)?|\d+\.\d+\.\d+)\.(exe|bat)$'
-} | Remove-Item -Force
 
 Write-Host "Building the folder (onedir) release..."
 $PyInstallerArgs = @("-m", "PyInstaller", "--noconfirm", "--clean", "--workpath", $BuildDir, "--distpath", $AppDistDir, (Join-Path $PackagingDir "NetSonar.spec"))
@@ -53,6 +50,10 @@ if ($LASTEXITCODE -ne 0) { throw "PyInstaller build failed." }
 $BuiltDir = Join-Path $AppDistDir "NetSonar"
 $BuiltExe = Join-Path $BuiltDir "NetSonar.exe"
 if (-not (Test-Path -LiteralPath $BuiltExe)) { throw "EXE was not produced: $BuiltExe" }
+$BuiltVersion = (Get-Item -LiteralPath $BuiltExe).VersionInfo
+if ("$($BuiltVersion.FileMajorPart).$($BuiltVersion.FileMinorPart).$($BuiltVersion.FileBuildPart)" -ne $Version) {
+    throw "The NetSonar executable version resource does not match $Version."
+}
 
 $ForbiddenFiles = Get-ChildItem -LiteralPath $AppDistDir -Recurse -File | Where-Object {
     $_.Extension -in @(".py", ".db", ".log") -or $_.Name -eq "settings.json"

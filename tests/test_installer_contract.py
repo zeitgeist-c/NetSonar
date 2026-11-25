@@ -6,7 +6,6 @@ install path) in code. The script itself is read as text: its contract is
 verified without executing it.
 """
 
-import re
 import unittest
 from pathlib import Path
 
@@ -28,7 +27,7 @@ class InstallerScriptTests(unittest.TestCase):
         self.assertIn('InstallDir "$PROGRAMFILES64\\${APP_NAME}"', self.text)
 
     def test_output_name_follows_delivery_rule(self):
-        self.assertIn('OutFile "..\\dist\\NetSonar-v${APP_VERSION}-Setup.exe"',
+        self.assertIn('OutFile "..\\release\\NetSonar-${APP_VERSION}.exe"',
                       self.text)
 
     def test_installer_remembers_the_chosen_language(self):
@@ -126,7 +125,8 @@ class BuildScriptTests(unittest.TestCase):
         self.text = _read(BUILD)
 
     def test_build_produces_the_installer(self):
-        self.assertIn("NetSonar-v$Version-Setup.exe", self.text)
+        self.assertIn('Join-Path $ReleaseDir "$VersionedStem.exe"', self.text)
+        self.assertIn("$BuiltVersion.FileMajorPart", self.text)
         self.assertIn("makensis", self.text.lower())
 
     def test_build_passes_the_version_to_nsis(self):
@@ -138,9 +138,8 @@ class BuildScriptTests(unittest.TestCase):
     def test_build_refuses_to_package_user_data(self):
         self.assertIn("Files that must not be packaged were found", self.text)
 
-    def test_old_release_artifacts_are_removed(self):
-        self.assertIn("NetSonar-(v\\d+\\.\\d+\\.\\d+(-Setup)?|\\d+\\.\\d+\\.\\d+)\\.(exe|bat)$",
-                      self.text)
+    def test_previous_release_artifacts_are_kept(self):
+        self.assertNotIn("Get-ChildItem -LiteralPath $ReleaseDir", self.text)
 
 
 class SpecTests(unittest.TestCase):
@@ -151,6 +150,10 @@ class SpecTests(unittest.TestCase):
         """Folder package: the update replaces the program folder in place."""
         self.assertIn("COLLECT(", self.text)
         self.assertIn('name="NetSonar"', self.text)
+
+    def test_native_version_comes_from_application_version(self):
+        self.assertIn('tuple(map(int, APP_VERSION.split(".")))', self.text)
+        self.assertIn("version=version_info", self.text)
 
     def test_store_module_is_bundled(self):
         self.assertIn('"store"', self.text)

@@ -21,7 +21,7 @@ Unicode True
 
 Name "${APP_NAME}"
 BrandingText "${APP_NAME}"
-OutFile "..\dist\NetSonar-v${APP_VERSION}-Setup.exe"
+OutFile "..\release\NetSonar-${APP_VERSION}.exe"
 InstallDir "$PROGRAMFILES64\${APP_NAME}"
 InstallDirRegKey HKLM "Software\${APP_NAME}" "InstallDir"
 RequestExecutionLevel admin
@@ -86,7 +86,6 @@ LangString nsRunCheck 1042 "설치 후 ${APP_NAME} 실행"
 !insertmacro MUI_LANGUAGE "Japanese"
 !insertmacro MUI_LANGUAGE "Korean"
 
-Var PreviousInstallDir
 Var AutostartWasEnabled
 
 ; --- Pre-install checks ---------------------------------------------
@@ -105,9 +104,6 @@ Function .onInit
   ; is 32-bit, so the registry view is explicitly switched to 64-bit;
   ; otherwise keys land under WOW6432Node and stay invisible in Apps & Features.
   SetRegView 64
-
-  ; Remember the previous install path: the new version writes to the same place.
-  ReadRegStr $PreviousInstallDir HKLM "Software\${APP_NAME}" "InstallDir"
 
   ; Autostart preference: if it is off, setup does NOT turn it on. The same
   ; preference survives an update.
@@ -146,14 +142,13 @@ Section "NetSonar" SEC_APP
   SetShellVarContext all
   SetOutPath "$INSTDIR"
 
-  ; Clean leftovers of an older version: on update the behaviour is "delete
-  ; everything, write the new tree". User data and the store live outside this
-  ; folder, so they are unaffected.
-  ${If} $PreviousInstallDir != ""
-    ${AndIf} $PreviousInstallDir != $INSTDIR
-      RMDir /r "$PreviousInstallDir"
-  ${EndIf}
+  ; Leave older install paths intact, especially if the destination changed.
+  ClearErrors
   File /r "app-dist\NetSonar\*.*"
+  ${If} ${Errors}
+    SetErrorLevel 2
+    Abort "NetSonar program files could not be installed."
+  ${EndIf}
 
   ; Shortcuts: desktop and Start menu.
   ; The desktop shortcut is PER USER (SetShellVarContext current): using

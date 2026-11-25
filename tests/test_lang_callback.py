@@ -42,7 +42,6 @@ def test_on_lang_emits_signal_without_attribute_error(qt_app, monkeypatch):
 
 
 def test_nav_items_cover_six_pages():
-    import app_gui
     import re
     src = open("app_gui.py", encoding="utf-8").read()
     m = re.search(r"def refresh_ui_language.*?nav_items = \[(.*?)\]\n",

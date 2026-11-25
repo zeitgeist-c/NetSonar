@@ -8,6 +8,10 @@
 from pathlib import Path
 import re
 from PyInstaller.utils.hooks import collect_submodules
+from PyInstaller.utils.win32.versioninfo import (
+    FixedFileInfo, StringFileInfo, StringStruct, StringTable, VarFileInfo,
+    VarStruct, VSVersionInfo,
+)
 
 project_root = Path(SPECPATH).parent
 
@@ -16,6 +20,19 @@ _version_match = re.search(r'(?m)^APP_VERSION\s*=\s*"v(\d+\.\d+\.\d+)"', _config
 if not _version_match:
     raise SystemExit("APP_VERSION not found in config.py.")
 APP_VERSION = _version_match.group(1)
+version_parts = tuple(map(int, APP_VERSION.split("."))) + (0,)
+version_info = VSVersionInfo(
+    ffi=FixedFileInfo(filevers=version_parts, prodvers=version_parts, OS=0x40004, fileType=1),
+    kids=[
+        StringFileInfo([StringTable("040904b0", [
+            StringStruct("ProductName", "NetSonar"),
+            StringStruct("FileVersion", APP_VERSION),
+            StringStruct("ProductVersion", APP_VERSION),
+            StringStruct("OriginalFilename", "NetSonar.exe"),
+        ])]),
+        VarFileInfo([VarStruct("Translation", [1033, 1200])]),
+    ],
+)
 
 datas = [
     (str(project_root / "netsonar-v3.ico"), "."),
@@ -86,6 +103,7 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     icon=str(project_root / "netsonar-v3.ico"),
+    version=version_info,
     uac_admin=True,
 )
 

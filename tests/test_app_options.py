@@ -4,7 +4,6 @@ This file runs independently of the application and can be copied to other
 projects: it validates with a fake store, without writing to the registry.
 """
 
-import os
 import tempfile
 import unittest
 from pathlib import Path

@@ -859,15 +859,15 @@ class AnalysisTab(QWidget):
             provider = str(provider).upper()
 
         if not isinstance(score, (int, float)) or score < 0:
-            color, score_txt, level, icon = C["danger"], t("Hata"), t("Analiz hatası"), "✕"
+            color, score_txt, level, _ = C["danger"], t("Hata"), t("Analiz hatası"), "✕"
         elif score < 3:
-            color, score_txt, level, icon = C["success"], f"{score:.1f}", t("Düşük risk"), "✓"
+            color, score_txt, level, _ = C["success"], f"{score:.1f}", t("Düşük risk"), "✓"
         elif score < 6:
-            color, score_txt, level, icon = C["warning"], f"{score:.1f}", t("Orta risk"), "!"
+            color, score_txt, level, _ = C["warning"], f"{score:.1f}", t("Orta risk"), "!"
         elif score < 8:
-            color, score_txt, level, icon = C["danger"], f"{score:.1f}", t("Yüksek risk"), "⚠"
+            color, score_txt, level, _ = C["danger"], f"{score:.1f}", t("Yüksek risk"), "⚠"
         else:
-            color, score_txt, level, icon = "#ff1744", f"{score:.1f}", t("Kritik risk"), "⚠"
+            color, score_txt, level, _ = "#ff1744", f"{score:.1f}", t("Kritik risk"), "⚠"
 
         self._risk_score.setText(score_txt)
         self._risk_score.setStyleSheet(f"font-size:38px;font-weight:700;color:{color};font-family:'Cascadia Mono',monospace;border:none;")
@@ -1575,7 +1575,6 @@ class MainWindow(QMainWindow):
                 self._worker = None
             self._consume_pending_refresh()
             risk_score = result.get("risk_score", 0)
-            status = result.get("status", "")
 
             if risk_score == -1:
                 self._status_label.setText(t("● Hata oluştu"))
@@ -1710,7 +1709,6 @@ class MainWindow(QMainWindow):
         self._run_update_check(tray=False)
 
     def _run_update_check(self, tray):
-        import update as update_mod
         if self._update_thread is not None and self._update_thread.isRunning():
             return
         if not self._updates_possible():
@@ -1870,7 +1868,7 @@ class MainWindow(QMainWindow):
             return
         from update import spawn_install_baton
         try:
-            spawn_install_baton(installer, os.getpid())
+            spawn_install_baton(installer, os.getpid(), version)
         except Exception as exc:
             log.error("Install baton could not be armed", exc_info=True)
             self._update_failed(t("Kurulum başlatılamadı: {exc}", exc=exc))
@@ -3072,7 +3070,7 @@ class SettingsTab(QWidget):
         provider.setStyleSheet(f"color:{C['accent']}; font-weight:700;")
         ai_fl.addRow(t("AI sağlayıcı:"), provider)
 
-        from config import GEMINI_MODEL_OPTIONS, DEFAULT_GEMINI_MODEL
+        from config import GEMINI_MODEL_OPTIONS
 
         self._model_combo = QComboBox()
         self._model_combo.setMinimumHeight(38)
@@ -3355,7 +3353,7 @@ class SettingsTab(QWidget):
         self._prompt.setText(DEFAULT_SYSTEM_PROMPT)
 
     def _reset_defaults(self):
-        from config import DEFAULT_GEMINI_MODEL, DEFAULT_SYSTEM_PROMPT
+        from config import DEFAULT_SYSTEM_PROMPT
         confirm = QMessageBox.question(
             self, t("Varsayılanlar"),
             t("Zamanlama, güvenlik ve prompt ayarları varsayılana döndürülsün mü?<br>") +

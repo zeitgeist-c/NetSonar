@@ -20,3 +20,4 @@ packaging/.build-venv/
 dist/*.exe
 .agents/
 dist/*.sha256
+release/

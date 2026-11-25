@@ -43,6 +43,11 @@ class ReleaseParsingTests(unittest.TestCase):
         self.assertEqual(info.sha256, "a54a13df")
         self.assertEqual(info.size, 38321660)
 
+    def test_accepts_standard_installer_name(self):
+        canonical = dict(REAL_057["assets"][0], name="NetSonar-0.6.0.exe")
+        payload = dict(REAL_057, assets=[*REAL_057["assets"], canonical])
+        self.assertEqual(update.parse_release(payload).asset_name, canonical["name"])
+
     def test_missing_installer_asset_raises(self):
         payload = dict(REAL_057, assets=[])
         with self.assertRaises(update.UpdateError):
@@ -82,6 +87,15 @@ class DownloadTests(unittest.TestCase):
             update.download(info, dest)
             self.assertEqual(dest.read_bytes(), b"installer-bytes")
 
+    def test_missing_digest_stops_before_download(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            info = self._serve(tmp, b"installer-bytes", 15)
+            info.sha256 = ""
+            with mock.patch.object(update.urllib.request, "urlopen") as request:
+                with self.assertRaises(update.UpdateError):
+                    update.download(info, Path(tmp) / "unverified.exe")
+            request.assert_not_called()
+
     def test_bad_checksum_deletes_the_file(self):
         with tempfile.TemporaryDirectory() as tmp:
             info = self._serve(tmp, b"installer-bytes", 15)
@@ -97,7 +111,7 @@ class DownloadTests(unittest.TestCase):
             data.write_bytes(b"short")
             info = update.UpdateInfo(
                 version="9.9.9", asset_name="NetSonar-v9.9.9.exe",
-                download_url=data.as_uri(), sha256="",
+                download_url=data.as_uri(), sha256=update._sha256_of(data),
                 size=10_000, page_url="")
             dest = Path(tmp) / "cut.exe"
             with self.assertRaises(update.UpdateError):

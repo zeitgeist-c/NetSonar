@@ -72,7 +72,7 @@ Kartların altında **trafik grafiği** — saat / gün / hafta / 30 gün toplam
 
 ### 2. Analiz
 
-![Analiz](./docs/screenshots/02-analiz.png)
+![Analiz](./docs/screenshots/02-analysis.png)
 
 Son AI çalıştırmasının sonucu.
 
@@ -90,7 +90,7 @@ Boş durum açıkça söylenir — veri varmış gibi sıfır çizilmiş bir gra
 
 ### 3. Akışlar
 
-![Akışlar](./docs/screenshots/03-akislar.png)
+![Akışlar](./docs/screenshots/03-flows.png)
 
 Kaydedilen her akış, en yenisi üstte.
 
@@ -110,7 +110,7 @@ Satır eylemleri doğrudan IP engeller — bu yol da Kurallar sayfasıyla aynı 
 
 ### 4. Kurallar
 
-![Kurallar](./docs/screenshots/04-kurallar.png)
+![Kurallar](./docs/screenshots/04-rules.png)
 
 İki sekme: **Engellenenler** ve **Güvenli IP'ler**.
 
@@ -120,7 +120,7 @@ Engellenen hedefler savunma katmanıdır: her girdi, `NetSonar` grubunda iki yö
 
 ### 5. Anahtarlar
 
-![Anahtarlar](./docs/screenshots/05-anahtarlar.png)
+![Anahtarlar](./docs/screenshots/05-keys.png)
 
 Sağlayıcı kimlik bilgileri ve kotaları, sağlayıcı başına bir kart:
 
@@ -136,7 +136,7 @@ Anahtarlar geçerli Windows kullanıcısı için DPAPI ile şifrelenir; veritaba
 
 ### 6. Ayarlar
 
-![Ayarlar](./docs/screenshots/06-ayarlar.png)
+![Ayarlar](./docs/screenshots/06-settings.png)
 
 Solda beş bölüm:
 
@@ -160,7 +160,7 @@ Solda beş bölüm:
 
 ## Kurulum
 
-`NetSonar-v<sürüm>-Setup.exe` dosyasını [Releases](https://github.com/zeitgeist-c/NetSonar/releases/latest) sayfasından indir ve çalıştır. Tek kurulum, tek kanal: `C:\Program Files\NetSonar` altına kurulur, yönetici onayı ister, masaüstü ve Başlat menüsü kısayolları oluşturur, kendini Uygulamalar listesine kaydeder.
+`NetSonar-<sürüm>.exe` dosyasını [Releases](https://github.com/zeitgeist-c/NetSonar/releases/latest) sayfasından indir ve çalıştır. Tek kurulum, tek kanal: `C:\Program Files\NetSonar` altına kurulur, yönetici onayı ister, masaüstü ve Başlat menüsü kısayolları oluşturur, kendini Uygulamalar listesine kaydeder.
 
 Güncellemeler uygulama içinden çalışır: günde bir denetler, yeni kurulumu indirir, SHA-256'sını doğrular, kurmadan önce sorar, sonra kapanıp program klasörünü yerinde değiştirir ve yeniden başlar. Kullanıcı verisi ve model deposu program klasörü dışında durur ve her güncellemeden sağ çıkar. Yayımlanan sürüm kuruludan yeni değilse uygulama bunu söyler ve hiçbir şey yapmaz.
 

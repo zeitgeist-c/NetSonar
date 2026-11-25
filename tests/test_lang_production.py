@@ -1,8 +1,6 @@
 # -*- coding: utf-8 -*-
 """Tur6 extra tests: Data/Rules consumption + deleted QObject + production wiring."""
-import types
 import pytest
-from PyQt6.QtCore import QObject
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QWidget
 
